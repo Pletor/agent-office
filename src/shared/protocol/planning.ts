@@ -8,6 +8,13 @@ import type { AgentEffort, AgentProvider } from './agents.js';
  */
 export type PlanStatus = 'planning' | 'ready' | 'queued' | 'stopped';
 
+/**
+ * What the planner does: a plan in a file whose tasks go on the queue, a plan laid onto the Opora
+ * canvas as sectors and cards (which the office then takes from there), or routing the canvas's cards
+ * that have no pipeline yet.
+ */
+export type PlanMode = 'file' | 'opora' | 'router';
+
 export interface PlanTask {
   title: string;
   /** What its worker is told to do, from the plan. */
@@ -21,6 +28,8 @@ export interface Plan {
   title: string;
   /** What it's a plan for, as asked. */
   goal: string;
+  /** What the planner does (file when it's missing: plans from before there were others). */
+  mode?: PlanMode;
   by: string;
   /** The account that asked for it: the planner, and the tasks it queues, run on its sign-ins. */
   owner?: string;
@@ -60,7 +69,7 @@ export interface PlanningState {
 }
 
 export type PlanningClientMsg =
-  | { t: 'planning.start'; goal: string; title?: string; provider?: AgentProvider; model?: string; effort?: AgentEffort }
+  | { t: 'planning.start'; goal: string; title?: string; mode?: PlanMode; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   /** Hand these of the plan's tasks (by index) to the task queue. */
   | { t: 'planning.queue'; tasks: number[] }
   | { t: 'planning.stop' }

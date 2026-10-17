@@ -67,8 +67,13 @@ function renderPlan(p: Plan, body: HTMLElement, foot: HTMLElement, net: Net, act
     w ? h('span.pill', { class: w.status }, STATUS_LABEL[w.status]) : h('span.pill.exited', {}, 'gone home'),
     w ? h('button.btn.small', { type: 'button', title: 'Talk to the planner: ask it to change the plan', onclick: () => actions.openTerminal(w.id) }, '🖥️ Terminal') : null,
   );
+  const onCanvas = (p.mode ?? 'file') !== 'file';
   const line =
-    p.status === 'planning'
+    onCanvas && p.status === 'ready'
+      ? p.mode === 'router'
+        ? '🔀 Routed: the cards it gave a pipeline are ready for the office to take, in the 🛰️ Opora window.'
+        : '🛰️ On the Opora canvas: open Opora to look it over and confirm, and the office takes its cards from the 🛰️ Opora window (or the autopilot does).'
+      : p.status === 'planning'
       ? `Asked by ${p.by} ${timeAgo(new Date(p.startedAt).toISOString())}. The tasks show here once the planner ends its turn with them written.`
       : p.status === 'stopped'
         ? `⛔ ${p.reason ?? 'Stopped'}`
@@ -76,7 +81,7 @@ function renderPlan(p: Plan, body: HTMLElement, foot: HTMLElement, net: Net, act
           ? 'Pick the tasks to hand to the 📋 queue: it seats a worker for each, in its own worktree. Want changes first? Tell the planner in its terminal.'
           : `Handed to the queue ${p.queuedAt ? timeAgo(new Date(p.queuedAt).toISOString()) : ''}. The workers carry it out from there.`;
   const key = (i: number) => `${p.id}:${i}`;
-  const tasks = p.tasks.length
+  const tasks = p.tasks.length && !onCanvas
     ? h(
         'ol.planning-tasks',
         {},
@@ -113,14 +118,14 @@ function renderPlan(p: Plan, body: HTMLElement, foot: HTMLElement, net: Net, act
     ),
   );
   const picked = p.tasks.map((t, i) => (!t.queueId && !skipped.has(key(i)) ? i : -1)).filter((i) => i >= 0);
-  const canHand = (p.status === 'ready' || p.status === 'queued') && picked.length > 0;
+  const canHand = !onCanvas && (p.status === 'ready' || p.status === 'queued') && picked.length > 0;
   foot.replaceChildren(
     ...present(
       h('span.grow', {}, p.status === 'planning' ? 'The planner writes only the plan: nothing in the project changes.' : 'Clearing the room sends the planner home. The plan file stays.'),
       p.status === 'planning' ? h('button.btn', { type: 'button', onclick: () => confirmDialog('Stop planning?', 'The planner stops where it is. What it wrote so far stays in the file.', 'Stop it', () => net.send({ t: 'planning.stop' })) }, '⛔ Stop') : null,
       p.status !== 'planning' ? h('button.btn', { type: 'button', onclick: () => confirmDialog('Clear the room?', 'The plan goes to the earlier ones and the planner goes home. Tasks already on the queue carry on.', 'Clear it', () => net.send({ t: 'planning.clear' })) }, '🧹 Clear the room') : null,
       p.status === 'queued' ? h('button.btn', { type: 'button', onclick: () => actions.showQueue() }, '📋 Open the queue') : null,
-      p.status === 'ready' || p.status === 'queued'
+      !onCanvas && (p.status === 'ready' || p.status === 'queued')
         ? h('button.btn.primary', { type: 'button', disabled: !canHand, onclick: () => net.send({ t: 'planning.queue', tasks: picked }) }, `▶ Hand ${picked.length} task${picked.length === 1 ? '' : 's'} to the queue`)
         : null,
     ),

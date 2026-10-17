@@ -20,6 +20,7 @@ export const planningHandlers = {
     const request = {
       goal: str(msg.goal, PLAN_LIMITS.goal),
       title: str(msg.title, 200) || undefined,
+      mode: msg.mode === 'opora' || msg.mode === 'router' ? msg.mode : ('file' as const),
       provider: msg.provider,
       model: msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1),
       effort: isAgentEffort(msg.effort) ? msg.effort : undefined,

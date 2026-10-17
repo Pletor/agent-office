@@ -4,7 +4,9 @@ import path from 'node:path';
 import { slugify } from '../shared/meetings.js';
 import { PLANNER_SEAT, PLANS_DIR, PLAN_LIMITS, planTasks, planTitle } from '../shared/planning.js';
 import { fillPrompt, type PromptId } from '../shared/prompts.js';
-import type { AgentEffort, AgentProvider, Plan, PlanRecord, PlanningState, QueueState, WorkerInfo } from '../shared/protocol.js';
+import type { AgentEffort, AgentProvider, Plan, PlanMode, PlanRecord, PlanningState, QueueState, WorkerInfo } from '../shared/protocol.js';
+
+const MODE_PROMPT: Record<PlanMode, PromptId> = { file: 'planning.plan', opora: 'planning.opora', router: 'planning.router' };
 
 /** What the planning room needs from the worker manager. Narrow on purpose, so a test can fake it. */
 export interface PlanningWorkers {
@@ -27,10 +29,13 @@ export interface PlanningEvents {
   hiringPaused(): string | undefined;
   /** A prompt's text as the office has it now (rewritten in ⚙️ Settings, or the default). */
   prompt(id: PromptId): string;
+  /** Where Opora is, and the floor's project and workspace on it once it's linked (see opora/bridge.ts). */
+  opora?(): { base: string; project?: string; workspace?: string };
 }
 
 export interface PlanRequest {
   goal: string;
+  mode?: PlanMode;
   title?: string;
   provider?: AgentProvider;
   model?: string;
@@ -75,23 +80,27 @@ export class PlanningRoom {
   }
 
   start(req: PlanRequest, by: string, owner?: string): string | undefined {
-    const goal = req.goal.trim().slice(0, PLAN_LIMITS.goal);
+    const mode: PlanMode = req.mode === 'opora' || req.mode === 'router' ? req.mode : 'file';
+    const goal = (req.goal.trim() || (mode === 'router' ? 'Route the cards on the Opora canvas that have no pipeline yet' : '')).slice(0, PLAN_LIMITS.goal);
     if (!goal) return 'Say what to plan';
+    const opora = this.events.opora?.();
+    if (mode !== 'file' && (!opora?.project || !opora.workspace)) return 'Opora isn’t linked to this floor yet: see the 🛰️ Opora window';
     if (this.current?.status === 'planning') return 'The planner is still at it: stop that plan first';
     if (this.current) return 'Clear the room first: the last plan is still on the board';
     if (this.workers.list().some((w) => w.deskId === PLANNER_SEAT.id)) return "The last planner hasn't left the table yet: try again in a moment";
     const paused = this.events.hiringPaused();
     if (paused) return paused;
-    const title = planTitle(goal, req.title);
+    const title = planTitle(goal, req.title || (mode === 'router' ? 'Routing the Opora cards' : undefined));
     const file = this.freeFile(title);
     mkdirSync(path.join(this.dir, PLANS_DIR), { recursive: true });
-    const prompt = fillPrompt(this.events.prompt('planning.plan'), { goal, file: path.join(this.dir, file) });
+    const prompt = fillPrompt(this.events.prompt(MODE_PROMPT[mode]), { goal, file: path.join(this.dir, file), base: opora?.base, project: opora?.project, workspace: opora?.workspace });
     const seated = this.workers.seat(by, prompt, req.provider, req.model, req.effort, owner);
     if (typeof seated === 'string') return seated;
     this.current = {
       id: randomBytes(4).toString('hex'),
       title,
       goal,
+      mode,
       by,
       ...(owner ? { owner } : {}),
       startedAt: Date.now(),
@@ -113,7 +122,7 @@ export class PlanningRoom {
   /** Hands the plan's tasks at `indexes` that aren't on the queue yet to it. Resolves to how many went, or why none could. */
   queueTasks(indexes: number[], by: string): string | number {
     const p = this.current;
-    if (!p || (p.status !== 'ready' && p.status !== 'queued')) return 'There’s no plan ready to hand over';
+    if (!p || (p.status !== 'ready' && p.status !== 'queued') || (p.mode ?? 'file') !== 'file') return 'There’s no plan ready to hand over';
     const picked = [...new Set(indexes)].filter((i) => Number.isInteger(i) && p.tasks[i] && !p.tasks[i].queueId);
     if (!picked.length) return 'Pick a task that isn’t on the queue yet';
     let sent = 0;
@@ -165,7 +174,13 @@ export class PlanningRoom {
     if (p.status !== 'planning' && p.status !== 'ready') return;
     const before = JSON.stringify([p.preview, p.tasks]);
     this.read(p);
-    if (p.status === 'planning' && p.tasks.length) {
+    // Onto the Opora canvas (or routing it): done once its turn is over and it wrote what it did.
+    if (p.status === 'planning' && (p.mode ?? 'file') !== 'file' && info.status === 'done' && p.preview) {
+      p.status = 'ready';
+      this.events.toast(`🧭 “${p.title}” is on the Opora canvas: the office takes its cards from there`, 'info');
+      return this.changed();
+    }
+    if (p.status === 'planning' && (p.mode ?? 'file') === 'file' && p.tasks.length) {
       p.status = 'ready';
       this.events.toast(`🧭 The plan “${p.title}” is ready: ${p.tasks.length} task${p.tasks.length === 1 ? '' : 's'} to hand to the queue`, 'info');
       return this.changed();

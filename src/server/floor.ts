@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { ChangesState, FloorInfo, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
 import { isBusy } from '../shared/status.js';
-import { DESK_BY_ID } from '../shared/layout.js';
+import { DESK_BY_ID, builtDesks } from '../shared/layout.js';
 import type { FloorDef } from './building.js';
 import { excludeFromGit } from './config.js';
 import { agentProviders, configuredProvider } from './agents.js';
@@ -23,6 +23,7 @@ import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
 import { PlanningRoom } from './planning.js';
+import { OporaBridge } from './opora/bridge.js';
 import { PLANNER_SEAT } from '../shared/planning.js';
 import { Worktrees, type WorktreeCleanup } from './worktrees.js';
 import { landedWork, landedWorkers, type Landed } from './leave-on-merge.js';
@@ -128,6 +129,8 @@ export class Floor {
   readonly meetings: MeetingRoom;
   /** The planning room, where a planner writes a plan whose tasks go on the queue (see planning.ts). */
   readonly planning: PlanningRoom;
+  /** The Opora Control Center's link to Opora Canvas, which carries the canvas's cards out (see opora/bridge.ts). */
+  readonly opora: OporaBridge;
   /** The bookshelf: the project's Markdown files (see docs.ts). */
   readonly docs: Docs;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
@@ -183,6 +186,7 @@ export class Floor {
           this.queue?.onWorker(worker);
           this.meetings?.onWorker(worker);
           this.planning?.onWorker(worker);
+          this.opora?.onWorker(worker);
           this.dog.onWorker(worker);
           ctx.workerChanged(this, worker);
           // Its turn ended, or whoever had its terminal open closed it: it may be free to go now.
@@ -198,6 +202,7 @@ export class Floor {
           this.queue?.onWorkerGone(workerId);
           this.meetings?.onWorkerGone(workerId);
           this.planning?.onWorkerGone(workerId);
+          this.opora?.onWorkerGone(workerId);
           this.dog.onWorkerGone(workerId);
           ctx.workerChanged(this, workerId);
         },
@@ -295,6 +300,29 @@ export class Floor {
         update: (state) => ctx.emit(this, { t: 'planning', state }),
         toast: (text, level) => ctx.toast(this, text, level),
         hiringPaused: () => ctx.ledger.hiringPaused,
+        prompt: (id) => ctx.prompts.text(id),
+        opora: () => {
+          const o = this.opora.view();
+          return { base: o.url, project: o.project?.id, workspace: o.workspace ?? undefined };
+        },
+      },
+    );
+
+    // The link to Opora Canvas: a worker for each card it takes, in its own worktree, at the desk its group's sign is over.
+    this.opora = new OporaBridge(
+      {
+        id: def.id,
+        dir: def.dir,
+        list: () => this.workers.list(),
+        seat: (deskId, by, prompt, owner) => this.workers.spawn(deskId, by, prompt, !!this.project.branch, 'agent', undefined, undefined, undefined, undefined, owner),
+        desks: () => builtDesks(this.plan.wing).map((d) => d.id),
+        deskOccupied: (deskId) => this.workers.deskOccupied(deskId),
+        labels: () => this.plan.state().labels,
+      },
+      dataDir,
+      {
+        update: (state) => ctx.emit(this, { t: 'opora', state }),
+        toast: (text, level) => ctx.toast(this, text, level),
         prompt: (id) => ctx.prompts.text(id),
       },
     );
@@ -441,6 +469,7 @@ export class Floor {
     this.queue.shutdown();
     this.meetings.shutdown();
     this.planning.shutdown();
+    this.opora.shutdown();
     this.changes.stop();
     this.whiteboard.flush();
     this.workers.shutdown(keep);

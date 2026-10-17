@@ -27,6 +27,7 @@ import { wing } from './wing';
 import { beanbags, desks, kiosks } from './seats';
 import { meetingRoom } from './meeting-room';
 import { planningRoom } from '../../features/planning/world';
+import { oporaScreen } from '../../features/opora/world';
 import { loft } from './loft';
 import type { Fixture, Gives, Site } from './fixture';
 
@@ -68,6 +69,7 @@ function floorPlan() {
     loft,
     meetingRoom,
     planningRoom,
+    oporaScreen,
     elevator,
     garageLift,
     gong,

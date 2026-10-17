@@ -23,6 +23,7 @@ import { machine } from './machine';
 import { map } from './map';
 import { meeting } from './meeting';
 import { notify } from './notify';
+import { opora } from './opora';
 import { planning } from './planning';
 import { prompts } from './prompts';
 import { services } from './services';
@@ -63,4 +64,5 @@ export const SLICES: readonly Slice[] = [
   accounts,
   signins,
   planning,
+  opora,
 ];
