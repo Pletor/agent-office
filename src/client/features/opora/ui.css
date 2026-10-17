@@ -5,6 +5,9 @@
 .opora-window h3 { margin: 14px 0 6px; font-size: 15px; }
 .opora-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; }
 .opora-status .btn:first-of-type { margin-left: auto; }
+.opora-window .opora-link { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; }
+.opora-link select { max-width: 100%; }
+.opora-window .opora-link.cta { background: #fff; border: 2px solid var(--ink); border-left: 6px solid #38d9a9; border-radius: 12px; padding: 8px 12px; }
 .opora-error { color: var(--bad); font-weight: 700; font-size: 13px; }
 .opora-plan, .opora-auto { background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
 .opora-plan h3 { margin-top: 2px; }

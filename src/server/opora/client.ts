@@ -40,7 +40,10 @@ export class OporaClient {
   /** Opora's projects, each with the folder it plans. */
   async projects(): Promise<{ id: string; name: string; sourcePath?: string | null }[]> {
     const b = await this.get<{ projects?: unknown }>('/api/bootstrap');
-    return Array.isArray(b.projects) ? (b.projects as { id: string; name: string; sourcePath?: string | null }[]) : [];
+    const rows = Array.isArray(b.projects) ? (b.projects as Record<string, unknown>[]) : [];
+    return rows
+      .filter((p) => p && typeof p.id === 'string' && p.id)
+      .map((p) => ({ id: p.id as string, name: typeof p.name === 'string' && p.name.trim() ? p.name.trim().slice(0, 120) : (p.id as string), sourcePath: typeof p.sourcePath === 'string' ? p.sourcePath : null }));
   }
 
   async workspaces(project: string): Promise<string[]> {

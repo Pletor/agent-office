@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { OporaBridge, type BridgeFloor } from '../src/server/opora/bridge.js';
@@ -48,10 +48,11 @@ test('frontierCards keeps the cards in the group they are listed in, and leaves 
   assert.equal(cards[0].sectorName, 'Auth');
 });
 
-/** A small stand-in for Opora's API: one project planning `dir`, a sector with two cards, and leases. */
+/** A small stand-in for Opora's API: a project planning `dir` with a sector of two cards, another project elsewhere with one card, and leases. */
 function fakeOpora(dir: string) {
   const calls: { method: string; path: string; body?: Record<string, unknown>; headers: http.IncomingHttpHeaders }[] = [];
   const leases = new Map<string, string>();
+  const projects = [{ id: 'other', name: 'Other', sourcePath: '/elsewhere' }, { id: 'p1', name: 'Shop', sourcePath: dir.toUpperCase() === dir ? dir : dir.replace(/\//g, '\\') }];
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
     let raw = '';
@@ -64,11 +65,16 @@ function fakeOpora(dir: string) {
         res.end(JSON.stringify(data));
       };
       if (req.method === 'POST' && req.headers.origin !== `http://127.0.0.1:${(server.address() as AddressInfo).port}`) return send(403, { detail: 'origin' });
+      // The other project's canvas: one sector with one card.
+      if (url.searchParams.get('project') === 'other') {
+        if (url.pathname === '/api/view') return send(200, { graph: { nodes: [{ id: 's9', kind: 'sector', name: 'Elsewhere', parentId: null }, { id: 'c9', kind: 'node', name: 'Other card', parentId: 's9' }] } });
+        if (url.pathname === '/api/desktop-v3/frontier') return send(200, { frontier: url.searchParams.get('nodeId') === 's9' ? [{ id: 'c9', name: 'Other card', pipeline: { profile: 'code' } }] : [{ id: 's9', name: 'Elsewhere' }] });
+      }
       switch (url.pathname) {
         case '/api/health':
           return send(200, { status: 'ok' });
         case '/api/bootstrap':
-          return send(200, { projects: [{ id: 'other', name: 'Other', sourcePath: '/elsewhere' }, { id: 'p1', name: 'Shop', sourcePath: dir.toUpperCase() === dir ? dir : dir.replace(/\//g, '\\') }] });
+          return send(200, { projects });
         case '/api/project-workspaces':
           return send(200, { workspaces: [{ id: 'draft' }] });
         case '/api/view':
@@ -96,7 +102,7 @@ function fakeOpora(dir: string) {
       send(404, { detail: 'nope' });
     });
   });
-  return { server, calls, leases };
+  return { server, calls, leases, projects };
 }
 
 async function fixture(t: { after(fn: () => void): void }) {
@@ -127,7 +133,7 @@ async function fixture(t: { after(fn: () => void): void }) {
     rmSync(dir, { recursive: true, force: true });
   });
   await bridge.poll();
-  return { bridge, op, workers, toasts, url, state: () => state! };
+  return { bridge, op, workers, toasts, url, dir, state: () => state! };
 }
 
 test('the bridge links the Opora project that plans this floor’s folder, and reads its cards by sector', async (t) => {
@@ -200,4 +206,44 @@ test('with Opora down the bridge says so instead of failing', async (t) => {
   assert.equal(state!.connected, false);
   assert.match(state!.error!, /isn't answering/);
   assert.match((await bridge.take('c1', 'Ana'))!, /isn't answering/);
+});
+
+test('a floor linked to a project by choice reads that project’s cards, and unlinking goes back to its folder’s', async (t) => {
+  const f = await fixture(t);
+  assert.deepEqual(f.state().projects, [{ id: 'other', name: 'Other' }, { id: 'p1', name: 'Shop' }]);
+  assert.equal(f.state().linkedBy, 'folder');
+  assert.equal(f.bridge.link('other'), undefined);
+  await f.bridge.repoll();
+  assert.deepEqual(f.state().project, { id: 'other', name: 'Other' });
+  assert.equal(f.state().linkedBy, 'choice');
+  assert.equal(f.state().error, undefined);
+  assert.deepEqual(f.state().cards.map((c) => [c.name, c.sectorName]), [['Other card', 'Elsewhere']]);
+  assert.match(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'), /"linkedTo": "other"/);
+  assert.match(f.bridge.link('nope')!, /isn’t on Opora/);
+  assert.equal(f.bridge.link(null), undefined);
+  await f.bridge.repoll();
+  assert.deepEqual(f.state().project, { id: 'p1', name: 'Shop' });
+  assert.equal(f.state().linkedBy, 'folder');
+});
+
+test('a chosen project that left Opora falls back to the folder’s, and says so', async (t) => {
+  const f = await fixture(t);
+  f.bridge.link('other');
+  await f.bridge.repoll();
+  f.op.projects.splice(0, 1);
+  await f.bridge.poll();
+  assert.deepEqual(f.state().project, { id: 'p1', name: 'Shop' });
+  assert.equal(f.state().linkedBy, 'folder');
+  assert.match(f.state().error!, /isn't on Opora any more.*Shop/);
+});
+
+test('the floor stays on its project while the office holds cards of it', async (t) => {
+  const f = await fixture(t);
+  await f.bridge.take('c2', 'Ana');
+  assert.match(f.bridge.link('other')!, /on 1 card of Shop/);
+  // Picking the project it's on already changes nothing, so that's allowed.
+  assert.equal(f.bridge.link('p1'), undefined);
+  assert.equal(f.bridge.link(null), undefined);
+  f.bridge.onWorkerGone(f.workers[0].id);
+  assert.equal(f.bridge.link('other'), undefined);
 });

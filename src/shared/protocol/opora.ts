@@ -41,8 +41,12 @@ export interface OporaState {
   connected: boolean;
   /** Why it isn't connected or linked, in words. */
   error?: string;
-  /** The Opora project whose folder is this floor's checkout, and its workspace. */
+  /** The Opora project this floor is linked to (the one picked in the window, else the one whose folder is this floor's checkout), and its workspace. */
   project: { id: string; name: string } | null;
+  /** How the floor is linked: someone picked the project, or its folder is the floor's. */
+  linkedBy?: 'folder' | 'choice';
+  /** Every project on Opora, to pick from, whenever Opora answers. */
+  projects: { id: string; name: string }[];
   workspace: string | null;
   sectors: { id: string; name: string }[];
   cards: OporaCard[];
@@ -62,6 +66,8 @@ export type OporaClientMsg =
   /** Take a free card: claim its lease and seat a worker for it. */
   | { t: 'opora.take'; cardId: string }
   | { t: 'opora.autopilot'; on: boolean; maxRuns?: number }
+  /** Link the floor to this Opora project, or (null) back to the one whose folder is the floor's. */
+  | { t: 'opora.link'; projectId: string | null }
   /** Start Opora from its repository (admins). */
   | { t: 'opora.start' };
 

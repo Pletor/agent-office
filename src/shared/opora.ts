@@ -13,6 +13,7 @@ export const EMPTY_OPORA: OporaState = {
   url: OPORA_DEFAULT_URL,
   connected: false,
   project: null,
+  projects: [],
   workspace: null,
   sectors: [],
   cards: [],

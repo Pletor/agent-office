@@ -52,6 +52,15 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
     h('button.btn.small', { type: 'button', onclick: () => net.send({ t: 'opora.refresh' }) }, '↻'),
   );
   const parts: Node[] = [status];
+  // Which Opora project this floor is on: picked here, or the one for the floor's folder. With
+  // nothing linked, this is what to do next, so it sits right under the status.
+  if (s.connected) {
+    const folder = s.linkedBy === 'folder' && s.project ? `— by folder: ${s.project.name} —` : '— by folder —';
+    const pick = h('select.provider-select', { 'aria-label': 'The Opora project this floor is linked to' }, h('option', { value: '' }, folder), ...s.projects.map((p) => h('option', { value: p.id }, p.name))) as HTMLSelectElement;
+    pick.value = s.linkedBy === 'choice' && s.project ? s.project.id : '';
+    pick.addEventListener('change', () => net.send({ t: 'opora.link', projectId: pick.value || null }));
+    parts.push(h('label.opora-link', { class: linked ? '' : 'cta' }, h('b', {}, linked ? 'Linked to' : '👉 Link this floor to'), pick, linked ? null : h('span.muted', {}, 'pick the Opora project to read the canvas of')));
+  }
   if (s.error) parts.push(h('p.opora-error', {}, s.error));
   if (!s.connected && s.canStart) parts.push(h('p', {}, h('button.btn', { type: 'button', disabled: s.starting, onclick: () => net.send({ t: 'opora.start' }) }, s.starting ? '⏳ Starting Opora…' : '▶ Start Opora'), h('span.muted', {}, ' from its repository (admins)')));
   if (!s.connected && !s.canStart) parts.push(h('p.muted', {}, 'Start Opora with `uv run opora` in its folder, or start the office with AGENT_OFFICE_OPORA_DIR set to it, and this window can start it for you.'));

@@ -48,7 +48,8 @@ This is a design card: you're one of the office's designers. Work from the desig
 /**
  * The 🧭 Opora Control Center's link to Opora Canvas, one for each floor. Opora is where the work is
  * planned: areas, sectors and cards, each card with its brief and its pipeline. The bridge reads the
- * canvas of the Opora project whose folder is this floor's checkout, and carries its cards out: taking
+ * canvas of the Opora project picked for this floor in the window, or else the one whose folder is
+ * this floor's checkout, and carries its cards out: taking
  * one claims its lease on Opora and seats a worker for it, at a designer's desk for a card on the
  * design pipeline and a developer's for the rest (by the signs over the desks). The worker reads the
  * brief, does the work and reports back to Opora itself; the bridge keeps the lease alive while it
@@ -59,6 +60,10 @@ export class OporaBridge {
   private runs: Held[] = [];
   private autopilotOwner?: string;
   private autopilotBy = '';
+  /** The Opora project someone picked for this floor in the window, which wins over the folder's. */
+  private chosen?: string;
+  /** The project whose folder is this floor's checkout, as of the last read. */
+  private byFolder?: string;
   private client: OporaClient;
   private statePath: string;
   private pollTimer: NodeJS.Timeout;
@@ -91,6 +96,26 @@ export class OporaBridge {
     if (this.stopped) return Promise.resolve();
     this.polling ??= this.pollOnce().finally(() => (this.polling = undefined));
     return this.polling;
+  }
+
+  /** Reads the canvas again once the read under way is done, for a change it started too early to see. */
+  async repoll(): Promise<void> {
+    await this.polling;
+    await this.poll();
+  }
+
+  /**
+   * Links the floor to an Opora project of someone's choosing, or (null) back to the one whose folder
+   * is the floor's. Returns why it can't: while the office holds cards of one project, it stays on it.
+   */
+  link(projectId: string | null): string | undefined {
+    if (projectId !== null && !this.state.projects.some((p) => p.id === projectId)) return this.state.connected ? 'That project isn’t on Opora' : (this.state.error ?? 'Opora isn’t answering');
+    const target = projectId ?? this.byFolder;
+    const held = this.runs.filter((r) => r.state !== 'gone').length;
+    if (held && target !== this.state.project?.id) return `The office is on ${held} card${held === 1 ? '' : 's'} of ${this.state.project?.name ?? 'the linked project'}: let ${held === 1 ? 'it' : 'them'} finish (or send the workers home) before linking the floor to another project`;
+    this.chosen = projectId ?? undefined;
+    this.changed();
+    return undefined;
   }
 
   private async pollOnce(): Promise<void> {
@@ -205,13 +230,20 @@ export class OporaBridge {
     try {
       await this.client.health();
     } catch (err) {
-      Object.assign(s, { connected: false, error: (err as Error).message, project: null, workspace: null, sectors: [], cards: [], checkedAt: Date.now() });
+      Object.assign(s, { connected: false, error: (err as Error).message, project: null, linkedBy: undefined, projects: [], workspace: null, sectors: [], cards: [], checkedAt: Date.now() });
       return;
     }
     try {
-      const project = (await this.client.projects()).find((p) => p.sourcePath && sameDir(p.sourcePath, this.floor.dir));
+      const all = await this.client.projects();
+      s.projects = all.map((p) => ({ id: p.id, name: p.name }));
+      const byFolder = all.find((p) => p.sourcePath && sameDir(p.sourcePath, this.floor.dir));
+      this.byFolder = byFolder?.id;
+      // A project someone picked wins; if it's gone from Opora, the folder's is next, and the window says so.
+      const chosen = this.chosen ? all.find((p) => p.id === this.chosen) : undefined;
+      const lost = this.chosen && !chosen ? `The project this floor was linked to (${this.chosen}) isn't on Opora any more: ${byFolder ? `reading ${byFolder.name}, the one for this floor's folder, instead` : 'pick another'}` : undefined;
+      const project = chosen ?? byFolder;
       if (!project) {
-        Object.assign(s, { connected: true, error: `No Opora project plans this floor's folder (${this.floor.dir}): add it in Opora as a local or git project`, project: null, workspace: null, sectors: [], cards: [] });
+        Object.assign(s, { connected: true, error: lost ?? `No Opora project plans this floor's folder (${this.floor.dir}): pick one in the 🛰️ Opora window, or add the folder in Opora as a local or git project`, project: null, linkedBy: undefined, workspace: null, sectors: [], cards: [], checkedAt: Date.now() });
         return;
       }
       const workspaces = await this.client.workspaces(project.id);
@@ -229,7 +261,7 @@ export class OporaBridge {
           cards.push(c);
         }
       }
-      Object.assign(s, { connected: true, error: undefined, project: { id: project.id, name: project.name }, workspace, sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, checkedAt: Date.now() });
+      Object.assign(s, { connected: true, error: lost, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, checkedAt: Date.now() });
     } catch (err) {
       Object.assign(s, { connected: true, error: (err as Error).message, checkedAt: Date.now() });
     }
@@ -285,7 +317,7 @@ export class OporaBridge {
 
   private persist() {
     try {
-      writeFileSync(this.statePath, JSON.stringify({ runs: this.runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner }, null, 2), { mode: 0o600 });
+      writeFileSync(this.statePath, JSON.stringify({ runs: this.runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner, linkedTo: this.chosen }, null, 2), { mode: 0o600 });
     } catch {
       // a full disk loses the bridge's state, not the office
     }
@@ -294,12 +326,13 @@ export class OporaBridge {
   private restore() {
     try {
       if (!existsSync(this.statePath)) return;
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string };
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string };
       if (Array.isArray(saved.runs)) this.runs = saved.runs.filter((r) => r && typeof r.cardId === 'string');
       this.state.autopilot = saved.autopilot === true;
       if (typeof saved.maxRuns === 'number') this.state.maxRuns = Math.max(1, Math.min(OPORA_LIMITS.maxRuns, saved.maxRuns));
       this.autopilotBy = typeof saved.autopilotBy === 'string' ? saved.autopilotBy : '';
       this.autopilotOwner = typeof saved.autopilotOwner === 'string' ? saved.autopilotOwner : undefined;
+      this.chosen = typeof saved.linkedTo === 'string' && saved.linkedTo ? saved.linkedTo : undefined;
     } catch {
       // a broken file starts the bridge afresh
     }
