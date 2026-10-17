@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { OporaBridge, type BridgeFloor } from '../src/server/opora/bridge.js';
-import { browserOporaUrl, canEmbedOpora, cardGroup, deskFor, frontierCards, oporaCanvasUrl, oporaEmbedPolicy, sameDir, signGroup } from '../src/shared/opora.js';
+import { OPORA_ESCAPE_WINDOW_MS, browserOporaUrl, canEmbedOpora, cardGroup, deskFor, frontierCards, oporaCanvasUrl, oporaEmbedPolicy, oporaEscapeLeaves, sameDir, signGroup } from '../src/shared/opora.js';
 import { PROMPTS } from '../src/shared/prompts.js';
 import type { OporaState, WorkerInfo } from '../src/shared/protocol.js';
 
@@ -268,6 +268,15 @@ test('the browser reaches loopback Opora by the name the office page is on, for 
   assert.equal(browserOporaUrl('http://127.0.0.1:8740', 'office.example.com'), 'http://127.0.0.1:8740');
   assert.equal(browserOporaUrl('http://opora.lan:8740', 'localhost'), 'http://opora.lan:8740');
   assert.equal(browserOporaUrl('not a url', 'localhost'), 'not a url');
+});
+
+test('one Esc passed up from framed Opora stays in it, a second one soon after leaves', () => {
+  assert.equal(oporaEscapeLeaves(undefined, 1000), false);
+  assert.equal(oporaEscapeLeaves(1000, 1300), true);
+  assert.equal(oporaEscapeLeaves(1000, 1000 + OPORA_ESCAPE_WINDOW_MS), true);
+  assert.equal(oporaEscapeLeaves(1000, 1001 + OPORA_ESCAPE_WINDOW_MS), false);
+  assert.equal(oporaEscapeLeaves(1000, 900), false);
+  assert.equal(oporaEscapeLeaves(1000, 1500, 400), false);
 });
 
 test('Opora frames for the pages its frame-ancestors lists, and not with X-Frame-Options alone', () => {

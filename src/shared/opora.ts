@@ -175,3 +175,15 @@ export function canEmbedOpora(s: Pick<OporaState, 'connected' | 'embeddable' | '
     return o.endsWith(':*') && page.startsWith(o.slice(0, -1)) && /^\d+$/.test(page.slice(o.length - 1));
   });
 }
+
+/** How soon a second Esc inside framed Opora has to follow the first to leave it (ms). */
+export const OPORA_ESCAPE_WINDOW_MS = 700;
+
+/**
+ * Whether an Esc that Opora passed up (`opora:escape`) leaves Opora full screen: only a second one
+ * within the window of the first, as Opora's own panels close on Esc without saying so and one Esc
+ * should only close those. `lastAt` is when the one before arrived (undefined if none).
+ */
+export function oporaEscapeLeaves(lastAt: number | undefined, now: number, windowMs = OPORA_ESCAPE_WINDOW_MS): boolean {
+  return lastAt !== undefined && now - lastAt >= 0 && now - lastAt <= windowMs;
+}
