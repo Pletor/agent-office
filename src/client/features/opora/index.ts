@@ -1,17 +1,18 @@
 /**
  * Opora on the planning room's glass: the canvas's pipeline on its screen, and E there opens the 🛰️ Opora
- * window. The boss's PC is the Opora workstation: from its chair, O opens the real Opora Canvas in a tab of
- * its own (Opora won't be framed, so it's the whole app, not a copy), see openFull.
+ * window. The boss's PC is the Opora workstation: from its chair, O opens the real Opora Canvas on the whole
+ * screen, inside the office (or in a tab of its own while Opora won't be framed), see openFull.
  */
 import type * as THREE from 'three';
 import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import type { Parts } from '../../core/parts';
-import { OPORA_TAB, oporaCanvasUrl } from '../../../shared/opora';
+import { canEmbedOpora } from '../../../shared/opora';
 import { store } from '../../state';
 import type { Arcade } from '../arcade/ui';
 import { paintOporaCard } from './monitor';
 import { OporaScreenTexture } from './screen';
+import { openOporaFull, openOporaTab } from './full';
 import { openOpora } from './ui';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
@@ -23,20 +24,26 @@ declare module '../../world/types' {
 
 export function installOpora(ctx: Ctx, parts: Pick<Parts, 'waiting'>, deps: { showPlanning(): void; arcade: Pick<Arcade, 'setOverlay'> }) {
   function showOpora() {
-    openOpora(ctx.net, { openTerminal: (id) => parts.waiting.openWorkerTerminal(id), showPlanning: deps.showPlanning });
+    openOpora(ctx.net, { openTerminal: (id) => parts.waiting.openWorkerTerminal(id), showPlanning: deps.showPlanning, openFull, embeddable });
+  }
+
+  /** Whether Opora lets this page frame it (its embed_origins lists the office's address). */
+  function embeddable() {
+    return canEmbedOpora(store.opora, location.origin);
   }
 
   /**
-   * Opora on the whole screen: the real Opora Canvas in its own browser tab (the same one each time, by
-   * name), on the floor's linked project. With Opora not running, the 🛰️ Opora window instead, which can
-   * start it. Call it straight from the key or the click, or the browser blocks the new tab.
+   * Opora on the whole screen, on the floor's linked project: inside the office when Opora lets itself
+   * be framed by it, else the real Opora Canvas in its own browser tab (the same one each time, by name).
+   * With Opora not running, the 🛰️ Opora window instead, which can start it. Call it straight from the
+   * key or the click, or the browser blocks the new tab.
    */
   function openFull() {
     if (!store.opora.connected) return showOpora();
+    if (embeddable()) return void openOporaFull(store.opora);
     // Let go of the mouse first: the office is left behind in its tab.
     ctx.player.unlock();
-    const tab = window.open(oporaCanvasUrl(store.opora), OPORA_TAB);
-    tab?.focus();
+    openOporaTab(store.opora);
   }
 
   ctx.interactions.define('opora', {

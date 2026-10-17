@@ -1,14 +1,19 @@
 import './ui.css';
-import { OPORA_LIMITS, OPORA_TAB, oporaCanvasUrl } from '../../../shared/opora';
+import { OPORA_LIMITS, OPORA_TAB } from '../../../shared/opora';
 import type { OporaCard, OporaState } from '../../../shared/protocol';
 import type { Net } from '../../net';
 import { store } from '../../state';
 import { dictateField } from '../../ui/dictate';
 import { h, openModal, timeAgo, STATUS_LABEL, type Modal } from '../../ui/dom';
+import { oporaPageUrl } from './full';
 
 export interface OporaActions {
   openTerminal(workerId: string): void;
   showPlanning(): void;
+  /** Opora on the whole screen: inside the office when it lets itself be framed, else in its tab (see openFull in index.ts). */
+  openFull(): void;
+  /** Whether Opora lets this page frame it. */
+  embeddable(): boolean;
 }
 
 const STATUS_WORDS: Record<OporaCard['status'], string> = {
@@ -31,7 +36,12 @@ export function openOpora(net: Net, actions: OporaActions) {
   const foot = h('footer');
   const el = h('div.modal.opora-window', { role: 'dialog', 'aria-label': 'Opora' }, h('header', {}, h('h2', {}, '🛰️ Opora · Control Center'), close), body, foot);
   const goal = h('textarea', { rows: 3, placeholder: 'What to plan onto the canvas: e.g. “A settings page for notifications, designed first, then built”', 'aria-label': 'What to plan onto the Opora canvas' }) as HTMLTextAreaElement;
-  const render = () => paint(store.opora, body, foot, net, actions, goal);
+  // Full screen inside the office is a window of its own, so this one goes first; Opora in a tab leaves it open.
+  const full = () => {
+    if (actions.embeddable()) modal.close();
+    actions.openFull();
+  };
+  const render = () => paint(store.opora, body, foot, net, { ...actions, openFull: full }, goal);
   const offs = [store.on('opora', render), store.on('workers', render), store.on('planning', render)];
   const modal: Modal = openModal(el, { doing: '🛰️ at the Opora screen', onClose: () => offs.forEach((off) => off()) });
   close.addEventListener('click', () => modal.close());
@@ -48,11 +58,14 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
     h('b', {}, s.project ? s.project.name : 'Opora Canvas'),
     s.workspace ? h('span.muted', {}, `workspace ${s.workspace}`) : null,
     h('span.muted', {}, s.checkedAt ? `read ${timeAgo(new Date(s.checkedAt).toISOString())}` : ''),
-    // The real Opora, in the same named tab the boss's chair opens (O there), on this floor's project.
-    h('a.btn.small', { href: oporaCanvasUrl(s), target: OPORA_TAB, rel: 'noopener noreferrer', title: `Open Opora (${s.url}) on the whole screen, in its own tab` }, 'Open Opora ↗ full screen'),
+    // The real Opora on the whole screen, as O at the boss's chair opens it, or in the same named tab, on this floor's project.
+    s.connected ? h('button.btn.small.primary', { type: 'button', title: 'Opora Canvas on the whole screen, inside the office', onclick: () => actions.openFull() }, '⛶ Open Opora full screen') : null,
+    h('a.btn.small', { href: oporaPageUrl(s), target: OPORA_TAB, rel: 'noopener noreferrer', title: `Open Opora (${s.url}) in a tab of its own` }, '↗ Open in a tab'),
     h('button.btn.small', { type: 'button', onclick: () => net.send({ t: 'opora.refresh' }) }, '↻'),
   );
   const parts: Node[] = [status];
+  // Opora still refuses to be framed: it opens in a tab until it lists the office's address.
+  if (s.connected && !actions.embeddable()) parts.push(h('p.opora-embed', {}, 'To open Opora inside the office, add ', h('code', {}, `embed_origins = ["${location.origin}"]`), ' under ', h('code', {}, '[app]'), ' in Opora’s ', h('code', {}, 'opora.local.toml'), ' and restart Opora.'));
   // Which Opora project this floor is on: picked here, or the one for the floor's folder. With
   // nothing linked, this is what to do next, so it sits right under the status.
   if (s.connected) {

@@ -37,6 +37,21 @@ export class OporaClient {
     return this.get('/api/health');
   }
 
+  /**
+   * The framing headers of Opora's page (GET /): X-Frame-Options and Content-Security-Policy, which
+   * say whether a browser lets the office show it in a frame. Only the headers are read.
+   */
+  async frameHeaders(): Promise<{ xFrameOptions: string | null; csp: string | null }> {
+    let res: Response;
+    try {
+      res = await fetch(new URL('/', this.base), { method: 'GET', headers: { Accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    } catch (err) {
+      throw new OporaError(0, `Opora isn't answering at ${this.base} (${(err as Error).message})`);
+    }
+    void res.body?.cancel().catch(() => undefined);
+    return { xFrameOptions: res.headers.get('x-frame-options'), csp: res.headers.get('content-security-policy') };
+  }
+
   /** Opora's projects, each with the folder it plans. */
   async projects(): Promise<{ id: string; name: string; sourcePath?: string | null }[]> {
     const b = await this.get<{ projects?: unknown }>('/api/bootstrap');

@@ -59,6 +59,14 @@ export interface OporaState {
   /** The office knows where Opora's repository is, so it can start it (AGENT_OFFICE_OPORA_DIR). */
   canStart: boolean;
   starting: boolean;
+  /**
+   * Opora lets itself be shown inside another page (its GET / sends no X-Frame-Options and no CSP
+   * frame-ancestors 'none'), so the office can open it full screen in a frame of its own. Opora's
+   * `embed_origins` setting turns it on.
+   */
+  embeddable: boolean;
+  /** The pages Opora may be framed by, from its frame-ancestors; none listed is any page. */
+  embedOrigins?: string[];
 }
 
 export type OporaClientMsg =

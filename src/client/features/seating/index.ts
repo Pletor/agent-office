@@ -117,7 +117,7 @@ export function installSeating(ctx: Ctx, deps: SeatingDeps) {
         const tv = !!seat.tv && tvShowing();
         const use = tv ? 'Watch the TV' : seat.game ? 'Play Minesweeper' : seat.bar ? 'Order a drink' : '';
         const opora = seat.game ? deps.opora.connected() : null;
-        const desk = opora === null ? [] : opora ? [key('O', '🛰️ Opora on the whole screen')] : [aside('Opora isn’t running'), key('O', '🛰️ Opora window')];
+        const desk = opora === null ? [] : opora ? [key('O', '🛰️ Opora full screen')] : [aside('Opora isn’t running'), key('O', '🛰️ Opora window')];
         return { k: `${seat.id}|sitting|${tv}|${opora}`, parts: [hintTitle(seat.label), aside('sitting'), ...(use ? [key('E', use), ...desk, key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
       }
       const full = !freePlace(seat);
@@ -125,7 +125,7 @@ export function installSeating(ctx: Ctx, deps: SeatingDeps) {
     },
     use: (it, k) => {
       if (k === 'E' && it.seatId) useSeat(it.seatId);
-      // O from the boss's chair: Opora on the whole screen (straight from the key, so the browser lets the tab open).
+      // O from the boss's chair: Opora full screen, inside the office or in its tab (straight from the key, so the browser lets a tab open).
       else if (k === 'O' && it.seatId && ctx.player.seat?.seatId === it.seatId && ctx.plan().seatingById.get(it.seatId)?.game) deps.opora.openFull();
     },
   });

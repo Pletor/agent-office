@@ -23,6 +23,7 @@ export const EMPTY_OPORA: OporaState = {
   checkedAt: 0,
   canStart: false,
   starting: false,
+  embeddable: false,
 };
 
 /** The signs that make a desk a designer's or a developer's (see the 🪧 sign over a desk). */
@@ -124,4 +125,53 @@ export function oporaCanvasUrl(s: Pick<OporaState, 'url' | 'project' | 'workspac
   if (s.workspace) q.set('workspace', s.workspace);
   q.set('screen', 'canvas');
   return `${base.replace(/\/+$/, '')}/?${q}`;
+}
+
+/**
+ * Opora's address as the browser should reach it: on loopback, the same name the office's page is on
+ * (localhost or 127.0.0.1), as Opora's SameSite=Strict sign-in cookie only goes to the same site the
+ * page is from. Anywhere else, the address as it is.
+ */
+export function browserOporaUrl(oporaUrl: string, pageHostname: string): string {
+  const loopback = (host: string) => host === 'localhost' || host === '127.0.0.1';
+  let url: URL;
+  try {
+    url = new URL(oporaUrl);
+  } catch {
+    return oporaUrl;
+  }
+  if (!loopback(url.hostname) || !loopback(pageHostname) || url.hostname === pageHostname) return oporaUrl;
+  url.hostname = pageHostname;
+  return url.toString();
+}
+
+/**
+ * Whether Opora lets other pages frame it, from the headers of its GET /: CSP frame-ancestors when
+ * it sends one (browsers then ignore X-Frame-Options), else X-Frame-Options, where DENY and
+ * SAMEORIGIN both refuse the office (it's on another port, so another origin).
+ */
+export function oporaEmbedPolicy(xFrameOptions: string | null, csp: string | null): Pick<OporaState, 'embeddable' | 'embedOrigins'> {
+  const directive = csp
+    ?.split(';')
+    .map((d) => d.trim().split(/\s+/))
+    .find(([name]) => name?.toLowerCase() === 'frame-ancestors');
+  if (directive) {
+    const sources = directive.slice(1).filter((x) => x && x !== "'self'" && x.toLowerCase() !== "'none'");
+    return sources.length ? { embeddable: true, embedOrigins: sources } : { embeddable: false };
+  }
+  const xfo = xFrameOptions?.trim().toLowerCase();
+  return xfo === 'deny' || xfo === 'sameorigin' ? { embeddable: false } : { embeddable: true };
+}
+
+/** Whether Opora would let this page (its origin) frame it: a frame-ancestors source matching it, `*`, or none listed. */
+export function canEmbedOpora(s: Pick<OporaState, 'connected' | 'embeddable' | 'embedOrigins'>, pageOrigin: string): boolean {
+  if (!s.connected || !s.embeddable) return false;
+  if (!s.embedOrigins) return true;
+  const page = pageOrigin.replace(/\/+$/, '').toLowerCase();
+  return s.embedOrigins.some((src) => {
+    const o = src.replace(/\/+$/, '').toLowerCase();
+    if (o === '*' || o === page) return true;
+    // A port wildcard (http://localhost:*) matches the host on any port.
+    return o.endsWith(':*') && page.startsWith(o.slice(0, -1)) && /^\d+$/.test(page.slice(o.length - 1));
+  });
 }

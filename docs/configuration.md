@@ -73,3 +73,16 @@ The planning room links each floor to [Opora Canvas](features.md#opora-canvas), 
 | `AGENT_OFFICE_OPORA_DIR` | Opora's repository (the folder with `opora.toml`). With it set, an admin can start Opora from the 🛰️ Opora window (`uv run opora --no-open` there) when it isn't running. The office never starts a second one while one answers. |
 
 A floor is linked to the Opora project whose folder is that floor's checkout (Opora's local or git project for the same folder). When no project's folder is the floor's, or you want another one, pick the project in the 🛰️ Opora window's **Linked to** list; *— by folder —* goes back to matching by folder. The choice is the floor's, for everyone on it, and it can't change while the office is on cards of the project it's linked to. If the chosen project is deleted on Opora, the floor falls back to the folder's (and the window says so). The office keeps the choice and what it took from Opora in the floor's `.agent-office/opora.json`, the lease tokens included.
+
+### Opora full screen inside the office
+
+**O** at the boss's chair (and **⛶ Open Opora full screen** in the 🛰️ Opora window) opens Opora inside the office, in a frame over the whole screen. Opora refuses to be framed until you list the office's address on Opora's side, in its `opora.local.toml`:
+
+```toml
+[app]
+embed_origins = ["http://localhost:4600"]
+```
+
+Use the address the office's page has in your browser (the 🛰️ Opora window shows the exact line to add), and restart Opora. The office reads Opora's framing headers (`X-Frame-Options`, CSP `frame-ancestors`) each time it polls it; until they let the office in, **O** opens Opora in a tab of its own instead, as before. Esc closes the full-screen view from inside Opora too: Opora tells the page it's framed in, and the office only listens to Opora's own frame.
+
+Opora's sign-in cookie is `SameSite=Strict`, so the browser has to reach Opora by the same name as the office: with the office on `localhost`, Opora as `localhost` too, and on `127.0.0.1`, as `127.0.0.1`. The office does that itself in the browser, whichever of the two `AGENT_OFFICE_OPORA_URL` names.

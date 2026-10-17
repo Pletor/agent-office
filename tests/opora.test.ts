@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { OporaBridge, type BridgeFloor } from '../src/server/opora/bridge.js';
-import { cardGroup, deskFor, frontierCards, oporaCanvasUrl, sameDir, signGroup } from '../src/shared/opora.js';
+import { browserOporaUrl, canEmbedOpora, cardGroup, deskFor, frontierCards, oporaCanvasUrl, oporaEmbedPolicy, sameDir, signGroup } from '../src/shared/opora.js';
 import { PROMPTS } from '../src/shared/prompts.js';
 import type { OporaState, WorkerInfo } from '../src/shared/protocol.js';
 
@@ -52,6 +52,8 @@ test('frontierCards keeps the cards in the group they are listed in, and leaves 
 function fakeOpora(dir: string) {
   const calls: { method: string; path: string; body?: Record<string, unknown>; headers: http.IncomingHttpHeaders }[] = [];
   const leases = new Map<string, string>();
+  // Opora's page refuses to be framed, as it does until its embed_origins lists someone.
+  const page: { headers: Record<string, string> } = { headers: { 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'" } };
   const projects = [{ id: 'other', name: 'Other', sourcePath: '/elsewhere' }, { id: 'p1', name: 'Shop', sourcePath: dir.toUpperCase() === dir ? dir : dir.replace(/\//g, '\\') }];
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
@@ -64,6 +66,10 @@ function fakeOpora(dir: string) {
         res.writeHead(status, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(data));
       };
+      if (req.method === 'GET' && url.pathname === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/html', ...page.headers });
+        return res.end('<!doctype html><title>Opora</title>');
+      }
       if (req.method === 'POST' && req.headers.origin !== `http://127.0.0.1:${(server.address() as AddressInfo).port}`) return send(403, { detail: 'origin' });
       // The other project's canvas: one sector with one card.
       if (url.searchParams.get('project') === 'other') {
@@ -102,7 +108,7 @@ function fakeOpora(dir: string) {
       send(404, { detail: 'nope' });
     });
   });
-  return { server, calls, leases, projects };
+  return { server, calls, leases, projects, page };
 }
 
 async function fixture(t: { after(fn: () => void): void }) {
@@ -252,4 +258,46 @@ test('the office opens Opora on the floor’s linked project, or on its home scr
   assert.equal(oporaCanvasUrl({ url: 'http://127.0.0.1:8740', project: null, workspace: null }), 'http://127.0.0.1:8740');
   assert.equal(oporaCanvasUrl({ url: 'http://127.0.0.1:8740/', project: { id: 'p 1', name: 'P' }, workspace: 'main' }), 'http://127.0.0.1:8740/?project=p+1&workspace=main&screen=canvas');
   assert.equal(oporaCanvasUrl({ url: '', project: { id: 'p', name: 'P' }, workspace: null }), 'http://127.0.0.1:8740/?project=p&screen=canvas');
+});
+
+test('the browser reaches loopback Opora by the name the office page is on, for its SameSite cookie', () => {
+  assert.equal(browserOporaUrl('http://127.0.0.1:8740/?project=p', 'localhost'), 'http://localhost:8740/?project=p');
+  assert.equal(browserOporaUrl('http://localhost:8740', '127.0.0.1'), 'http://127.0.0.1:8740/');
+  assert.equal(browserOporaUrl('http://127.0.0.1:8740', '127.0.0.1'), 'http://127.0.0.1:8740');
+  // An office reached by another name, or Opora elsewhere, keeps the address as it is.
+  assert.equal(browserOporaUrl('http://127.0.0.1:8740', 'office.example.com'), 'http://127.0.0.1:8740');
+  assert.equal(browserOporaUrl('http://opora.lan:8740', 'localhost'), 'http://opora.lan:8740');
+  assert.equal(browserOporaUrl('not a url', 'localhost'), 'not a url');
+});
+
+test('Opora frames for the pages its frame-ancestors lists, and not with X-Frame-Options alone', () => {
+  assert.deepEqual(oporaEmbedPolicy('DENY', "default-src 'self'; frame-ancestors 'none'"), { embeddable: false });
+  assert.deepEqual(oporaEmbedPolicy('DENY', null), { embeddable: false });
+  assert.deepEqual(oporaEmbedPolicy('SAMEORIGIN', null), { embeddable: false });
+  assert.deepEqual(oporaEmbedPolicy(null, "default-src 'self'; frame-ancestors 'self'"), { embeddable: false });
+  assert.deepEqual(oporaEmbedPolicy(null, null), { embeddable: true });
+  // frame-ancestors wins over X-Frame-Options, as it does in browsers.
+  assert.deepEqual(oporaEmbedPolicy('DENY', "frame-ancestors 'self' http://localhost:4600"), { embeddable: true, embedOrigins: ['http://localhost:4600'] });
+  const on = { connected: true, embeddable: true, embedOrigins: ['http://localhost:4600', 'http://127.0.0.1:*'] };
+  assert.ok(canEmbedOpora(on, 'http://localhost:4600'));
+  assert.ok(canEmbedOpora(on, 'http://127.0.0.1:4615'));
+  assert.ok(!canEmbedOpora(on, 'http://localhost:4615'));
+  assert.ok(canEmbedOpora({ connected: true, embeddable: true }, 'http://office.lan'));
+  assert.ok(!canEmbedOpora({ ...on, connected: false }, 'http://localhost:4600'));
+  assert.ok(!canEmbedOpora({ connected: true, embeddable: false }, 'http://localhost:4600'));
+});
+
+test('the bridge reads from Opora’s page whether the office may frame it, each poll', async (t) => {
+  const f = await fixture(t);
+  assert.equal(f.state().embeddable, false);
+  assert.equal(f.state().embedOrigins, undefined);
+  f.op.page.headers = { 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'self' http://localhost:4600" };
+  await f.bridge.poll();
+  assert.equal(f.state().embeddable, true);
+  assert.deepEqual(f.state().embedOrigins, ['http://localhost:4600']);
+  f.op.page.headers = {};
+  await f.bridge.poll();
+  assert.equal(f.state().embeddable, true);
+  assert.equal(f.state().embedOrigins, undefined);
+  assert.ok(f.op.calls.some((c) => c.method === 'GET' && c.path === '/'));
 });

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaAgentName, sameDir } from '../../shared/opora.js';
+import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaAgentName, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
 import { fillPrompt, type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
 import type { OporaCard, OporaRun, OporaState, WorkerInfo } from '../../shared/protocol.js';
@@ -230,8 +230,15 @@ export class OporaBridge {
     try {
       await this.client.health();
     } catch (err) {
-      Object.assign(s, { connected: false, error: (err as Error).message, project: null, linkedBy: undefined, projects: [], workspace: null, sectors: [], cards: [], checkedAt: Date.now() });
+      Object.assign(s, { connected: false, embeddable: false, embedOrigins: undefined, error: (err as Error).message, project: null, linkedBy: undefined, projects: [], workspace: null, sectors: [], cards: [], checkedAt: Date.now() });
       return;
+    }
+    // Whether Opora lets the office frame it, for O at the boss's chair to open it inside the office.
+    try {
+      const h = await this.client.frameHeaders();
+      Object.assign(s, { embedOrigins: undefined, ...oporaEmbedPolicy(h.xFrameOptions, h.csp) });
+    } catch {
+      Object.assign(s, { embeddable: false, embedOrigins: undefined });
     }
     try {
       const all = await this.client.projects();
