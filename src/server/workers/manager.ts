@@ -233,10 +233,8 @@ export class WorkerManager {
     if (this.deskOccupied(deskId)) return seat.station ? `The ${STATION_AGENT[seat.station].name} is already there` : `That ${seat.beanbag ? 'bean bag' : 'desk'} is taken`;
     if (kind === 'shell' && seat.station) return 'A board agent is always an agent, not a shell';
     if (seat.station && !prompt?.trim()) return 'Tell the board agent what to do';
-    if (!seat.room !== !meeting) return seat.room ? 'Only a meeting seats workers at the meeting table: call one in the meeting room' : 'A meeting seats its workers at the meeting table';
-    if (meeting && (kind !== 'agent' || worktree)) return 'A meeting seats agents, in its own worktree';
-    if (!seat.planner !== (via !== 'planning')) return seat.planner ? 'Only the planning room seats its planner: ask for a plan there' : 'The planning room seats its planner in its own chair';
-    if (seat.planner && (kind !== 'agent' || worktree)) return 'The planner is an agent, in the project’s own folder';
+    if (!seat.room !== !meeting || !seat.planner === (via === 'planning')) return seat.planner ? 'Only the planning room seats its planner: ask for a plan there' : via === 'planning' ? 'The planning room seats its planner in its own chair' : seat.room ? 'Only a meeting seats workers at the meeting table: call one in the meeting room' : 'A meeting seats its workers at the meeting table';
+    if ((meeting || seat.planner) && (kind !== 'agent' || worktree)) return seat.planner ? 'The planner is an agent, in the project’s own folder' : 'A meeting seats agents, in its own worktree';
     if (repos.length && (kind !== 'agent' || !worktree || seat.station || meeting)) return 'Only a worker in its own worktree can work in other repositories too';
     if (repos.length > MAX_REPOS) return `A worker can take on at most ${MAX_REPOS} other repositories`;
     if (kind === 'shell' && provider !== undefined) return 'Shell workers do not have an agent provider';
