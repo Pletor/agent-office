@@ -49,6 +49,7 @@ import { installHerald } from './features/herald';
 import { installHud } from './features/hud';
 import { installJukebox } from './features/jukebox';
 import { installMeeting } from './features/meeting';
+import { installPlanning } from './features/planning';
 import { installNeedsYou } from './features/needsyou';
 import { installPalette } from './features/palette';
 import { installPeers } from './features/peers';
@@ -147,6 +148,7 @@ parts.waiting = installWaiting(ctx, core, parts);
 parts.needsYou = installNeedsYou(ctx, parts);
 installPalette(ctx, parts);
 parts.meeting = installMeeting(ctx, parts);
+installPlanning(ctx, parts);
 parts.bookshelf = installBookshelf(ctx);
 installHerald(ctx, parts);
 

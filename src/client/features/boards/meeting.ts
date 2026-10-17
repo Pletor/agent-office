@@ -6,7 +6,7 @@ const FONT = 'Nunito, ui-rounded, system-ui, sans-serif';
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
 const INK = '#2b2d42';
 
-function canvasTexture(w: number, h: number): { canvas: HTMLCanvasElement; g: CanvasRenderingContext2D; texture: THREE.CanvasTexture } {
+export function canvasTexture(w: number, h: number): { canvas: HTMLCanvasElement; g: CanvasRenderingContext2D; texture: THREE.CanvasTexture } {
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
@@ -17,7 +17,7 @@ function canvasTexture(w: number, h: number): { canvas: HTMLCanvasElement; g: Ca
 }
 
 /** Breaks text into lines no wider than `maxW`, cutting words too long for a line of their own. */
-function wrap(g: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+export function wrap(g: CanvasRenderingContext2D, text: string, maxW: number): string[] {
   const lines: string[] = [];
   let cur = '';
   for (const word of text.split(/\s+/)) {

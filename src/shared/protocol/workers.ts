@@ -98,8 +98,11 @@ export interface WorkerInfo {
    */
   workedMs?: number;
   workingSince?: number;
-  /** Sent out by a map's herald (the castle's Hand of the King), so every browser has it run to its seat from beside them. */
-  via?: 'herald';
+  /**
+   * Sent out by a map's herald (the castle's Hand of the King), so every browser has it run to its seat
+   * from beside them; or seated by the planning room, as its planner (see server/planning.ts).
+   */
+  via?: 'herald' | 'planning';
 }
 
 /** Where the branch of a worker whose worktree was deleted still is (see WorkerInfo.lost). */

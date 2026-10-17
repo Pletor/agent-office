@@ -1,0 +1,29 @@
+/* The planning room's window: asking for a plan, and handing its tasks to the queue */
+.modal.planning-window { width: min(780px, 100%); }
+.planning-window .muted { color: var(--muted); font-weight: 700; font-size: 12px; }
+.planning-window .btn.small { padding: 3px 8px; font-size: 12px; border-width: 2px; border-radius: 9px; }
+.planning-form { display: flex; flex-direction: column; gap: 12px; }
+.planning-form > p { margin: 0; line-height: 1.4; }
+.planning-field { display: flex; flex-direction: column; gap: 4px; }
+.planning-window .planning-field label { margin: 0; }
+.planning-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 16px; }
+.planning-title { font-weight: 800; }
+.planning-line { margin: 8px 0; font-weight: 700; }
+.planning-planner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 6px 10px; margin: 10px 0; }
+.planning-planner .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--ink); flex: none; }
+.planning-planner .btn { margin-left: auto; }
+.planning-goal, .planning-past { margin: 8px 0; }
+.planning-goal summary, .planning-past summary, .planning-tasks summary { font-weight: 800; cursor: pointer; }
+.planning-tasks { padding: 0; margin: 12px 0; list-style: none; display: flex; flex-direction: column; gap: 6px; counter-reset: task; }
+.planning-tasks > li { background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 6px 10px; }
+.planning-tasks summary { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.planning-window .planning-task { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; cursor: pointer; }
+.planning-task input { width: 18px; height: 18px; flex: none; accent-color: #9b5de5; }
+.planning-task b::before { counter-increment: task; content: counter(task) ". "; }
+.planning-progress { margin-left: auto; font-weight: 800; font-size: 13px; }
+.planning-text { margin: 6px 0 0; white-space: pre-wrap; font-size: 12.5px; max-height: 200px; overflow: auto; }
+.planning-out { border: 2px solid var(--ink); border-radius: 12px; overflow: hidden; background: #fff; }
+.planning-out-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 10px; background: var(--paper-2); border-bottom: 2px solid var(--ink); font-size: 13px; font-weight: 700; }
+.planning-preview { margin: 0; padding: 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; font-size: 12.5px; }
+.planning-past ul { padding-left: 18px; margin: 6px 0 0; }
+.planning-past li { margin: 6px 0; }

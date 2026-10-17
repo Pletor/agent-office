@@ -6,7 +6,7 @@
 
 import { STATION_AGENT, type StationKind } from './layout.js';
 
-export type PromptGroup = 'issues' | 'pulls' | 'queue' | 'repos' | 'stations' | 'meetings' | 'office';
+export type PromptGroup = 'issues' | 'pulls' | 'queue' | 'repos' | 'stations' | 'meetings' | 'planning' | 'office';
 
 /** The editor's sections, in order. */
 export const PROMPT_GROUPS: Record<PromptGroup, string> = {
@@ -16,6 +16,7 @@ export const PROMPT_GROUPS: Record<PromptGroup, string> = {
   repos: '🗂️ Across repositories',
   stations: '🧑‍💼 Board agents',
   meetings: '🤝 Meeting room',
+  planning: '🧭 Planning room',
   office: '🏷️ Worker signs',
 };
 
@@ -356,6 +357,34 @@ const DEFS = {
     vars: { findings: "Every reviewer's notes", exampleRole: "A reviewer's lens, for the example tag", output: OUTPUT_NOTE },
     needs: ['output'],
     text: `Read every reviewer's findings ({{findings}}). Drop the duplicates, keeping the clearest wording, and write one combined review to {{output}} in Markdown: a short summary with your verdict first, then the findings, the most serious first, each tagged with the lens it came from in bold brackets like **[{{exampleRole}}]**, with its file:line. Don't post it: the office posts it on the pull request once the file is written. ${OUTPUT}`,
+  },
+
+  // --- 🧭 Planning room ---
+  'planning.plan': {
+    group: 'planning',
+    label: 'Planner',
+    used: "What the planner at the planning room's table is asked. The office reads the tasks under the plan's Tasks heading each time it ends its turn.",
+    vars: { goal: 'What the plan is for, as asked', file: 'The plan file, which the room waits for' },
+    needs: ['goal', 'file'],
+    text: `You're the planner in the planning room. Make a plan for this, which other workers will then carry out:
+
+{{goal}}
+
+Read the code and the docs as far as it takes to plan it well, but don't change, commit or push anything: the only file you write is the plan, {{file}}, in Markdown. Start it with a short summary of the goal and the approach, then the decisions and risks worth knowing. Then a "## Tasks" heading with the work split into tasks, one bullet each, in the order they should be done:
+- **Short title**: what to change and where, how to check it, and that it ends with a pull request.
+Each task goes to a worker of its own, in its own git worktree, who has only that task and this plan to go on, so make each one complete on its own, the size of one pull request, and keep two tasks from changing the same files where you can. Then end your turn. If you're asked to change the plan afterwards, rewrite {{file}} and end your turn again.`,
+  },
+  'planning.task': {
+    group: 'planning',
+    label: 'Planned task',
+    used: 'What the queue gives the worker for each task a plan hands to it.',
+    vars: { plan: "The plan's title", file: 'The plan file, to read for context', title: "The task's title", task: 'What the plan says to do' },
+    needs: ['task'],
+    text: `This task is part of the plan "{{plan}}", made in the planning room. Read the whole plan in {{file}} for the context, but do only your part of it:
+
+## {{title}}
+
+{{task}}`,
   },
 
   // --- 🏷️ Worker signs ---

@@ -26,6 +26,7 @@ import { downstairs } from './ground';
 import { wing } from './wing';
 import { beanbags, desks, kiosks } from './seats';
 import { meetingRoom } from './meeting-room';
+import { planningRoom } from '../../features/planning/world';
 import { loft } from './loft';
 import type { Fixture, Gives, Site } from './fixture';
 
@@ -66,6 +67,7 @@ function floorPlan() {
     signs,
     loft,
     meetingRoom,
+    planningRoom,
     elevator,
     garageLift,
     gong,

@@ -5,6 +5,7 @@
 // helpers take how many rows it's built out (`wing`), and each level gets a grid of its own.
 
 import { BALCONY, BALCONY_DOOR, BEANBAGS, BOOKSHELF, CABINET, DESK_SIZE, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PARACHUTE, POLE, POLES, ROAD, STAIRS, STATIONS, WHITEBOARD, WING, builtDesks, plantsAt, wingLevel, wingMinZ, type DeskDef } from './layout.js';
+import { planningObstacles } from './planning.js';
 
 
 export type Pt = [number, number];
@@ -106,6 +107,10 @@ function obstacles(wing: number): Obstacles {
     const [cx, cz] = deskPoint(d, 0, 0.85);
     circles.push([cx, cz, 0.18]);
   }
+  // The planning room (shared/planning.ts): its glass walls, its table, the board and the planner's chair.
+  const planning = planningObstacles();
+  rects.push(...planning.rects);
+  circles.push(...planning.circles);
   return { rects, circles };
 }
 

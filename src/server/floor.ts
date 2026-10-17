@@ -22,6 +22,8 @@ import { Garage } from './garage.js';
 import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
+import { PlanningRoom } from './planning.js';
+import { PLANNER_SEAT } from '../shared/planning.js';
 import { Worktrees, type WorktreeCleanup } from './worktrees.js';
 import { landedWork, landedWorkers, type Landed } from './leave-on-merge.js';
 import type { Ledger } from './usage.js';
@@ -124,6 +126,8 @@ export class Floor {
   readonly whiteboard: Whiteboard;
   /** The meeting room, where workers work through a question together (see meetings.ts). */
   readonly meetings: MeetingRoom;
+  /** The planning room, where a planner writes a plan whose tasks go on the queue (see planning.ts). */
+  readonly planning: PlanningRoom;
   /** The bookshelf: the project's Markdown files (see docs.ts). */
   readonly docs: Docs;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
@@ -178,6 +182,7 @@ export class Floor {
           // Still being built: the first updates come from waking the workers already at their desks.
           this.queue?.onWorker(worker);
           this.meetings?.onWorker(worker);
+          this.planning?.onWorker(worker);
           this.dog.onWorker(worker);
           ctx.workerChanged(this, worker);
           // Its turn ended, or whoever had its terminal open closed it: it may be free to go now.
@@ -192,6 +197,7 @@ export class Floor {
           ctx.emit(this, { t: 'worker.remove', workerId, ...(jail ? { jail } : {}) });
           this.queue?.onWorkerGone(workerId);
           this.meetings?.onWorkerGone(workerId);
+          this.planning?.onWorkerGone(workerId);
           this.dog.onWorkerGone(workerId);
           ctx.workerChanged(this, workerId);
         },
@@ -271,6 +277,24 @@ export class Floor {
           const as = ctx.ghAs(owner);
           return typeof as === 'string' ? Promise.reject(new Error(as)) : this.github.review(pr, file, as);
         },
+        prompt: (id) => ctx.prompts.text(id),
+      },
+    );
+
+    // The planning room seats its planner in its own chair, and hands the plan's tasks to the queue.
+    this.planning = new PlanningRoom(
+      def.dir,
+      dataDir,
+      {
+        list: () => this.workers.list(),
+        seat: (by, prompt, provider, model, effort, owner) => this.workers.spawn(PLANNER_SEAT.id, by, prompt, false, 'agent', provider, model, effort, undefined, owner, [], 'planning'),
+        kill: (id) => this.workers.kill(id),
+      },
+      this.queue,
+      {
+        update: (state) => ctx.emit(this, { t: 'planning', state }),
+        toast: (text, level) => ctx.toast(this, text, level),
+        hiringPaused: () => ctx.ledger.hiringPaused,
         prompt: (id) => ctx.prompts.text(id),
       },
     );
@@ -416,6 +440,7 @@ export class Floor {
     this.github.stop();
     this.queue.shutdown();
     this.meetings.shutdown();
+    this.planning.shutdown();
     this.changes.stop();
     this.whiteboard.flush();
     this.workers.shutdown(keep);

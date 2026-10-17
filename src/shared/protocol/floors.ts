@@ -11,6 +11,7 @@ import type { WhiteboardView } from '../whiteboard.js';
 import type { AgentProvider } from './agents.js';
 import type { GhIssue, GhPull, GhState } from './github.js';
 import type { MeetingState } from './meetings.js';
+import type { PlanningState } from './planning.js';
 import type { PeerInfo } from './presence.js';
 import type { QueueState } from './queue.js';
 import type { ServicesState } from './settings.js';
@@ -118,6 +119,8 @@ export interface FloorView {
   whiteboard: WhiteboardView;
   /** The meeting room: who's meeting about what, and the meetings before. */
   meeting: MeetingState;
+  /** The planning room: the plan on the board, and the plans before. */
+  planning: PlanningState;
   /** The basketball by the hoop: who has it, or how it was last thrown. */
   ball: BallState;
   /** The cars in the garage (see CARS in shared/garage.ts): where each one is, and who's in it. */

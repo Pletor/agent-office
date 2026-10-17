@@ -2,6 +2,8 @@
 // Units are meters; +y is up. The office floor spans FLOOR.minX..maxX / minZ..maxZ at y = 0,
 // upstairs over a garage whose floor is level with the street (STREET_Y).
 
+import { PLANNER_SEAT } from './planning.js';
+
 export const FLOOR = { minX: -18, maxX: 18, minZ: -13, maxZ: 13 } as const;
 /** How high the ceiling is: a meter over the loft's roof (LOFT.y + LOFT.height), all the way across the room. */
 export const WALL_HEIGHT = 6.8;
@@ -19,6 +21,8 @@ export interface DeskDef {
   station?: StationKind;
   /** A chair at the meeting room's table (see MEETING_SEATS): only a meeting seats a worker here. */
   room?: boolean;
+  /** The planning room's chair (see shared/planning.ts): only a plan seats its planner here. */
+  planner?: boolean;
   /** A desk in the back office (see WING): there once the floor is built out this many rows. */
   wing?: number;
 }
@@ -196,8 +200,8 @@ export const MEETING_SEATS: DeskDef[] = (
 /** The board on the meeting room's back (south) wall that shows the meeting's output file as it's written. */
 export const MEETING_BOARD = { x: MEETING_TABLE.x, y: 1.95, z: FLOOR.maxZ - 0.08, width: 3.6, height: 1.2 } as const;
 
-/** Any place a worker can be by id: the seats (the back office's included), the board agents' kiosks and the meeting room's chairs. */
-export const DESK_BY_ID = new Map([...SEATS, ...STATIONS, ...MEETING_SEATS].map((d) => [d.id, d]));
+/** Any place a worker can be by id: the seats (the back office's included), the board agents' kiosks, the meeting room's chairs and the planner's. */
+export const DESK_BY_ID = new Map([...SEATS, ...STATIONS, ...MEETING_SEATS, PLANNER_SEAT].map((d) => [d.id, d]));
 
 /**
  * The seat a new worker takes when nobody picks one: the first free desk (in the back office too, as
@@ -287,7 +291,6 @@ export const PLANTS: readonly (readonly [x: number, z: number, scale: number])[]
   [14.2, -12.2, 1.1],
   [-6, 0, 1],
   [3.5, 0, 0.9],
-  [8.5, 5, 1.1],
 ];
 
 /** A plant by the north wall east of the gong, in the way into the back office: put away once it's built. */
