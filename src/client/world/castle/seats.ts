@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { KIOSK, STATION_AGENT, deskSeat, type DeskDef, type StationKind } from '../../../shared/layout';
 import { BENCH_OUT, COUNCIL, type MapPlan } from '../../../shared/maps';
+import { PLANNER_SEAT } from '../../../shared/planning';
 import { boxFootprint } from '../../../shared/maps/props';
 import { deskPoint } from '../../../shared/nav';
 import { vacancyMarker } from '../office';
@@ -104,6 +105,15 @@ export function buildCouncil(kit: Kit, plan: MapPlan): { board?: THREE.Mesh; sig
   t.userData.interact = meeting;
   kit.interactables.push(meeting);
   for (const def of plan.meeting) kit.desks.set(def.id, councilChair(kit, def));
+  // The planner's chair at the foot of the table (see planMap): only a plan seats a worker there, so there's
+  // no '+' over it and nothing to do at it (the planner's terminal is in 🤖 Workers).
+  const pd = plan.byId.get(PLANNER_SEAT.id);
+  if (pd) {
+    const v = councilChair(kit, pd);
+    v.vacancy.removeFromParent();
+    (v.group.userData.interact as Interactable).off = true;
+    kit.desks.set(pd.id, { ...v, vacancy: new THREE.Group() });
+  }
   // An easel behind the table, away from its head, with the meeting's board and how it's going.
   const easel = new THREE.Group();
   easel.position.set(cp.x - Math.sin(cp.rotY) * COUNCIL.easel, 0, cp.z - Math.cos(cp.rotY) * COUNCIL.easel);

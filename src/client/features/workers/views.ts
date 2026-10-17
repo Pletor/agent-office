@@ -200,10 +200,10 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     renderTitle();
   }
 
-  /** A worker that sits at the tables (not a board agent or at the meeting table): it gets up and lines up for the throne. */
+  /** A worker that sits at the tables (not a board agent, at the meeting table or the planner): it gets up and lines up for the throne. */
   function inCourt(w: WorkerInfo): boolean {
     const d = plan().byId.get(w.deskId);
-    return w.kind === 'agent' && !!d && !d.station && !d.room && !w.meeting;
+    return w.kind === 'agent' && !!d && !d.station && !d.room && !d.planner && !w.meeting;
   }
 
   /**

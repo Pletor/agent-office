@@ -59,7 +59,7 @@ const DEFAULT_BOARD_LABEL: Record<BoardKey, string> = { issues: 'Issues', queue:
 const MAP_DESKS: DeskDef[] = [...DESKS, ...WING_DESKS];
 
 function officePlan(): MapPlan {
-  // The planner's chair is only in the office's planning room: on a map of its own, its worker isn't drawn.
+  // The planner's chair is in the office's planning room; a map of its own puts it at the foot of its meeting table (see planMap).
   const byId = new Map([...MAP_DESKS, ...BEANBAGS, ...STATIONS, ...MEETING_SEATS, PLANNER_SEAT].map((d) => [d.id, d]));
   const boards = {} as Record<BoardKey, BoardDef>;
   for (const k of BOARD_KEYS) boards[k] = { ...BOARDS[k] };
@@ -236,6 +236,10 @@ export function planMap(input: unknown): MapPlan {
     circles.push([council.x + Math.sin(a) * COUNCIL.chairs, council.z + Math.cos(a) * COUNCIL.chairs, 0.28]);
     return def;
   });
+  // The planner's chair, at the foot of the table by the easel, so a planner hired on another map has its seat here too.
+  const foot = council.rotY + Math.PI;
+  const planner: DeskDef = { ...PLANNER_SEAT, x: council.x + Math.sin(foot) * COUNCIL.place, z: council.z + Math.cos(foot) * COUNCIL.place, rotY: foot };
+  circles.push([council.x + Math.sin(foot) * COUNCIL.chairs, council.z + Math.cos(foot) * COUNCIL.chairs, 0.28]);
   circles.push([council.x, council.z, COUNCIL.radius]);
   const ex = council.x - Math.sin(council.rotY) * COUNCIL.easel;
   const ez = council.z - Math.cos(council.rotY) * COUNCIL.easel;
@@ -372,7 +376,7 @@ export function planMap(input: unknown): MapPlan {
   const sendHome = planSendHome(c.sendHome, bounds, free, dungeon, airlock);
   const outfit = c.agents?.outfit === 'peasant' ? 'peasant' : 'none';
   const ageMinutes = c.agents?.ageMinutes === undefined ? 0 : num(c.agents.ageMinutes, 'agents.ageMinutes', 0, 100000);
-  const byId = new Map([...desks, ...overflow, ...stations, ...meeting].map((d) => [d.id, d]));
+  const byId = new Map([...desks, ...overflow, ...stations, ...meeting, planner].map((d) => [d.id, d]));
   for (const d of byId.values()) inside(d.x, d.z, d.label);
   return {
     id,

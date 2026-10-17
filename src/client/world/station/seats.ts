@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { KIOSK, STATION_AGENT, deskSeat, type DeskDef, type StationKind } from '../../../shared/layout';
 import { BENCH_OUT, COUNCIL, THRONE_SIZE } from '../../../shared/maps';
+import { PLANNER_SEAT } from '../../../shared/planning';
 import { boxFootprint } from '../../../shared/maps/props';
 import { deskPoint } from '../../../shared/nav';
 import { vacancyMarker } from '../office';
@@ -147,6 +148,15 @@ export function buildBriefing(kit: Kit): { board?: THREE.Mesh; sign?: THREE.Mesh
   t.userData.interact = meeting;
   kit.interactables.push(meeting);
   for (const def of kit.plan.meeting) kit.desks.set(def.id, briefingChair(kit, def));
+  // The planner's chair at the foot of the table (see planMap): only a plan seats a worker there, so there's
+  // no '+' over it and nothing to do at it (the planner's terminal is in 🤖 Workers).
+  const pd = kit.plan.byId.get(PLANNER_SEAT.id);
+  if (pd) {
+    const v = briefingChair(kit, pd);
+    v.vacancy.removeFromParent();
+    (v.group.userData.interact as Interactable).off = true;
+    kit.desks.set(pd.id, { ...v, vacancy: new THREE.Group() });
+  }
   // A display on a stand behind the table, away from its head, with the meeting's board and how it's going.
   const stand = new THREE.Group();
   stand.position.set(cp.x - Math.sin(cp.rotY) * COUNCIL.easel, 0, cp.z - Math.cos(cp.rotY) * COUNCIL.easel);
