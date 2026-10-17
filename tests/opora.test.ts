@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { OporaBridge, type BridgeFloor } from '../src/server/opora/bridge.js';
-import { cardGroup, deskFor, frontierCards, sameDir, signGroup } from '../src/shared/opora.js';
+import { cardGroup, deskFor, frontierCards, oporaCanvasUrl, sameDir, signGroup } from '../src/shared/opora.js';
 import { PROMPTS } from '../src/shared/prompts.js';
 import type { OporaState, WorkerInfo } from '../src/shared/protocol.js';
 
@@ -246,4 +246,10 @@ test('the floor stays on its project while the office holds cards of it', async 
   assert.equal(f.bridge.link(null), undefined);
   f.bridge.onWorkerGone(f.workers[0].id);
   assert.equal(f.bridge.link('other'), undefined);
+});
+
+test('the office opens Opora on the floor’s linked project, or on its home screen with none linked', () => {
+  assert.equal(oporaCanvasUrl({ url: 'http://127.0.0.1:8740', project: null, workspace: null }), 'http://127.0.0.1:8740');
+  assert.equal(oporaCanvasUrl({ url: 'http://127.0.0.1:8740/', project: { id: 'p 1', name: 'P' }, workspace: 'main' }), 'http://127.0.0.1:8740/?project=p+1&workspace=main&screen=canvas');
+  assert.equal(oporaCanvasUrl({ url: '', project: { id: 'p', name: 'P' }, workspace: null }), 'http://127.0.0.1:8740/?project=p&screen=canvas');
 });

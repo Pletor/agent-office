@@ -109,3 +109,19 @@ export function frontierCards(answer: unknown, isCard: (id: string) => boolean, 
 export function oporaAgentName(floorId: string, cardId: string): string {
   return `office-${floorId}-${cardId.slice(0, 8)}`.replace(/[^\w .:()-]/g, '-').slice(0, 80);
 }
+
+/** The browser tab Opora opens in from the office, by name, so opening it again goes back to the same tab. */
+export const OPORA_TAB = 'opora-canvas';
+
+/**
+ * Opora Canvas itself, on the floor's linked project when there is one: Opora reads `?project=`,
+ * `&workspace=` and `&screen=canvas` from its address (App.tsx), else it starts on its home screen.
+ */
+export function oporaCanvasUrl(s: Pick<OporaState, 'url' | 'project' | 'workspace'>): string {
+  const base = s.url || OPORA_DEFAULT_URL;
+  if (!s.project) return base;
+  const q = new URLSearchParams({ project: s.project.id });
+  if (s.workspace) q.set('workspace', s.workspace);
+  q.set('screen', 'canvas');
+  return `${base.replace(/\/+$/, '')}/?${q}`;
+}

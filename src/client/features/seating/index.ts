@@ -1,10 +1,11 @@
 /**
  * Sitting down: on a chair, a stool, the couch, the throne. Sitting there already, E gets you up, or
  * does what the seat's for (the TV from the couch, Minesweeper from the boss's chair, the bar's menu).
+ * The boss's chair is the Opora workstation too: O there opens Opora on the whole screen.
  */
 import { seatPlace, type SeatDef, type SeatPlace } from '../../../shared/layout';
 import type { Ctx } from '../../core/context';
-import { aside, hintTitle, key, onE } from '../../core/hint';
+import { aside, hintTitle, key } from '../../core/hint';
 import { store } from '../../state';
 import type { Arcade } from '../arcade/ui';
 import { toast } from '../../ui/dom';
@@ -24,6 +25,8 @@ export interface SeatingDeps {
   watchShare(): void;
   /** The boss's monitor (see features/arcade). */
   arcade: Arcade;
+  /** Opora from the boss's chair (see features/opora): whether it's running, and O there opening it on the whole screen. */
+  opora: { connected(): boolean; openFull(): void };
   /** The bar's menu (see features/bar). */
   showBar(): void;
   /** What you can use where you are, and what's in the way of looking at it (see usable in input/pointer.ts). */
@@ -113,14 +116,18 @@ export function installSeating(ctx: Ctx, deps: SeatingDeps) {
       if (ctx.player.seat?.seatId === seat.id) {
         const tv = !!seat.tv && tvShowing();
         const use = tv ? 'Watch the TV' : seat.game ? 'Play Minesweeper' : seat.bar ? 'Order a drink' : '';
-        return { k: `${seat.id}|sitting|${tv}`, parts: [hintTitle(seat.label), aside('sitting'), ...(use ? [key('E', use), key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
+        const opora = seat.game ? deps.opora.connected() : null;
+        const desk = opora === null ? [] : opora ? [key('O', '🛰️ Opora on the whole screen')] : [aside('Opora isn’t running'), key('O', '🛰️ Opora window')];
+        return { k: `${seat.id}|sitting|${tv}|${opora}`, parts: [hintTitle(seat.label), aside('sitting'), ...(use ? [key('E', use), ...desk, key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
       }
       const full = !freePlace(seat);
       return { k: `${seat.id}|${full}`, parts: [hintTitle(seat.label), seat.game ? aside('💣 Minesweeper on the monitor') : '', full ? aside('no room') : key('E', 'Sit down')] };
     },
-    use: onE((it) => {
-      if (it.seatId) useSeat(it.seatId);
-    }),
+    use: (it, k) => {
+      if (k === 'E' && it.seatId) useSeat(it.seatId);
+      // O from the boss's chair: Opora on the whole screen (straight from the key, so the browser lets the tab open).
+      else if (k === 'O' && it.seatId && ctx.player.seat?.seatId === it.seatId && ctx.plan().seatingById.get(it.seatId)?.game) deps.opora.openFull();
+    },
   });
 
   return { freePlace, standUp, mySeat };

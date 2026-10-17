@@ -1,5 +1,5 @@
 import './ui.css';
-import { OPORA_LIMITS } from '../../../shared/opora';
+import { OPORA_LIMITS, OPORA_TAB, oporaCanvasUrl } from '../../../shared/opora';
 import type { OporaCard, OporaState } from '../../../shared/protocol';
 import type { Net } from '../../net';
 import { store } from '../../state';
@@ -48,7 +48,8 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
     h('b', {}, s.project ? s.project.name : 'Opora Canvas'),
     s.workspace ? h('span.muted', {}, `workspace ${s.workspace}`) : null,
     h('span.muted', {}, s.checkedAt ? `read ${timeAgo(new Date(s.checkedAt).toISOString())}` : ''),
-    h('a.btn.small', { href: s.url, target: '_blank', rel: 'noopener noreferrer', title: `Open Opora (${s.url}) in a new tab` }, 'Open Opora ↗'),
+    // The real Opora, in the same named tab the boss's chair opens (O there), on this floor's project.
+    h('a.btn.small', { href: oporaCanvasUrl(s), target: OPORA_TAB, rel: 'noopener noreferrer', title: `Open Opora (${s.url}) on the whole screen, in its own tab` }, 'Open Opora ↗ full screen'),
     h('button.btn.small', { type: 'button', onclick: () => net.send({ t: 'opora.refresh' }) }, '↻'),
   );
   const parts: Node[] = [status];
