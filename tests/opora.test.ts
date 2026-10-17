@@ -8,6 +8,7 @@ import path from 'node:path';
 import { OporaBridge, type BridgeFloor } from '../src/server/opora/bridge.js';
 import { OPORA_ESCAPE_WINDOW_MS, browserOporaUrl, canEmbedOpora, cardGroup, deskFor, frontierCards, oporaCanvasUrl, oporaEmbedPolicy, oporaEscapeLeaves, sameDir, signGroup } from '../src/shared/opora.js';
 import { PROMPTS } from '../src/shared/prompts.js';
+import { oporaCardViews } from '../src/server/opora/sketches.js';
 import type { OporaState, WorkerInfo } from '../src/shared/protocol.js';
 
 test('a card on the design pipeline goes to the designers, the rest to the developers', () => {
@@ -94,6 +95,11 @@ function fakeOpora(dir: string) {
             ].filter((c) => !leases.has(c.id)),
             claimed: [...leases.keys()].map((id) => ({ id, name: id })),
           });
+        // The design card has a storyboard, the developer's a drawing (one element of it deleted).
+        case '/api/drawing':
+          return send(200, { scene: { elements: url.searchParams.get('layer') === 'c2' ? [{ id: 'e1', type: 'rectangle' }, { id: 'e2', type: 'image', fileId: 'f1' }, { id: 'e3', type: 'text', isDeleted: true }] : [] }, revision: 1 });
+        case '/api/storyboard':
+          return send(200, { storyboard: url.searchParams.get('nodeId') === 'c1' ? { animation: 'kod', moments: [{ id: 'm1', t: 0, comment: 'Faster here', answered: false }, { id: 'm2', t: 2, answered: true, sketch: { layer: 'sb/c1/m2' } }] } : null, revision: 3 });
         case '/api/desktop-v3/lease': {
           const node = String(body?.nodeId);
           if (body?.op === 'claim') {
@@ -309,4 +315,44 @@ test('the bridge reads from Opora’s page whether the office may frame it, each
   assert.equal(f.state().embeddable, true);
   assert.equal(f.state().embedOrigins, undefined);
   assert.ok(f.op.calls.some((c) => c.method === 'GET' && c.path === '/'));
+});
+
+test('the Opora pages for a card open its drawing (Kreslení) and its storyboard', () => {
+  assert.deepEqual(oporaCardViews('http://127.0.0.1:8740', 'p 1', 'draft', 'c1'), {
+    drawing: 'http://127.0.0.1:8740/?project=p+1&workspace=draft&screen=canvas&environment=editor&mode=drawing&layer=c1',
+    storyboard: 'http://127.0.0.1:8740/?project=p+1&workspace=draft&screen=canvas&environment=editor&mode=storyboard&node=c1',
+  });
+});
+
+test('a design card gets the designer’s brief, with its Opora pages and what is sketched on it', async (t) => {
+  const f = await fixture(t);
+  assert.equal(await f.bridge.take('c1', 'Ana'), undefined);
+  const prompt = f.workers[0].prompt!;
+  const views = oporaCardViews(f.url, 'p1', 'draft', 'c1');
+  assert.ok(prompt.includes(PROMPTS['opora.design'].text.slice(0, 40)), 'the opora.design brief is in it');
+  assert.ok(prompt.includes(views.drawing) && prompt.includes(views.storyboard));
+  assert.match(prompt, /a storyboard \(animation "kod"\) with 2 moments, 1 sketched, 1 waiting on a reply/);
+  assert.match(prompt, /opora_read\.py drawing --project p1 --workspace draft --layer c1 --raw/);
+  assert.match(prompt, /--layer sb\/c1\/<momentId>/);
+  assert.doesNotMatch(prompt, /Look at them before you build/, 'the developer’s sketches line stays out of it');
+  assert.doesNotMatch(prompt, /\{\{/);
+  // Only reads: the bridge never writes to the storyboard or a drawing.
+  assert.ok(!f.op.calls.some((c) => c.method === 'POST' && (c.path === '/api/drawing' || c.path === '/api/storyboard')));
+});
+
+test('a developer’s card with sketches is told where they are and how to see them, one without is not', async (t) => {
+  const f = await fixture(t);
+  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
+  const prompt = f.workers[0].prompt!;
+  assert.match(prompt, /On Opora this card has a drawing of 2 elements \(1 pasted image\) in the card's own Kreslení layer\. Look at them before you build/);
+  assert.ok(prompt.includes(oporaCardViews(f.url, 'p1', 'draft', 'c2').drawing));
+  assert.match(prompt, /opora_read\.py drawing --project p1 --workspace draft --layer c2 --raw/);
+  assert.doesNotMatch(prompt, /design card|mode=storyboard/);
+  assert.doesNotMatch(prompt, /\{\{/);
+  f.bridge.onWorkerGone(f.workers[0].id);
+  f.bridge.link('other');
+  await f.bridge.repoll();
+  assert.equal(await f.bridge.take('c9', 'Ana'), undefined);
+  assert.doesNotMatch(f.workers[1].prompt!, /On Opora this card has|Look at them/);
+  assert.match(f.workers[1].prompt!, /end your turn\.$/);
 });

@@ -6,6 +6,7 @@ import type { DeskLabel } from '../../shared/floorplan.js';
 import type { OporaCard, OporaRun, OporaState, WorkerInfo } from '../../shared/protocol.js';
 import { OporaClient, OporaError } from './client.js';
 import { oporaProcess } from './process.js';
+import { describeSketches, oporaCardViews, readSketches, sketchesLine } from './sketches.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
 export interface BridgeFloor {
@@ -40,10 +41,6 @@ const LEASE_TTL = 900;
 const KEEP_GONE = 12;
 /** Sectors read each poll, at most. */
 const MAX_SECTORS = 40;
-
-const DESIGN_NOTE = `
-
-This is a design card: you're one of the office's designers. Work from the design the brief links to (Claude Design artifacts, storyboards, drawings): build the screens as real UI in the app's own components and styles, cover the states (empty, loading, error), light and dark, and phone width, and take screenshots with a headless browser for the evidence. Use the frontend-design skill if it's installed.`;
 
 /**
  * The 🧭 Opora Control Center's link to Opora Canvas, one for each floor. Opora is where the work is
@@ -151,16 +148,19 @@ export class OporaBridge {
     } catch (err) {
       return err instanceof OporaError && err.status === 409 ? `Someone else holds “${card.name}” on Opora` : (err as Error).message;
     }
+    // What the person sketched for the card (its drawing, its storyboard), and the Opora pages that show it.
+    const sketches = await readSketches(this.client, project.id, workspace, card.id);
+    const views = oporaCardViews(this.state.url, project.id, workspace, card.id);
+    const where = { node: card.id, base: this.state.url, project: project.id, workspace };
+    const design = card.group === 'design' ? fillPrompt(this.events.prompt('opora.design'), { ...where, card: card.name, ...views, found: describeSketches(sketches) }) : '';
     const prompt = fillPrompt(this.events.prompt('opora.card'), {
+      ...where,
       card: card.name,
       sector: card.sectorName ?? '—',
-      node: card.id,
-      base: this.state.url,
-      project: project.id,
-      workspace,
       agent,
       token: lease.token,
-      design: card.group === 'design' ? DESIGN_NOTE : '',
+      sketches: design ? '' : sketchesLine(sketches, views, project.id, workspace, card.id),
+      design,
     });
     const seated = this.floor.seat(desk, by, prompt, owner);
     if (typeof seated === 'string') {

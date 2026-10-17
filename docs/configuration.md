@@ -74,6 +74,21 @@ The planning room links each floor to [Opora Canvas](features.md#opora-canvas), 
 
 A floor is linked to the Opora project whose folder is that floor's checkout (Opora's local or git project for the same folder). When no project's folder is the floor's, or you want another one, pick the project in the 🛰️ Opora window's **Linked to** list; *— by folder —* goes back to matching by folder. The choice is the floor's, for everyone on it, and it can't change while the office is on cards of the project it's linked to. If the chosen project is deleted on Opora, the floor falls back to the folder's (and the window says so). The office keeps the choice and what it took from Opora in the floor's `.agent-office/opora.json`, the lease tokens included.
 
+### Designers
+
+Cards on Opora's design pipeline go to the designers' desks, and their brief has them read what the person sketched (drawings, storyboards, attachments) and build it. They work with what the worker's Claude Code has, and do without what it doesn't:
+
+- **The opora-control-center skill**, for reading the card: `opora_read.py node-brief --raw`, `drawing --layer <card id>` (and `sb/<card id>/<moment id>` for a storyboard moment's sketch) and `drawing-file --id <fileId> --out <file>.png` for the images in them.
+- **The chrome-devtools MCP**, to open the card's drawing (`?…&mode=drawing&layer=<card id>`) and storyboard (`?…&mode=storyboard&node=<card id>`) on Opora in a headless browser and screenshot them, and to screenshot their own work. Opora has to be on the same machine (it only answers on loopback).
+- **The frontend-design and ui-theme-designer skills** (Claude Code plugins), for building the screens and their tokens and themes.
+- **The claude-design MCP** (optional), to read a Claude Design artifact a card links to. Add it once for your user, then authenticate it in an interactive Claude Code session with `/mcp` (and run `/design-consent` if it refuses):
+
+  ```bash
+  claude mcp add --scope user --transport http claude-design https://api.anthropic.com/v1/design/mcp
+  ```
+
+  Until it's connected, designers work from the sketches alone.
+
 ### Opora full screen inside the office
 
 **O** at the boss's chair (and **⛶ Open Opora full screen** in the 🛰️ Opora window) opens Opora inside the office, in a frame over the whole screen. Opora refuses to be framed until you list the office's address on Opora's side, in its `opora.local.toml`:

@@ -78,6 +78,19 @@ export class OporaClient {
     return this.get('/api/desktop-v3/frontier', { project, workspace, ...(nodeId ? { nodeId } : {}) });
   }
 
+  /** One drawing layer's Excalidraw scene: a card's or sector's own (its id), or a storyboard moment's (`sb/<card>/<moment>`). */
+  async drawing(project: string, workspace: string, layer: string): Promise<{ elements: Record<string, unknown>[] }> {
+    const d = await this.get<{ scene?: { elements?: unknown } }>('/api/drawing', { project, workspace, layer });
+    const elements = Array.isArray(d.scene?.elements) ? (d.scene!.elements as Record<string, unknown>[]) : [];
+    return { elements: elements.filter((e) => e && typeof e === 'object' && !e.isDeleted) };
+  }
+
+  /** A card's storyboard, or null when it has none. */
+  async storyboard(project: string, workspace: string, nodeId: string): Promise<Record<string, unknown> | null> {
+    const s = await this.get<{ storyboard?: unknown }>('/api/storyboard', { project, workspace, nodeId });
+    return s.storyboard && typeof s.storyboard === 'object' ? (s.storyboard as Record<string, unknown>) : null;
+  }
+
   async claim(project: string, workspace: string, nodeId: string, owner: string, ttlSeconds: number): Promise<Lease> {
     const r = await this.post<{ token?: unknown; expiresAt?: unknown }>('/api/desktop-v3/lease', { project, workspace, nodeId, op: 'claim', owner, ttlSeconds });
     if (typeof r.token !== 'string' || !r.token) throw new OporaError(0, 'Opora gave no lease token');
