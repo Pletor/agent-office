@@ -16,8 +16,11 @@ export type DecorClientMsg =
   | { t: 'decor.remove'; id: string };
 
 export type JukeboxClientMsg =
-  /** Put a tune on the jukebox (a JUKEBOX_TUNES id), or a stream; with neither, turn it back on. */
-  | { t: 'jukebox.play'; track?: string; url?: string }
+  /**
+   * Put a tune on the jukebox (a JUKEBOX_TUNES id), a stream, or a song someone uploaded (`file`, the name the
+   * upload came back with); with none of them, turn it back on.
+   */
+  | { t: 'jukebox.play'; track?: string; url?: string; file?: string }
   /** On to the next tune. */
   | { t: 'jukebox.skip' }
   | { t: 'jukebox.stop' };

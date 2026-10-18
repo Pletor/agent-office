@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { JUKEBOX_TUNES, STREAM, checkStreamUrl, trackTitle, tuneById, type JukeboxState } from '../shared/jukebox.js';
+import { JUKEBOX_TUNES, STREAM, checkJukeboxUrl, trackTitle, tuneById, type JukeboxState } from '../shared/jukebox.js';
 
 interface Saved {
   on: boolean;
@@ -37,7 +37,7 @@ export class Jukebox {
   /** Puts on a tune, a stream, or (with neither) whatever it had. Says whether anything changed, or why it can't. */
   play(input: { track?: unknown; url?: unknown }, by: string): { changed: boolean } | { error: string } {
     if (input.url !== undefined && input.url !== '') {
-      const u = checkStreamUrl(input.url);
+      const u = checkJukeboxUrl(input.url);
       if ('error' in u) return u;
       this.set({ on: true, track: STREAM, url: u.url, by });
     } else if (input.track !== undefined) {
@@ -72,7 +72,7 @@ export class Jukebox {
     if (!existsSync(this.file)) return;
     try {
       const s = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Saved>;
-      const url = s.track === STREAM ? checkStreamUrl(s.url) : undefined;
+      const url = s.track === STREAM ? checkJukeboxUrl(s.url) : undefined;
       if (s.track === STREAM ? !url || 'error' in url : typeof s.track !== 'string' || !tuneById(s.track)) return;
       this.s = {
         on: s.on === true,
