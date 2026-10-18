@@ -31,7 +31,7 @@ export interface PlanningEvents {
   /** A prompt's text as the office has it now (rewritten in ⚙️ Settings, or the default). */
   prompt(id: PromptId): string;
   /** Where Opora is, and the floor's project and workspace on it once it's linked (see opora/bridge.ts). */
-  opora?(): { base: string; project?: string; workspace?: string; focus?: string };
+  opora?(): { base: string; project?: string; name?: string; workspace?: string; focus?: string };
 }
 
 export interface PlanRequest {
@@ -94,7 +94,7 @@ export class PlanningRoom {
     const title = planTitle(goal, req.title || (mode === 'router' ? 'Routing the Opora cards' : undefined));
     const file = this.freeFile(title);
     mkdirSync(path.join(this.dir, PLANS_DIR), { recursive: true });
-    const prompt = fillPrompt(this.events.prompt(MODE_PROMPT[mode]), { goal, file: path.join(this.dir, file), base: opora?.base, project: opora?.project, workspace: opora?.workspace, focus: opora?.focus ? `Stay inside what the cell works on (switched at the 🎚️ switchboard): ${opora.focus}. Read, plan and route only there.` : '' });
+    const prompt = fillPrompt(this.events.prompt(MODE_PROMPT[mode]), { goal, file: path.join(this.dir, file), base: opora?.base, project: opora?.project, name: opora?.name ?? opora?.project, workspace: opora?.workspace, focus: opora?.focus ? `Stay inside what the cell works on (switched at the 🎚️ switchboard): ${opora.focus}. Read, plan and route only there.` : '' });
     // Planning onto the canvas, the planner gets 🔬 REA when it's on, to take a reference app apart first (see rea/).
     const seat = (brief: string) => this.workers.seat(by, brief, req.provider, req.model, req.effort, owner);
     const seated = mode === 'opora' ? seatForOpora(() => seat(withReaBrief(prompt, this.events.prompt))) : seat(prompt);

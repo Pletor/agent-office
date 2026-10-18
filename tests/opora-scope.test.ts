@@ -66,6 +66,12 @@ test('the planner is told to stay in the focus, and nothing extra with none', ()
   const vars = { goal: 'Fix the animation', file: 'f.md', base: 'http://o', project: 'p', workspace: 'w' };
   const told = fillPrompt(PROMPTS['planning.opora'].text, { ...vars, focus: 'Stay inside: Vývoj › Aplikace' });
   assert.match(told, /Stay inside: Vývoj › Aplikace/);
+  // It works through Opora on the project it's given, without searching the repository for it.
+  const named = fillPrompt(PROMPTS['planning.opora'].text, { ...vars, name: 'Tajemství opory', focus: '' });
+  assert.match(named, /project Tajemství opory \(p\), workspace w/);
+  assert.match(named, /Never search the repository/);
+  assert.match(named, /in frontier/);
+  assert.doesNotMatch(named, /\{\{\w+\}\}/);
   const whole = fillPrompt(PROMPTS['planning.opora'].text, { ...vars, focus: '' });
   assert.doesNotMatch(whole, /\{\{focus\}\}|Stay inside/);
   assert.match(fillPrompt(PROMPTS['planning.router'].text, { ...vars, focus: 'Stay inside: X' }), /Stay inside: X/);

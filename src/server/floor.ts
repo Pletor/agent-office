@@ -303,7 +303,7 @@ export class Floor {
         prompt: (id) => ctx.prompts.text(id),
         opora: () => {
           const o = this.opora.view();
-          return { base: o.url, project: o.project?.id, workspace: o.workspace ?? undefined, focus: this.opora.focusLine() };
+          return { base: o.url, project: o.project?.id, name: o.project?.name, workspace: o.workspace ?? undefined, focus: this.opora.focusLine() };
         },
       },
     );
