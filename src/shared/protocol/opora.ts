@@ -98,6 +98,14 @@ export interface OporaState {
   runs: OporaRun[];
   /** Take free cards by itself, up to `maxRuns` at once. */
   autopilot: boolean;
+  /**
+   * Hand the orchestrator's cards out as they come: a card that becomes ready on the canvas while the
+   * planner at the Opora Control Center's table is on a plan onto Opora is taken at once (up to
+   * `maxRuns`), by a worker of the department it belongs to, who fetches it from the cell's glass.
+   */
+  handOut: boolean;
+  /** The orchestrator's cards still waiting for a department (a desk free, room under the limit). */
+  handOutWaiting: string[];
   maxRuns: number;
   checkedAt: number;
   /** The office knows where Opora's repository is, so it can start it (AGENT_OFFICE_OPORA_DIR). */
@@ -118,6 +126,8 @@ export type OporaClientMsg =
   /** Take a free card: claim its lease and seat a worker for it. */
   | { t: 'opora.take'; cardId: string }
   | { t: 'opora.autopilot'; on: boolean; maxRuns?: number }
+  /** Hand the orchestrator's cards out to the departments as they come, or not. */
+  | { t: 'opora.handout'; on: boolean }
   /** Link the floor to this Opora project, or (null) back to the one whose folder is the floor's. */
   | { t: 'opora.link'; projectId: string | null }
   /** Read this workspace of the linked project, or (null) the default one (`main`, else the first). */

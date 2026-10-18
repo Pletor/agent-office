@@ -28,6 +28,11 @@ export const oporaHandlers = {
     // The cards it takes run on the sign-ins of whoever put it on.
     ctx.withSignIn(c, ctx.claudeFor(floor.workers.officeDefault.provider), () => floor.opora.setAutopilot(true, max, c.peer.name, c.accountId));
   },
+  'opora.handout'(ctx, c, msg) {
+    const floor = here(ctx, c);
+    if (!floor) return;
+    floor.opora.setHandOut(msg.on === true, c.peer.name);
+  },
   'opora.link'(ctx, c, msg) {
     const floor = here(ctx, c);
     if (!floor) return;

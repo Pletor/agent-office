@@ -23,6 +23,8 @@ export const EMPTY_OPORA: OporaState = {
   activity: [],
   runs: [],
   autopilot: false,
+  handOut: true,
+  handOutWaiting: [],
   maxRuns: OPORA_LIMITS.defaultRuns,
   checkedAt: 0,
   canStart: false,

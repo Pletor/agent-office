@@ -13,8 +13,11 @@ export const PLANNING_ROOM = { minX: 2.4, maxX: 7.6, minZ: 3, maxZ: 8, height: 2
 export const PLANNING_TABLE = { x: 4.8, z: 5.5, width: 1.3, depth: 2.4, height: 0.76 } as const;
 /** The board the plan goes up on: standing on its feet by the west wall, facing the table (+x). `bottom` is its lower edge. */
 export const PLANNING_BOARD = { x: 2.75, z: 5.5, width: 3.4, height: 1.9, bottom: 0.6 } as const;
-/** Where a worker seated for a card off the Opora canvas stands at the board to fetch it, before it walks to its desk. */
-export const BOARD_PICKUP: [number, number] = [PLANNING_BOARD.x + 0.8, PLANNING_BOARD.z];
+/**
+ * Where a worker seated for a card off the Opora canvas fetches it: in front of the 🛰️ Opora screen on
+ * the outside of the room's north glass, where the cards are up. It walks there from its desk and back.
+ */
+export const BOARD_PICKUP: [number, number] = [(PLANNING_ROOM.minX + PLANNING_ROOM.maxX) / 2, PLANNING_ROOM.minZ - 1];
 
 /** The planner's chair, at the table's east end, facing the board. Only the planning room seats a worker there. */
 export const PLANNER_SEAT: DeskDef = {

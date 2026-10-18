@@ -131,6 +131,8 @@ export class Floor {
   readonly planning: PlanningRoom;
   /** The Opora Control Center's link to Opora Canvas, which carries the canvas's cards out (see opora/bridge.ts). */
   readonly opora: OporaBridge;
+  /** How the planning room's plan stood at its last update, to see the orchestrator end a turn. */
+  private planStatus?: string;
   /** The bookshelf: the project's Markdown files (see docs.ts). */
   readonly docs: Docs;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
@@ -297,7 +299,13 @@ export class Floor {
       },
       this.queue,
       {
-        update: (state) => ctx.emit(this, { t: 'planning', state }),
+        update: (state) => {
+          ctx.emit(this, { t: 'planning', state });
+          // The orchestrator ended a turn (its cards are on the canvas): read the canvas now, to hand them out.
+          const status = state.current?.status;
+          if (status !== this.planStatus && state.current?.mode !== 'file') void this.opora?.repoll();
+          this.planStatus = status;
+        },
         toast: (text, level) => ctx.toast(this, text, level),
         hiringPaused: () => ctx.ledger.hiringPaused,
         prompt: (id) => ctx.prompts.text(id),
@@ -319,6 +327,10 @@ export class Floor {
         desks: () => builtDesks(this.plan.wing).map((d) => d.id),
         deskOccupied: (deskId) => this.workers.deskOccupied(deskId),
         labels: () => this.plan.state().labels,
+        orchestrator: () => {
+          const p = this.planning.state().current;
+          return p && (p.mode === 'opora' || p.mode === 'router') ? { by: p.by, ...(p.owner ? { owner: p.owner } : {}) } : undefined;
+        },
       },
       dataDir,
       {

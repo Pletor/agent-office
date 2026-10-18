@@ -107,6 +107,7 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
       h(
         'section.opora-auto',
         {},
+        h('label.opora-toggle', {}, h('input', { type: 'checkbox', checked: s.handOut, onchange: (e: Event) => net.send({ t: 'opora.handout', on: (e.target as HTMLInputElement).checked }) }), h('b', {}, '🧭 Hand out'), h('span.muted', {}, `the orchestrator's cards go to their department as it lays them out${s.handOutWaiting.length ? ` · ${s.handOutWaiting.length} waiting` : ''}`)),
         h('label.opora-toggle', {}, h('input', { type: 'checkbox', checked: s.autopilot, onchange: (e: Event) => net.send({ t: 'opora.autopilot', on: (e.target as HTMLInputElement).checked, maxRuns: Number(max.value) }) }), h('b', {}, '🤖 Autopilot'), h('span.muted', {}, 'takes ready cards that have a pipeline, by itself')),
         max,
       ),

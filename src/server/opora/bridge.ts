@@ -23,6 +23,12 @@ export interface BridgeFloor {
   desks(): string[];
   deskOccupied(deskId: string): boolean;
   labels(): Record<string, DeskLabel>;
+  /**
+   * The orchestrator at the Opora Control Center's table while it's on a plan onto Opora (planning
+   * onto the canvas or routing it, until the room is cleared): who asked for it, whose sign-ins its
+   * cards' workers run on.
+   */
+  orchestrator?(): { by: string; owner?: string } | undefined;
 }
 
 export interface BridgeEvents {
@@ -66,6 +72,11 @@ export class OporaBridge {
   private chosenWorkspace?: string;
   /** What the cell works on, as switched at the 🎚️ switchboard (see shared/opora-scope.ts). */
   private focus: string[] = [];
+  /** The cards that were ready at the last read, of the project and workspace in `readyOf`, to see which turn ready next. */
+  private ready?: Set<string>;
+  private readyOf = '';
+  /** The orchestrator's cards waiting to be handed out, with who asked for its plan. */
+  private handed = new Map<string, { by: string; owner?: string; warned?: boolean }>();
   /** What the agents did on the canvas lately, read more often than the cards, for the live canvas. */
   private live: ActivityFeed;
   /** The project whose folder is this floor's checkout, as of the last read. */
@@ -96,7 +107,7 @@ export class OporaBridge {
 
   view(): OporaState {
     const focus = this.state.scope.length ? cleanFocus(this.state.scope, this.focus) : [...this.focus];
-    return { ...this.state, focus, activity: this.live.list(), runs: this.runs.map(({ token: _t, owner: _o, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
+    return { ...this.state, focus, activity: this.live.list(), handOutWaiting: [...this.handed.keys()], runs: this.runs.map(({ token: _t, owner: _o, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
   }
 
   /** Reads the canvas again: the floor's Opora project, its sectors and their cards. */
@@ -184,6 +195,7 @@ export class OporaBridge {
         void this.letGo(run);
       }
       await this.read();
+      if (this.state.handOut) await this.handOut();
       if (this.state.autopilot) await this.autopilot();
     } finally {
       this.changed();
@@ -264,6 +276,14 @@ export class OporaBridge {
     if (on) void this.poll();
   }
 
+  setHandOut(on: boolean, by: string) {
+    this.state.handOut = on;
+    if (!on) this.handed.clear();
+    this.changed();
+    this.events.toast(on ? `🧭 ${by} has the orchestrator's cards handed out to the departments as they come` : `🧭 ${by} stopped handing the orchestrator's cards out: take them by hand`, 'info');
+    if (on) void this.poll();
+  }
+
   onWorker(info: WorkerInfo) {
     const run = this.runs.find((r) => r.workerId === info.id && r.state !== 'gone');
     if (!run) return;
@@ -339,9 +359,51 @@ export class OporaBridge {
           cards.push(c);
         }
       }
+      this.noteReady(`${project.id}/${workspace}`, cards);
       Object.assign(s, { connected: true, error: [lost, gone, this.focusLost()].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
     } catch (err) {
       Object.assign(s, { connected: true, error: (err as Error).message, checkedAt: Date.now() });
+    }
+  }
+
+  /**
+   * Marks the cards that turned ready since the last read as the orchestrator's while it's on a plan
+   * onto Opora: it laid them out, or routed them. The first read (or one of another workspace) only
+   * notes what's ready, so the cards that were there before aren't taken for its.
+   */
+  private noteReady(of: string, cards: OporaCard[]) {
+    const now = new Set(cards.filter((c) => c.status === 'frontier').map((c) => c.id));
+    const orchestrator = this.floor.orchestrator?.();
+    if (this.ready && this.readyOf === of && orchestrator) for (const id of now) if (!this.ready.has(id)) this.handed.set(id, { ...orchestrator });
+    if (this.readyOf !== of) this.handed.clear();
+    this.ready = now;
+    this.readyOf = of;
+  }
+
+  /**
+   * Hands the orchestrator's ready cards out, each to a worker of its department (see deskFor), while
+   * there's room under the limit; a card someone else took, or that left the canvas, is let go.
+   */
+  private async handOut() {
+    for (const [id, who] of [...this.handed]) {
+      const card = this.state.cards.find((c) => c.id === id);
+      if (!card || card.status !== 'frontier' || this.runs.some((r) => r.cardId === id && r.state !== 'gone')) {
+        if (!card || card.status === 'claimed' || card.status === 'closed') this.handed.delete(id);
+        continue;
+      }
+      if (this.runs.filter((r) => r.state !== 'gone').length >= this.state.maxRuns) return;
+      const err = await this.take(id, who.by, who.owner);
+      if (!err) {
+        this.handed.delete(id);
+        continue;
+      }
+      // Outside the focus it's not the cell's to do; no desk free is for the next read.
+      if (/outside what the cell works on/.test(err)) this.handed.delete(id);
+      else {
+        if (!who.warned) this.events.toast(`🧭 The orchestrator's “${card.name}” waits for a department: ${err}`, 'warn');
+        who.warned = true;
+        return;
+      }
     }
   }
 
@@ -399,7 +461,7 @@ export class OporaBridge {
 
   private persist() {
     try {
-      writeFileSync(this.statePath, JSON.stringify({ runs: this.runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner, linkedTo: this.chosen, workspace: this.chosenWorkspace, focus: this.focus }, null, 2), { mode: 0o600 });
+      writeFileSync(this.statePath, JSON.stringify({ runs: this.runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner, linkedTo: this.chosen, workspace: this.chosenWorkspace, focus: this.focus, handOut: this.state.handOut }, null, 2), { mode: 0o600 });
     } catch {
       // a full disk loses the bridge's state, not the office
     }
@@ -408,10 +470,11 @@ export class OporaBridge {
   private restore() {
     try {
       if (!existsSync(this.statePath)) return;
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string; workspace?: string; focus?: unknown };
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string; workspace?: string; focus?: unknown; handOut?: boolean };
       if (Array.isArray(saved.runs)) this.runs = saved.runs.filter((r) => r && typeof r.cardId === 'string');
       for (const r of this.runs) if (r.state !== 'gone' && r.workerId) markForOpora(r.workerId);
       this.state.autopilot = saved.autopilot === true;
+      this.state.handOut = saved.handOut !== false;
       if (typeof saved.maxRuns === 'number') this.state.maxRuns = Math.max(1, Math.min(OPORA_LIMITS.maxRuns, saved.maxRuns));
       this.autopilotBy = typeof saved.autopilotBy === 'string' ? saved.autopilotBy : '';
       this.autopilotOwner = typeof saved.autopilotOwner === 'string' ? saved.autopilotOwner : undefined;

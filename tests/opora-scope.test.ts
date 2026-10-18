@@ -84,27 +84,25 @@ test('what agents do on the canvas is told in words, a refused write too', () =>
   assert.equal(describeActivity('DELETE', '/api/odd', 200), 'DELETE odd');
 });
 
-test('a worker fetching a card walks from the planning room’s board out of its door to its desk', () => {
-  assert.ok(inPlanningRoom(...BOARD_PICKUP));
-  const desk = DESKS.find((d) => !d.room && !d.planner && !d.station && !d.beanbag && !d.wing)!;
-  const way = officeNav(0).wayTo(BOARD_PICKUP, desk);
-  assert.ok(way.length > 2);
-  // Out through the doorway in the east glass, not through the glass.
-  const R = PLANNING_ROOM;
-  const out = way.findIndex((p) => !inPlanningRoom(p[0], p[1]));
-  assert.ok(out > 0);
-  const [x0, z0] = way[out - 1];
-  const [x1, z1] = way[out];
-  const t = (R.maxX - x0) / (x1 - x0);
-  const z = z0 + t * (z1 - z0);
-  assert.ok(x1 > R.maxX - 0.01 && z > R.door.z0 && z < R.door.z1, `leaves at z=${z.toFixed(2)}`);
+test('a worker fetching a card walks from its desk to the 🛰️ screen outside the cell’s glass and back, never into the room', () => {
+  assert.ok(!inPlanningRoom(...BOARD_PICKUP));
+  assert.ok(BOARD_PICKUP[1] < PLANNING_ROOM.minZ, 'on the outside of the north glass');
+  const nav = officeNav(0);
+  for (const desk of DESKS.filter((d) => !d.room && !d.planner && !d.station && !d.beanbag && !d.wing).slice(0, 6)) {
+    const there = nav.wayFrom(desk, BOARD_PICKUP);
+    const back = nav.wayTo(BOARD_PICKUP, desk);
+    assert.deepEqual(there.at(-1), BOARD_PICKUP, `${desk.id} gets to the screen`);
+    assert.ok(back.length > 1);
+    assert.ok([...there, ...back].every(([x, z]) => !inPlanningRoom(x, z)), `${desk.id} stays out of the room`);
+  }
 });
 
 /** An Opora with the cut-down architecture, its cards free, and an activity log. */
 async function fakeOpora(t: { after(fn: () => void): void }) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-scope-'));
   const view = NODES.map((n) => ({ id: n.id, kind: n.kind, name: n.name, parentId: n.parentId, ...(n.env ? { site: { environments: [{ name: n.env, host: n.host }] } } : {}) }));
-  const cards = NODES.filter((n) => n.kind === 'node').map((n) => ({ id: n.id, name: n.name, pipeline: { profile: 'code' } }));
+  const cards: { id: string; name: string; pipeline: { profile: string } }[] = NODES.filter((n) => n.kind === 'node').map((n) => ({ id: n.id, name: n.name, pipeline: { profile: 'code' } }));
+  let orchestrator: { by: string; owner?: string } | undefined;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
     const send = (data: unknown) => {
@@ -116,7 +114,7 @@ async function fakeOpora(t: { after(fn: () => void): void }) {
       if (url.pathname === '/') return send({});
       if (url.pathname === '/api/bootstrap') return send({ projects: [{ id: 'p1', name: 'Tajemství opory', sourcePath: dir }] });
       if (url.pathname === '/api/project-workspaces') return send({ workspaces: [{ id: 'main', label: 'main' }] });
-      if (url.pathname === '/api/view') return send({ graph: { nodes: view } });
+      if (url.pathname === '/api/view') return send({ graph: { nodes: [...view, ...cards.filter((c) => !view.some((n) => n.id === c.id)).map((c) => ({ id: c.id, kind: 'node', name: c.name, parentId: 'oracle' }))] } });
       if (url.pathname === '/api/desktop-v3/frontier') return send({ frontier: url.searchParams.get('nodeId') ? cards : [] });
       if (url.pathname === '/api/activity-log') return send({ entries: [{ id: 7, at: new Date().toISOString(), actor: 'agent', agent: 'planner-1', method: 'POST', path: '/api/canvas-plan', nodeIds: ['namiru'], status: 200 }] });
       if (url.pathname === '/api/desktop-v3/lease') return send({ token: 'tok', expiresAt: '2030-01-01T00:00:00Z' });
@@ -138,6 +136,7 @@ async function fakeOpora(t: { after(fn: () => void): void }) {
     desks: () => ['desk-1', 'desk-2', 'desk-3'],
     deskOccupied: (d) => workers.some((w) => w.deskId === d),
     labels: () => ({}),
+    orchestrator: () => orchestrator,
   };
   const make = () => new OporaBridge(floor, dir, { update: (s) => void (state = s), toast: () => undefined, prompt: (id) => PROMPTS[id].text }, `http://127.0.0.1:${(server.address() as AddressInfo).port}`);
   const bridges: OporaBridge[] = [];
@@ -148,6 +147,8 @@ async function fakeOpora(t: { after(fn: () => void): void }) {
   });
   return {
     workers,
+    cards,
+    orchestrate: (who: { by: string; owner?: string } | undefined) => void (orchestrator = who),
     state: () => state!,
     async open() {
       const b = make();
@@ -191,6 +192,36 @@ test('a focus that left the architecture takes nothing, rather than the whole pr
   // The whole project again, by hand: then it takes.
   assert.equal(bridge.switchFocus(null, false, false, 'Ana'), undefined);
   assert.equal(await bridge.take('chat', 'Ana'), undefined);
+});
+
+test('cards the orchestrator lays out go to their department at once, and cards that were there before stay put', async (t) => {
+  const f = await fakeOpora(t);
+  const bridge = await f.open();
+  assert.equal(f.state().handOut, true, 'on by default');
+  // Ready cards that were on the canvas before the orchestrator sat down aren't its.
+  f.orchestrate({ by: 'Ana', owner: 'acct-ana' });
+  await bridge.poll();
+  assert.equal(f.workers.length, 0);
+  // It lays out two cards under Oracle: both are handed out, on Ana's plan.
+  f.cards.push({ id: 'anim', name: 'Fix the Na míru animation', pipeline: { profile: 'design' } }, { id: 'api', name: 'Stream the answer', pipeline: { profile: 'code' } });
+  await bridge.poll();
+  assert.deepEqual(f.workers.map((w) => [w.prompt?.match(/"([^"]+)" in the sector/)?.[1], w.createdBy]), [['Fix the Na míru animation', 'Ana'], ['Stream the answer', 'Ana']]);
+  assert.deepEqual(f.state().handOutWaiting, []);
+  // With the orchestrator gone, a new card waits for a person (or the autopilot).
+  f.orchestrate(undefined);
+  f.cards.push({ id: 'later', name: 'Later card', pipeline: { profile: 'code' } });
+  await bridge.poll();
+  assert.equal(f.workers.length, 2);
+});
+
+test('with hand-out off, the orchestrator’s cards wait for a person', async (t) => {
+  const f = await fakeOpora(t);
+  const bridge = await f.open();
+  bridge.setHandOut(false, 'Ana');
+  f.orchestrate({ by: 'Ana' });
+  f.cards.push({ id: 'anim', name: 'Fix the animation', pipeline: { profile: 'design' } });
+  await bridge.poll();
+  assert.equal(f.workers.length, 0);
 });
 
 test('what the agents did on the canvas comes along for the live board', async (t) => {
