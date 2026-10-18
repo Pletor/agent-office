@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { FLOOR, WING, beanbagsOut, deskBuilt, vacantSeats, wingMinZ, wingRowZ } from '../../../shared/layout';
 import { OFFICE_PLAN } from '../../../shared/maps';
 import { MEETING_PATTERNS } from '../../../shared/meetings';
+import { BOARD_PICKUP } from '../../../shared/planning';
 import type { WorkerInfo, WorkerTask } from '../../../shared/protocol';
 import { workerPr } from '../../../shared/status';
 import type { Ctx } from '../../core/context';
@@ -133,6 +134,11 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
         model.setPropSpot(model.root.worldToLocal(desk.laptopAnchor.localToWorld(beside)));
         // Called to a meeting just now: out of the elevator and over to the table, one after another.
         if (desk.def.room && !seatedAlready) arrivals.add(model, desk);
+        // Seated for a card off the Opora canvas just now: it gets up from its desk, fetches the card from the 🛰️ screen on the cell's glass, and comes back to work on it.
+        else if (w.via === 'opora' && !seatedAlready && !court && plan().style === 'office') {
+          const there = world.nav.wayFrom(desk.def, BOARD_PICKUP);
+          arrivals.add(model, desk, [...there, ...world.nav.wayTo(BOARD_PICKUP, desk.def)], { at: there.length - 1, face: 0 });
+        }
         // In the castle, a worker at the tables gets up and walks about (see Court): a new one runs in to its seat.
         else if (court && inCourt(w)) court.add(w.id, model, desk, seatedAlready ? undefined : cameFrom(w));
         const laptop = new Laptop(world.device);

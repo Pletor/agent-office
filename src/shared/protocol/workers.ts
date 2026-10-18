@@ -100,9 +100,10 @@ export interface WorkerInfo {
   workingSince?: number;
   /**
    * Sent out by a map's herald (the castle's Hand of the King), so every browser has it run to its seat
-   * from beside them; or seated by the planning room, as its planner (see server/planning.ts).
+   * from beside them; seated by the planning room, as its planner (see server/planning.ts); or seated for
+   * a card off the Opora canvas, so it fetches the card from the planning room's board first.
    */
-  via?: 'herald' | 'planning';
+  via?: 'herald' | 'planning' | 'opora';
 }
 
 /** Where the branch of a worker whose worktree was deleted still is (see WorkerInfo.lost). */

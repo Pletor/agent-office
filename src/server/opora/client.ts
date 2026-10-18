@@ -1,6 +1,8 @@
 // Talking to Opora Canvas over its HTTP API, from the office's server (never the browser: Opora takes
 // writes only from its own origin, which a server can say it is and a page from the office can't).
 
+import type { CanvasNode } from '../../shared/opora-scope.js';
+
 /** What Opora said when a call didn't go through: its HTTP status (0 when it didn't answer) and its words. */
 export class OporaError extends Error {
   constructor(
@@ -75,11 +77,41 @@ export class OporaClient {
       .map((x) => ({ id: x.id as string, label: typeof x.label === 'string' && x.label.trim() ? x.label.trim().slice(0, 160) : (x.id as string) }));
   }
 
-  /** The canvas: every area, sector and card, with what each sits in. */
-  async nodes(project: string, workspace: string): Promise<{ id: string; kind: string; name: string; parentId: string | null }[]> {
+  /** The canvas: every area, sector and card, with what each sits in, and a sector's site's environment and host. */
+  async nodes(project: string, workspace: string): Promise<CanvasNode[]> {
     const v = await this.get<{ graph?: { nodes?: unknown } }>('/api/view', { project, workspace });
     const nodes = Array.isArray(v.graph?.nodes) ? (v.graph!.nodes as Record<string, unknown>[]) : [];
-    return nodes.map((n) => ({ id: String(n.id ?? ''), kind: String(n.kind ?? ''), name: String(n.name ?? ''), parentId: typeof n.parentId === 'string' ? n.parentId : null })).filter((n) => n.id);
+    return nodes
+      .map((n) => {
+        const site = n.site && typeof n.site === 'object' ? (n.site as { environments?: unknown }) : undefined;
+        const env = Array.isArray(site?.environments) ? (site.environments[0] as { name?: unknown; host?: unknown } | undefined) : undefined;
+        return {
+          id: String(n.id ?? ''),
+          kind: String(n.kind ?? ''),
+          name: String(n.name ?? '').slice(0, 120),
+          parentId: typeof n.parentId === 'string' ? n.parentId : null,
+          ...(typeof env?.name === 'string' && env.name.trim() ? { env: env.name.trim().slice(0, 60) } : {}),
+          ...(typeof env?.host === 'string' && env.host.trim() ? { host: env.host.trim().slice(0, 120) } : {}),
+        };
+      })
+      .filter((n) => n.id);
+  }
+
+  /** What agents did on the canvas lately, newest first (Opora logs every write to its API). */
+  async activity(project: string, workspace: string, limit: number): Promise<{ id: number; at: string; agent: string; method: string; path: string; nodeIds: string[]; status: number }[]> {
+    const a = await this.get<{ entries?: unknown }>('/api/activity-log', { project, workspace, actor: 'agent', limit: String(limit) });
+    const rows = Array.isArray(a.entries) ? (a.entries as Record<string, unknown>[]) : [];
+    return rows
+      .filter((e) => e && typeof e.id === 'number')
+      .map((e) => ({
+        id: e.id as number,
+        at: typeof e.at === 'string' ? e.at : '',
+        agent: typeof e.agent === 'string' ? e.agent.slice(0, 80) : 'agent',
+        method: typeof e.method === 'string' ? e.method : '',
+        path: typeof e.path === 'string' ? e.path : '',
+        nodeIds: Array.isArray(e.nodeIds) ? e.nodeIds.filter((x): x is string => typeof x === 'string').slice(0, 8) : [],
+        status: typeof e.status === 'number' ? e.status : 0,
+      }));
   }
 
   /** What's on turn: the root of the canvas, or inside one sector. */

@@ -28,6 +28,11 @@ export const oporaHandlers = {
     // The cards it takes run on the sign-ins of whoever put it on.
     ctx.withSignIn(c, ctx.claudeFor(floor.workers.officeDefault.provider), () => floor.opora.setAutopilot(true, max, c.peer.name, c.accountId));
   },
+  'opora.handout'(ctx, c, msg) {
+    const floor = here(ctx, c);
+    if (!floor) return;
+    floor.opora.setHandOut(msg.on === true, c.peer.name);
+  },
   'opora.link'(ctx, c, msg) {
     const floor = here(ctx, c);
     if (!floor) return;
@@ -49,6 +54,12 @@ export const oporaHandlers = {
     const label = id === null ? 'its default workspace' : (floor.opora.view().workspaces.find((w) => w.id === id)?.label ?? id);
     ctx.toastFloor(floor, `🛰️ ${c.peer.name} set this floor to read ${label} on Opora`);
     void floor.opora.repoll();
+  },
+  'opora.focus'(ctx, c, msg) {
+    const floor = here(ctx, c);
+    if (!floor) return;
+    if (msg.id !== null && (typeof msg.id !== 'string' || !msg.id || msg.id.length > 160)) return ctx.warn(c, 'That isn’t a part of the project’s architecture');
+    ctx.warn(c, floor.opora.switchFocus(msg.id, msg.on === true, msg.only === true, c.peer.name));
   },
   'opora.start'(ctx, c) {
     const floor = here(ctx, c);
