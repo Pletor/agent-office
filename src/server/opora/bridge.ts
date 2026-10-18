@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaAgentName, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
+import { buildScope, cleanFocus, focusLine, inFocus, toggleFocus } from '../../shared/opora-scope.js';
 import { fillPrompt, type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
 import type { OporaCard, OporaRun, OporaState, WorkerInfo } from '../../shared/protocol.js';
 import { forgetForOpora, markForOpora, seatForOpora, withReaBrief } from '../rea/index.js';
 import { OporaClient, OporaError } from './client.js';
+import { ActivityFeed } from './live.js';
 import { oporaProcess } from './process.js';
 import { describeSketches, oporaCardViews, readSketches, sketchesLine } from './sketches.js';
 
@@ -62,6 +64,10 @@ export class OporaBridge {
   private chosen?: string;
   /** The workspace of the linked project someone picked in the window, which wins over `main` while it's still there. */
   private chosenWorkspace?: string;
+  /** What the cell works on, as switched at the 🎚️ switchboard (see shared/opora-scope.ts). */
+  private focus: string[] = [];
+  /** What the agents did on the canvas lately, read more often than the cards, for the live canvas. */
+  private live: ActivityFeed;
   /** The project whose folder is this floor's checkout, as of the last read. */
   private byFolder?: string;
   private client: OporaClient;
@@ -82,13 +88,15 @@ export class OporaBridge {
     this.state = { ...EMPTY_OPORA, url, canStart: oporaProcess.canStart() };
     this.statePath = path.join(dataDir, 'opora.json');
     this.restore();
+    this.live = new ActivityFeed(this.client, () => ({ project: this.state.project?.id, workspace: this.state.workspace ?? undefined }), () => this.events.update(this.view()));
     this.pollTimer = setInterval(() => void this.poll(), POLL_MS);
     this.beatTimer = setInterval(() => void this.heartbeat(), HEARTBEAT_MS);
     void this.poll();
   }
 
   view(): OporaState {
-    return { ...this.state, runs: this.runs.map(({ token: _t, owner: _o, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
+    const focus = this.state.scope.length ? cleanFocus(this.state.scope, this.focus) : [...this.focus];
+    return { ...this.state, focus, activity: this.live.list(), runs: this.runs.map(({ token: _t, owner: _o, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
   }
 
   /** Reads the canvas again: the floor's Opora project, its sectors and their cards. */
@@ -113,8 +121,11 @@ export class OporaBridge {
     const target = projectId ?? this.byFolder;
     const held = this.runs.filter((r) => r.state !== 'gone').length;
     if (held && target !== this.state.project?.id) return `The office is on ${held} card${held === 1 ? '' : 's'} of ${this.state.project?.name ?? 'the linked project'}: let ${held === 1 ? 'it' : 'them'} finish (or send the workers home) before linking the floor to another project`;
-    // Another project has other workspaces: it starts on its default one.
-    if (target !== this.state.project?.id) this.chosenWorkspace = undefined;
+    // Another project has other workspaces and another architecture: it starts on its default one, on the whole of it.
+    if (target !== this.state.project?.id) {
+      this.chosenWorkspace = undefined;
+      this.focus = [];
+    }
     this.chosen = projectId ?? undefined;
     this.changed();
     return undefined;
@@ -129,6 +140,38 @@ export class OporaBridge {
     this.chosenWorkspace = workspaceId ?? undefined;
     this.changed();
     return undefined;
+  }
+
+  /**
+   * Switches one node of what the cell works on: on with everything above it, off with everything
+   * under it, or (`only`) just it; a null id is the whole project. The cell then takes only cards in
+   * the focus, and its planner is told to stay in it. Each switch is applied to the focus as it is
+   * now, so two people switching at once both count.
+   */
+  switchFocus(id: string | null, on: boolean, only: boolean, by: string): string | undefined {
+    const scope = this.state.scope;
+    if (!scope.length) return this.state.error ?? 'The project’s architecture isn’t read yet';
+    if (id !== null && !scope.some((n) => n.id === id)) return 'That isn’t in the project’s architecture any more: look again';
+    this.focus = id === null ? [] : toggleFocus(scope, only ? [] : this.focus, id, on || only);
+    this.changed();
+    const line = focusLine(this.state.scope, this.focus);
+    this.events.toast(line ? `🎚️ ${by} set the cell to work on ${line}` : `🎚️ ${by} set the cell to work on the whole project`, 'info');
+    return undefined;
+  }
+
+  /**
+   * Why the cell takes nothing while it has a focus none of which is in the architecture any more
+   * (the cards were removed or the canvas laid out anew), instead of falling back to the whole project.
+   */
+  private focusLost(): string | undefined {
+    const scope = this.state.scope;
+    if (!this.focus.length || !scope.length || cleanFocus(scope, this.focus).length) return undefined;
+    return 'What the cell works on isn’t in the project’s architecture any more: switch it again at the 🎚️ switchboard';
+  }
+
+  /** The focus in words for a brief, or '' for the whole project. */
+  focusLine(): string {
+    return focusLine(this.state.scope, this.focus);
   }
 
   private async pollOnce(): Promise<void> {
@@ -153,6 +196,9 @@ export class OporaBridge {
     if (!this.state.connected || !project || !workspace) return this.state.error ?? 'Opora isn’t linked to this floor';
     const card = this.state.cards.find((c) => c.id === cardId);
     if (!card) return 'That card isn’t on the canvas any more';
+    const lost = this.focusLost();
+    if (lost) return lost;
+    if (!inFocus(this.state.scope, this.focus, card.id)) return `“${card.name}” is outside what the cell works on: switch it on at the 🎚️ switchboard first`;
     if (card.status !== 'frontier') return `“${card.name}” isn’t free to take (${card.status})`;
     if (this.runs.some((r) => r.cardId === cardId && r.state !== 'gone')) return `The office is already on “${card.name}”`;
     const desk = deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
@@ -241,6 +287,7 @@ export class OporaBridge {
     this.stopped = true;
     clearInterval(this.pollTimer);
     clearInterval(this.beatTimer);
+    this.live.stop();
     this.persist();
   }
 
@@ -249,7 +296,7 @@ export class OporaBridge {
     try {
       await this.client.health();
     } catch (err) {
-      Object.assign(s, { connected: false, embeddable: false, embedOrigins: undefined, error: (err as Error).message, project: null, linkedBy: undefined, projects: [], workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], checkedAt: Date.now() });
+      Object.assign(s, { connected: false, embeddable: false, embedOrigins: undefined, error: (err as Error).message, project: null, linkedBy: undefined, projects: [], workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], scope: [], checkedAt: Date.now() });
       return;
     }
     // Whether Opora lets the office frame it, for O at the boss's chair to open it inside the office.
@@ -269,7 +316,7 @@ export class OporaBridge {
       const lost = this.chosen && !chosen ? `The project this floor was linked to (${this.chosen}) isn't on Opora any more: ${byFolder ? `reading ${byFolder.name}, the one for this floor's folder, instead` : 'pick another'}` : undefined;
       const project = chosen ?? byFolder;
       if (!project) {
-        Object.assign(s, { connected: true, error: lost ?? `No Opora project plans this floor's folder (${this.floor.dir}): pick one in the 🛰️ Opora window, or add the folder in Opora as a local or git project`, project: null, linkedBy: undefined, workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], checkedAt: Date.now() });
+        Object.assign(s, { connected: true, error: lost ?? `No Opora project plans this floor's folder (${this.floor.dir}): pick one in the 🛰️ Opora window, or add the folder in Opora as a local or git project`, project: null, linkedBy: undefined, workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], scope: [], checkedAt: Date.now() });
         return;
       }
       // The workspace someone picked while it's still there, else `main`, else the first; a picked one that's gone says so.
@@ -277,6 +324,8 @@ export class OporaBridge {
       const picked = this.chosenWorkspace ? workspaces.find((w) => w.id === this.chosenWorkspace) : undefined;
       const workspace = picked?.id ?? (workspaces.some((w) => w.id === 'main') ? 'main' : (workspaces[0]?.id ?? 'draft'));
       const gone = this.chosenWorkspace && !picked ? `The workspace this floor was set to (${this.chosenWorkspace}) isn't in ${project.name} on Opora any more: reading ${workspaces.find((w) => w.id === workspace)?.label ?? workspace} instead, or pick another` : undefined;
+      // Another project (its folder's, as the one picked left Opora) has another architecture: the whole of it.
+      if (s.project && s.project.id !== project.id) this.focus = [];
       const nodes = await this.client.nodes(project.id, workspace);
       const byId = new Map(nodes.map((n) => [n.id, n]));
       const isCard = (id: string) => byId.get(id)?.kind === 'node';
@@ -290,7 +339,7 @@ export class OporaBridge {
           cards.push(c);
         }
       }
-      Object.assign(s, { connected: true, error: [lost, gone].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, checkedAt: Date.now() });
+      Object.assign(s, { connected: true, error: [lost, gone, this.focusLost()].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
     } catch (err) {
       Object.assign(s, { connected: true, error: (err as Error).message, checkedAt: Date.now() });
     }
@@ -298,8 +347,9 @@ export class OporaBridge {
 
   /** Takes free cards while there's room under the limit, the routed ones first. */
   private async autopilot() {
+    if (this.focusLost()) return;
     const busy = () => this.runs.filter((r) => r.state !== 'gone').length;
-    const free = this.state.cards.filter((c) => c.status === 'frontier' && c.profile && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone'));
+    const free = this.state.cards.filter((c) => c.status === 'frontier' && c.profile && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone'));
     for (const card of free) {
       if (busy() >= this.state.maxRuns) return;
       const err = await this.take(card.id, this.autopilotBy || 'Autopilot', this.autopilotOwner);
@@ -349,7 +399,7 @@ export class OporaBridge {
 
   private persist() {
     try {
-      writeFileSync(this.statePath, JSON.stringify({ runs: this.runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner, linkedTo: this.chosen, workspace: this.chosenWorkspace }, null, 2), { mode: 0o600 });
+      writeFileSync(this.statePath, JSON.stringify({ runs: this.runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner, linkedTo: this.chosen, workspace: this.chosenWorkspace, focus: this.focus }, null, 2), { mode: 0o600 });
     } catch {
       // a full disk loses the bridge's state, not the office
     }
@@ -358,7 +408,7 @@ export class OporaBridge {
   private restore() {
     try {
       if (!existsSync(this.statePath)) return;
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string; workspace?: string };
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string; workspace?: string; focus?: unknown };
       if (Array.isArray(saved.runs)) this.runs = saved.runs.filter((r) => r && typeof r.cardId === 'string');
       for (const r of this.runs) if (r.state !== 'gone' && r.workerId) markForOpora(r.workerId);
       this.state.autopilot = saved.autopilot === true;
@@ -367,6 +417,7 @@ export class OporaBridge {
       this.autopilotOwner = typeof saved.autopilotOwner === 'string' ? saved.autopilotOwner : undefined;
       this.chosen = typeof saved.linkedTo === 'string' && saved.linkedTo ? saved.linkedTo : undefined;
       this.chosenWorkspace = typeof saved.workspace === 'string' && saved.workspace ? saved.workspace : undefined;
+      this.focus = Array.isArray(saved.focus) ? saved.focus.filter((x): x is string => typeof x === 'string') : [];
     } catch {
       // a broken file starts the bridge afresh
     }

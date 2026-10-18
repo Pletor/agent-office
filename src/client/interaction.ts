@@ -41,6 +41,8 @@ export function interactionAvailable(it: Interactable | null, key: DeskKey, stat
   if (state.note && it.kind === 'issues') return key === 'E' || key === 'O';
   // O from the boss's chair opens Opora (features/seating checks you're sitting in it).
   if (it.kind === 'seat' && key === 'O') return !!it.seatId;
+  // O at the live canvas on the planning room's board opens the Opora editor (features/oporalive).
+  if (it.kind === 'oporalive' && key === 'O') return true;
   if (key !== 'E') return false;
 
   if (it.kind === 'decor') return !!it.decorId;

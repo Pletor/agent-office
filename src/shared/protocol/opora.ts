@@ -18,6 +18,34 @@ export interface OporaCard {
   group: OporaGroup;
 }
 
+/** How deep a node of the project's architecture sits: its environment, its domain, a page, a subpage. */
+export type OporaScopeLevel = 'env' | 'domain' | 'page' | 'subpage';
+
+/**
+ * One node of the project's architecture as the 🎚️ switchboard cascades it: an environment
+ * (Produkce, Vývoj: an `env:` id of the office's own), a domain (an Opora sector, with its host), a
+ * page and its subpages (Opora's cards).
+ */
+export interface OporaScopeNode {
+  id: string;
+  name: string;
+  level: OporaScopeLevel;
+  parentId: string | null;
+  /** A domain's address in its environment (app.tajemstviopory.dev). */
+  host?: string;
+}
+
+/** Something an agent just did on Opora's canvas, from its activity log, newest first. */
+export interface OporaActivity {
+  id: number;
+  at: string;
+  agent: string;
+  /** What it did, in words (claimed, wrote a card, drew, planned…). */
+  what: string;
+  nodeIds: string[];
+  ok: boolean;
+}
+
 /** A card the office took: the worker on it and its lease on Opora. */
 export interface OporaRun {
   cardId: string;
@@ -57,6 +85,15 @@ export interface OporaState {
   workspaceBy?: 'default' | 'choice';
   sectors: { id: string; name: string }[];
   cards: OporaCard[];
+  /** The project's architecture, cascading: environments, domains, pages, subpages (see shared/opora-scope.ts). */
+  scope: OporaScopeNode[];
+  /**
+   * What the cell works on: the nodes switched on at the 🎚️ switchboard, each with the ones above it.
+   * The deepest ones are the focus; none switched on is the whole project.
+   */
+  focus: string[];
+  /** What the agents did on the canvas lately, for the live canvas on the board. */
+  activity: OporaActivity[];
   /** The office's cards, newest first (the ones that went home stay a while). */
   runs: OporaRun[];
   /** Take free cards by itself, up to `maxRuns` at once. */
@@ -85,6 +122,11 @@ export type OporaClientMsg =
   | { t: 'opora.link'; projectId: string | null }
   /** Read this workspace of the linked project, or (null) the default one (`main`, else the first). */
   | { t: 'opora.workspace'; workspaceId: string | null }
+  /**
+   * Switch one node of the architecture on or off for what the cell works on (see toggleFocus), or
+   * with `only` isolate it (just it and what's above it on); a null id is the whole project.
+   */
+  | { t: 'opora.focus'; id: string | null; on: boolean; only?: boolean }
   /** Start Opora from its repository (admins). */
   | { t: 'opora.start' };
 

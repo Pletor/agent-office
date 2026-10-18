@@ -28,6 +28,8 @@ import { beanbags, desks, kiosks } from './seats';
 import { meetingRoom } from './meeting-room';
 import { planningRoom } from '../../features/planning/world';
 import { oporaScreen } from '../../features/opora/world';
+import { oporaScopeBoard } from '../../features/oporascope/world';
+import { oporaLiveBoard } from '../../features/oporalive/world';
 import { statusScreen } from '../../features/status/world';
 import { loft } from './loft';
 import type { Fixture, Gives, Site } from './fixture';
@@ -71,6 +73,8 @@ function floorPlan() {
     meetingRoom,
     planningRoom,
     oporaScreen,
+    oporaScopeBoard,
+    oporaLiveBoard,
     elevator,
     garageLift,
     gong,

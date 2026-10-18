@@ -51,6 +51,8 @@ import { installJukebox } from './features/jukebox';
 import { installMeeting } from './features/meeting';
 import { installPlanning } from './features/planning';
 import { installOpora } from './features/opora';
+import { installOporaScope } from './features/oporascope';
+import { installOporaLive } from './features/oporalive';
 import { installNeedsYou } from './features/needsyou';
 import { installPalette } from './features/palette';
 import { installPeers } from './features/peers';
@@ -152,6 +154,8 @@ installPalette(ctx, parts);
 parts.meeting = installMeeting(ctx, parts);
 const planning = installPlanning(ctx, parts);
 const opora = installOpora(ctx, parts, { showPlanning: planning.showPlanning, arcade: parts.arcade });
+installOporaScope(ctx);
+installOporaLive(ctx, { openFull: opora.openFull, showPlanning: planning.showPlanning });
 parts.bookshelf = installBookshelf(ctx);
 installHerald(ctx, parts);
 

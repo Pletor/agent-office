@@ -303,7 +303,7 @@ export class Floor {
         prompt: (id) => ctx.prompts.text(id),
         opora: () => {
           const o = this.opora.view();
-          return { base: o.url, project: o.project?.id, workspace: o.workspace ?? undefined };
+          return { base: o.url, project: o.project?.id, workspace: o.workspace ?? undefined, focus: this.opora.focusLine() };
         },
       },
     );
@@ -314,7 +314,8 @@ export class Floor {
         id: def.id,
         dir: def.dir,
         list: () => this.workers.list(),
-        seat: (deskId, by, prompt, owner) => this.workers.spawn(deskId, by, prompt, !!this.project.branch, 'agent', undefined, undefined, undefined, undefined, owner),
+        // It fetches its card from the planning room's board on the way to its desk (via 'opora').
+        seat: (deskId, by, prompt, owner) => this.workers.spawn(deskId, by, prompt, !!this.project.branch, 'agent', undefined, undefined, undefined, undefined, owner, [], 'opora'),
         desks: () => builtDesks(this.plan.wing).map((d) => d.id),
         deskOccupied: (deskId) => this.workers.deskOccupied(deskId),
         labels: () => this.plan.state().labels,

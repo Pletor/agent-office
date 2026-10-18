@@ -462,12 +462,15 @@ export class Arrivals {
     private ways: () => Ways,
   ) {}
 
-  /** Walks `model` in to its seat at `desk`, a moment after whoever stepped out of the elevator last. */
-  add(model: Worker, desk: DeskView) {
+  /**
+   * Walks `model` in to its seat at `desk`, a moment after whoever stepped out of the elevator last;
+   * or along `way` when it comes from somewhere else (a card fetched from the planning room's board).
+   */
+  add(model: Worker, desk: DeskView, from?: Pt[]) {
     const now = performance.now() / 1000;
     const delay = Math.max(0, this.nextAt - now);
     this.nextAt = now + delay + IN_SPACING;
-    const way = this.ways().in(desk.def);
+    const way = from?.length ? from : this.ways().in(desk.def);
     const [x, z] = way[0];
     this.parent.add(model.root);
     model.root.position.set(x, this.ground(x, z, 0) - FEET, z);

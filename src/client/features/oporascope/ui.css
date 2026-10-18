@@ -1,0 +1,27 @@
+/* The 🎚️ switchboard's window: the project's architecture in cascading columns, each node with its switch */
+.modal.scope-window { width: min(1080px, 100%); }
+.scope-window .muted { color: var(--muted); font-weight: 700; font-size: 12px; }
+.scope-window .btn.small { padding: 3px 8px; font-size: 12px; border-width: 2px; border-radius: 9px; }
+.scope-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 15px; }
+.scope-top .btn { margin-left: auto; }
+.scope-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 10px; overflow-x: auto; }
+.scope-col { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.scope-col h3 { margin: 0 0 2px; font-size: 13px; text-transform: uppercase; color: var(--muted); }
+.scope-row { display: flex; align-items: center; gap: 6px; background: #fff; border: 2px solid var(--ink); border-radius: 10px; padding: 4px 6px; }
+.scope-row.on { border-color: #38d9a9; background: #e6fcf5; }
+.scope-row.open { box-shadow: 0 0 0 3px #9b5de5; }
+.scope-row.out .scope-name { color: var(--muted); }
+.scope-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: none; cursor: pointer; }
+.scope-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.scope-switch .knob { position: absolute; inset: 0; border-radius: 10px; background: #ced4da; transition: background 0.15s; pointer-events: none; }
+.scope-switch .knob::after { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left 0.15s; }
+.scope-switch input:checked + .knob { background: #38d9a9; }
+.scope-switch input:checked + .knob::after { left: 19px; }
+.scope-switch input:focus-visible + .knob { outline: 2px solid var(--ink); outline-offset: 2px; }
+.scope-name { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 0; font: inherit; font-weight: 800; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope-name small { display: block; font-weight: 700; color: var(--muted); font-size: 11px; }
+.scope-card { font-size: 11px; font-weight: 800; border-radius: 8px; padding: 0 5px; background: #f1f3f5; flex: none; }
+.scope-card.frontier { background: #d3f9d8; }
+.scope-card.claimed { background: #d0ebff; }
+.scope-card.blocked, .scope-card.waiting { background: #fff3bf; }
+.scope-only { flex: none; }

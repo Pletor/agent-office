@@ -50,6 +50,12 @@ export const oporaHandlers = {
     ctx.toastFloor(floor, `🛰️ ${c.peer.name} set this floor to read ${label} on Opora`);
     void floor.opora.repoll();
   },
+  'opora.focus'(ctx, c, msg) {
+    const floor = here(ctx, c);
+    if (!floor) return;
+    if (msg.id !== null && (typeof msg.id !== 'string' || !msg.id || msg.id.length > 160)) return ctx.warn(c, 'That isn’t a part of the project’s architecture');
+    ctx.warn(c, floor.opora.switchFocus(msg.id, msg.on === true, msg.only === true, c.peer.name));
+  },
   'opora.start'(ctx, c) {
     const floor = here(ctx, c);
     if (!floor) return;
