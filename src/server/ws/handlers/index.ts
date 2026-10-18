@@ -17,6 +17,7 @@ import { planHandlers, planView } from './plan.js';
 import { planningHandlers, planningView } from './planning.js';
 import { presenceHandlers } from './presence.js';
 import { queueHandlers, queueView } from './queue.js';
+import { reaHandlers } from './rea.js';
 import { rooftopHandlers } from './rooftop.js';
 import { servicesView, settingsHandlers } from './settings.js';
 import { signinsHandlers } from './signins.js';
@@ -44,6 +45,7 @@ export const handlers: HandlerMap<ClientMsg> = {
   ...planningHandlers,
   ...presenceHandlers,
   ...queueHandlers,
+  ...reaHandlers,
   ...rooftopHandlers,
   ...settingsHandlers,
   ...signinsHandlers,

@@ -9,6 +9,7 @@ import { OporaBridge, type BridgeFloor } from '../src/server/opora/bridge.js';
 import { OPORA_ESCAPE_WINDOW_MS, browserOporaUrl, canEmbedOpora, cardGroup, deskFor, frontierCards, oporaCanvasUrl, oporaEmbedPolicy, oporaEscapeLeaves, sameDir, signGroup } from '../src/shared/opora.js';
 import { PROMPTS } from '../src/shared/prompts.js';
 import { oporaCardViews } from '../src/server/opora/sketches.js';
+import { configureRea, reaFor } from '../src/server/rea/index.js';
 import type { OporaState, WorkerInfo } from '../src/shared/protocol.js';
 
 test('a card on the design pipeline goes to the designers, the rest to the developers', () => {
@@ -355,4 +356,22 @@ test('a developer’s card with sketches is told where they are and how to see t
   assert.equal(await f.bridge.take('c9', 'Ana'), undefined);
   assert.doesNotMatch(f.workers[1].prompt!, /On Opora this card has|Look at them/);
   assert.match(f.workers[1].prompt!, /end your turn\.$/);
+});
+
+test('with 🔬 REA on for Opora, a card’s worker gets REA and is told how to use it; with it off, neither', async (t) => {
+  const f = await fixture(t);
+  configureRea(f.dir, undefined, {});
+  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
+  assert.equal(reaFor(f.workers[0]), false);
+  assert.doesNotMatch(f.workers[0].prompt!, /"rea" MCP server/);
+  configureRea(f.dir, undefined, { AGENT_OFFICE_REA: 'opora' });
+  t.after(() => configureRea(f.dir, undefined, {}));
+  assert.equal(await f.bridge.take('c1', 'Ana'), undefined);
+  assert.equal(reaFor(f.workers[1]), true);
+  assert.match(f.workers[1].prompt!, /"rea" MCP server/);
+  assert.match(f.workers[1].prompt!, /layers → areas, sectors, nodes\/cards/);
+  // The first card's worker was seated for Opora too: it gets REA from its next start.
+  assert.equal(reaFor(f.workers[0]), true);
+  f.bridge.onWorkerGone(f.workers[1].id);
+  assert.equal(reaFor(f.workers[1]), false, 'forgotten once it went home');
 });
