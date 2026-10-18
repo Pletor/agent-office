@@ -14,6 +14,7 @@ import type { PlanningClientMsg, PlanningServerMsg } from './protocol/planning.j
 import type { PresenceClientMsg, PresenceServerMsg } from './protocol/presence.js';
 import type { QueueClientMsg, QueueServerMsg } from './protocol/queue.js';
 import type { ReaClientMsg, ReaServerMsg } from './protocol/rea.js';
+import type { StatusClientMsg, StatusServerMsg } from './protocol/status.js';
 import type { RooftopClientMsg, RooftopServerMsg } from './protocol/rooftop.js';
 import type { SettingsClientMsg, SettingsServerMsg } from './protocol/settings.js';
 import type { BallClientMsg, CabinetClientMsg, CarClientMsg, DecorClientMsg, DogClientMsg, JukeboxClientMsg, ToysServerMsg, WhiteboardClientMsg } from './protocol/toys.js';
@@ -31,6 +32,7 @@ export * from './protocol/planning.js';
 export * from './protocol/presence.js';
 export * from './protocol/queue.js';
 export * from './protocol/rea.js';
+export * from './protocol/status.js';
 export * from './protocol/rooftop.js';
 export * from './protocol/settings.js';
 export * from './protocol/toys.js';
@@ -54,6 +56,7 @@ export type ClientMsg =
   | SignInsClientMsg
   | SettingsClientMsg
   | ReaClientMsg
+  | StatusClientMsg
   | UsageClientMsg
   | DecorClientMsg
   | JukeboxClientMsg
@@ -77,5 +80,6 @@ export type ServerMsg =
   | AccountsServerMsg
   | SettingsServerMsg
   | ReaServerMsg
+  | StatusServerMsg
   | UsageServerMsg
   | ToysServerMsg;

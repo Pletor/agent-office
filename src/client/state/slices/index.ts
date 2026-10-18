@@ -26,6 +26,7 @@ import { notify } from './notify';
 import { opora } from './opora';
 import { planning } from './planning';
 import { rea } from './rea';
+import { status } from './status';
 import { prompts } from './prompts';
 import { services } from './services';
 import { signins } from './signins';
@@ -67,4 +68,5 @@ export const SLICES: readonly Slice[] = [
   planning,
   opora,
   rea,
+  status,
 ];
