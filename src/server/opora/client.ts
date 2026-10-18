@@ -61,9 +61,13 @@ export class OporaClient {
       .map((p) => ({ id: p.id as string, name: typeof p.name === 'string' && p.name.trim() ? p.name.trim().slice(0, 120) : (p.id as string), sourcePath: typeof p.sourcePath === 'string' ? p.sourcePath : null }));
   }
 
-  async workspaces(project: string): Promise<string[]> {
-    const w = await this.get<{ workspaces?: { id?: unknown }[] }>('/api/project-workspaces', { project });
-    return (w.workspaces ?? []).map((x) => (typeof x.id === 'string' ? x.id : '')).filter(Boolean);
+  /** A project's workspaces: `main` (read-only for a git project) and the work ones the planning happens in, each with Opora's label. */
+  async workspaces(project: string): Promise<{ id: string; label: string }[]> {
+    const w = await this.get<{ workspaces?: unknown }>('/api/project-workspaces', { project });
+    const rows = Array.isArray(w.workspaces) ? (w.workspaces as Record<string, unknown>[]) : [];
+    return rows
+      .filter((x) => x && typeof x.id === 'string' && x.id)
+      .map((x) => ({ id: x.id as string, label: typeof x.label === 'string' && x.label.trim() ? x.label.trim().slice(0, 160) : (x.id as string) }));
   }
 
   /** The canvas: every area, sector and card, with what each sits in. */

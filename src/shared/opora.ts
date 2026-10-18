@@ -15,6 +15,7 @@ export const EMPTY_OPORA: OporaState = {
   project: null,
   projects: [],
   workspace: null,
+  workspaces: [],
   sectors: [],
   cards: [],
   runs: [],

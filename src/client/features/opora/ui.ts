@@ -56,7 +56,7 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
     {},
     h('span.pill', { class: linked ? 'done' : 'needs_input' }, linked ? 'linked' : s.connected ? 'not linked' : 'not running'),
     h('b', {}, s.project ? s.project.name : 'Opora Canvas'),
-    s.workspace ? h('span.muted', {}, `workspace ${s.workspace}`) : null,
+    s.workspace ? h('span.muted', {}, `workspace ${workspaceName(s, s.workspace)}`) : null,
     h('span.muted', {}, s.checkedAt ? `read ${timeAgo(new Date(s.checkedAt).toISOString())}` : ''),
     // The real Opora on the whole screen, as O at the boss's chair opens it, or in the same named tab, on this floor's project.
     s.connected ? h('button.btn.small.primary', { type: 'button', title: 'Opora Canvas on the whole screen, inside the office', onclick: () => actions.openFull() }, '⛶ Open Opora full screen') : null,
@@ -74,6 +74,7 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
     pick.value = s.linkedBy === 'choice' && s.project ? s.project.id : '';
     pick.addEventListener('change', () => net.send({ t: 'opora.link', projectId: pick.value || null }));
     parts.push(h('label.opora-link', { class: linked ? '' : 'cta' }, h('b', {}, linked ? 'Linked to' : '👉 Link this floor to'), pick, linked ? null : h('span.muted', {}, 'pick the Opora project to read the canvas of')));
+    if (linked && s.workspaces.length) parts.push(workspacePicker(s, net));
   }
   if (s.error) parts.push(h('p.opora-error', {}, s.error));
   if (!s.connected && s.canStart) parts.push(h('p', {}, h('button.btn', { type: 'button', disabled: s.starting, onclick: () => net.send({ t: 'opora.start' }) }, s.starting ? '⏳ Starting Opora…' : '▶ Start Opora'), h('span.muted', {}, ' from its repository (admins)')));
@@ -123,7 +124,7 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
               'li',
               { class: r.group },
               h('b', {}, r.cardName),
-              h('span.muted', {}, [r.sectorName, r.group === 'design' ? '🎨 design' : '💻 dev', r.workerName].filter(Boolean).join(' · ')),
+              h('span.muted', {}, [r.sectorName, r.group === 'design' ? '🎨 design' : '💻 dev', r.workerName, r.workspace && r.workspace !== s.workspace ? `in ${workspaceName(s, r.workspace)}` : ''].filter(Boolean).join(' · ')),
               w ? h('span.pill', { class: w.status }, STATUS_LABEL[w.status]) : null,
               r.error ? h('span.opora-error', { title: r.error }, '⚠️ lease') : null,
               w ? h('button.btn.small', { type: 'button', onclick: () => actions.openTerminal(w.id) }, '🖥️ Terminal') : null,
@@ -164,4 +165,28 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
   }
   body.replaceChildren(...parts);
   foot.replaceChildren(h('span.grow', {}, 'Opora plans, the office does it: each card gets a worker in its own worktree, which reports back to Opora. Closing a card is for a person, in Opora.'));
+}
+
+/** A workspace by its label up to Opora's ` · work/<id>` (the id is there already), or its id when it isn't listed. */
+function workspaceName(s: OporaState, id: string): string {
+  const label = s.workspaces.find((w) => w.id === id)?.label;
+  return label ? label.split(' · ')[0] || id : id;
+}
+
+/**
+ * Which workspace of the linked project the floor reads and takes cards from: by default `main`
+ * (read-only for a git project), or a work one, where the planning on Opora happens. ● marks the one in use.
+ */
+function workspacePicker(s: OporaState, net: Net): HTMLElement {
+  const fallback = s.workspaces.some((w) => w.id === 'main') ? 'main' : s.workspaces[0].id;
+  const mark = (id: string) => (id === s.workspace ? '● ' : '');
+  const pick = h(
+    'select.provider-select',
+    { 'aria-label': 'The Opora workspace this floor reads' },
+    h('option', { value: '' }, `${s.workspaceBy !== 'choice' ? '● ' : ''}— default: ${workspaceName(s, fallback)} —`),
+    ...s.workspaces.map((w) => h('option', { value: w.id, title: w.label }, `${s.workspaceBy === 'choice' ? mark(w.id) : ''}${w.label}`)),
+  ) as HTMLSelectElement;
+  pick.value = s.workspaceBy === 'choice' && s.workspace ? s.workspace : '';
+  pick.addEventListener('change', () => net.send({ t: 'opora.workspace', workspaceId: pick.value || null }));
+  return h('label.opora-link', {}, h('b', {}, 'Workspace'), pick, h('span.muted', {}, s.workspaceBy === 'choice' ? 'picked for this floor' : 'pick a work one to see the cards planned there'));
 }

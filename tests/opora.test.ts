@@ -56,6 +56,8 @@ function fakeOpora(dir: string) {
   const leases = new Map<string, string>();
   // Opora's page refuses to be framed, as it does until its embed_origins lists someone.
   const page: { headers: Record<string, string> } = { headers: { 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'" } };
+  // Shop's workspaces; a test adds `main` and a work one (`work1`, with a card of its own).
+  const workspaces: { id: string; label?: string }[] = [{ id: 'draft' }];
   const projects = [{ id: 'other', name: 'Other', sourcePath: '/elsewhere' }, { id: 'p1', name: 'Shop', sourcePath: dir.toUpperCase() === dir ? dir : dir.replace(/\//g, '\\') }];
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
@@ -78,13 +80,18 @@ function fakeOpora(dir: string) {
         if (url.pathname === '/api/view') return send(200, { graph: { nodes: [{ id: 's9', kind: 'sector', name: 'Elsewhere', parentId: null }, { id: 'c9', kind: 'node', name: 'Other card', parentId: 's9' }] } });
         if (url.pathname === '/api/desktop-v3/frontier') return send(200, { frontier: url.searchParams.get('nodeId') === 's9' ? [{ id: 'c9', name: 'Other card', pipeline: { profile: 'code' } }] : [{ id: 's9', name: 'Elsewhere' }] });
       }
+      // Shop's work workspace: a sector with one card, planned there and not in main.
+      if (url.searchParams.get('workspace') === 'work1') {
+        if (url.pathname === '/api/view') return send(200, { graph: { nodes: [{ id: 's5', kind: 'sector', name: 'Oracle', parentId: null }, { id: 'c5', kind: 'node', name: 'Oracle card', parentId: 's5' }] } });
+        if (url.pathname === '/api/desktop-v3/frontier') return send(200, { frontier: url.searchParams.get('nodeId') === 's5' ? [{ id: 'c5', name: 'Oracle card', pipeline: { profile: 'code' } }].filter((c) => !leases.has(c.id)) : [{ id: 's5', name: 'Oracle' }] });
+      }
       switch (url.pathname) {
         case '/api/health':
           return send(200, { status: 'ok' });
         case '/api/bootstrap':
           return send(200, { projects });
         case '/api/project-workspaces':
-          return send(200, { workspaces: [{ id: 'draft' }] });
+          return send(200, { workspaces });
         case '/api/view':
           return send(200, { graph: { nodes: [{ id: 'a1', kind: 'area', name: 'Frontend' }, { id: 's1', kind: 'sector', name: 'Checkout', parentId: null }, { id: 'c1', kind: 'node', name: 'Cart page', parentId: 's1' }, { id: 'c2', kind: 'node', name: 'Pay API', parentId: 's1' }] } });
         case '/api/desktop-v3/frontier':
@@ -115,7 +122,7 @@ function fakeOpora(dir: string) {
       send(404, { detail: 'nope' });
     });
   });
-  return { server, calls, leases, projects, page };
+  return { server, calls, leases, projects, page, workspaces };
 }
 
 async function fixture(t: { after(fn: () => void): void }) {
@@ -374,4 +381,98 @@ test('with 🔬 REA on for Opora, a card’s worker gets REA and is told how to 
   assert.equal(reaFor(f.workers[0]), true);
   f.bridge.onWorkerGone(f.workers[1].id);
   assert.equal(reaFor(f.workers[1]), false, 'forgotten once it went home');
+});
+
+/** Shop with Opora's `main` (read-only for a git project) and a work workspace the planning happens in. */
+async function withWorkspaces(t: { after(fn: () => void): void }) {
+  const f = await fixture(t);
+  f.op.workspaces.splice(0, f.op.workspaces.length, { id: 'main', label: 'Approved branch · read-only' }, { id: 'work1', label: 'Oracle · work/work1' });
+  await f.bridge.poll();
+  return f;
+}
+
+test('a floor reads its project’s main workspace by default, and lists the others with their labels', async (t) => {
+  const f = await withWorkspaces(t);
+  assert.equal(f.state().workspace, 'main');
+  assert.equal(f.state().workspaceBy, 'default');
+  assert.deepEqual(f.state().workspaces, [{ id: 'main', label: 'Approved branch · read-only' }, { id: 'work1', label: 'Oracle · work/work1' }]);
+  assert.deepEqual(f.state().cards.map((c) => c.name), ['Cart page', 'Pay API']);
+});
+
+test('a picked workspace is the one the floor reads and claims cards in', async (t) => {
+  const f = await withWorkspaces(t);
+  assert.match(f.bridge.useWorkspace('nope')!, /isn’t in Shop/);
+  assert.equal(f.bridge.useWorkspace('work1'), undefined);
+  await f.bridge.repoll();
+  assert.equal(f.state().workspace, 'work1');
+  assert.equal(f.state().workspaceBy, 'choice');
+  assert.equal(f.state().error, undefined);
+  assert.deepEqual(f.state().cards.map((c) => [c.name, c.sectorName]), [['Oracle card', 'Oracle']]);
+  assert.equal(await f.bridge.take('c5', 'Ana'), undefined);
+  const claim = f.op.calls.find((c) => c.path === '/api/desktop-v3/lease' && c.body?.op === 'claim')!;
+  assert.deepEqual({ project: claim.body!.project, workspace: claim.body!.workspace, nodeId: claim.body!.nodeId }, { project: 'p1', workspace: 'work1', nodeId: 'c5' });
+  assert.match(f.workers[0].prompt!, /work1/);
+  // Back to the default.
+  assert.equal(f.bridge.useWorkspace(null), undefined);
+  await f.bridge.repoll();
+  assert.equal(f.state().workspace, 'main');
+  assert.equal(f.state().workspaceBy, 'default');
+});
+
+test('a picked workspace that left Opora falls back to main, and says so', async (t) => {
+  const f = await withWorkspaces(t);
+  f.bridge.useWorkspace('work1');
+  await f.bridge.repoll();
+  f.op.workspaces.splice(1, 1);
+  await f.bridge.poll();
+  assert.equal(f.state().workspace, 'main');
+  assert.equal(f.state().workspaceBy, 'default');
+  assert.match(f.state().error!, /workspace this floor was set to \(work1\) isn't in Shop.*Approved branch/);
+});
+
+test('a card the office holds keeps its own workspace for its heartbeat and release', async (t) => {
+  const f = await withWorkspaces(t);
+  f.bridge.useWorkspace('work1');
+  await f.bridge.repoll();
+  await f.bridge.take('c5', 'Ana');
+  assert.equal(f.state().runs[0].workspace, 'work1');
+  // The floor moves to main while the card is still being worked on.
+  f.bridge.useWorkspace(null);
+  await f.bridge.repoll();
+  assert.equal(f.state().workspace, 'main');
+  await (f.bridge as unknown as { heartbeat(): Promise<void> }).heartbeat();
+  const beat = f.op.calls.find((c) => c.path === '/api/desktop-v3/lease' && c.body?.op === 'heartbeat')!;
+  assert.equal(beat.body!.workspace, 'work1');
+  f.bridge.onWorkerGone(f.workers[0].id);
+  await new Promise((r) => setTimeout(r, 100));
+  const release = f.op.calls.find((c) => c.path === '/api/desktop-v3/lease' && c.body?.op === 'release')!;
+  assert.deepEqual({ workspace: release.body!.workspace, nodeId: release.body!.nodeId }, { workspace: 'work1', nodeId: 'c5' });
+  assert.equal(f.op.leases.has('c5'), false);
+});
+
+test('a run saved before runs kept their workspace lets its lease go in the floor’s current one', async (t) => {
+  const f = await withWorkspaces(t);
+  await f.bridge.take('c2', 'Ana');
+  // As an older office saved it: no workspace on the run.
+  delete (f.bridge as unknown as { runs: { workspace?: string }[] }).runs[0].workspace;
+  f.bridge.onWorkerGone(f.workers[0].id);
+  await new Promise((r) => setTimeout(r, 100));
+  const release = f.op.calls.find((c) => c.path === '/api/desktop-v3/lease' && c.body?.op === 'release')!;
+  assert.equal(release.body!.workspace, 'main');
+});
+
+test('the picked workspace is kept across a restart, and linking another project resets it', async (t) => {
+  const f = await withWorkspaces(t);
+  f.bridge.useWorkspace('work1');
+  await f.bridge.repoll();
+  assert.match(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'), /"workspace": "work1"/);
+  f.bridge.shutdown();
+  let state: OporaState | undefined;
+  const again = new OporaBridge({ id: 'shop', dir: f.dir, list: () => [], seat: () => 'no', desks: () => [], deskOccupied: () => false, labels: () => ({}) }, f.dir, { update: (s) => void (state = s), toast() {}, prompt: (id) => PROMPTS[id].text }, f.url);
+  t.after(() => again.shutdown());
+  await again.poll();
+  assert.equal(state!.workspace, 'work1');
+  assert.equal(state!.workspaceBy, 'choice');
+  assert.equal(again.link('other'), undefined);
+  assert.doesNotMatch(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'), /"workspace"/);
 });

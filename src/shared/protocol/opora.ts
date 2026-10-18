@@ -32,6 +32,8 @@ export interface OporaRun {
   /** working: its worker is on it; done: the worker ended its turn; gone: the worker went home and the lease was let go. */
   state: 'working' | 'done' | 'gone';
   leaseUntil?: string;
+  /** The Opora workspace its lease is in, which it keeps when the floor moves to another (older saved runs have none). */
+  workspace?: string;
   error?: string;
 }
 
@@ -47,7 +49,12 @@ export interface OporaState {
   linkedBy?: 'folder' | 'choice';
   /** Every project on Opora, to pick from, whenever Opora answers. */
   projects: { id: string; name: string }[];
+  /** The workspace of the project read: the one picked in the window while it's still there, else `main`, else the first. */
   workspace: string | null;
+  /** The linked project's workspaces, to pick from (`main` is read-only for a git project; the work ones are where planning happens). */
+  workspaces: { id: string; label: string }[];
+  /** How the workspace was picked: in the window, or by default (`main`, else the first). */
+  workspaceBy?: 'default' | 'choice';
   sectors: { id: string; name: string }[];
   cards: OporaCard[];
   /** The office's cards, newest first (the ones that went home stay a while). */
@@ -76,6 +83,8 @@ export type OporaClientMsg =
   | { t: 'opora.autopilot'; on: boolean; maxRuns?: number }
   /** Link the floor to this Opora project, or (null) back to the one whose folder is the floor's. */
   | { t: 'opora.link'; projectId: string | null }
+  /** Read this workspace of the linked project, or (null) the default one (`main`, else the first). */
+  | { t: 'opora.workspace'; workspaceId: string | null }
   /** Start Opora from its repository (admins). */
   | { t: 'opora.start' };
 
