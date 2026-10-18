@@ -1,4 +1,4 @@
-// The bridge to Opora Canvas: reading the canvas again, taking a card, the autopilot, linking the floor to a project, and starting Opora.
+// The bridge to Opora Canvas: reading the canvas again, taking a card, the autopilot, linking the floor to a project and its workspace, and starting Opora.
 import type { OporaClientMsg } from '../../../shared/protocol.js';
 import { EMPTY_OPORA } from '../../../shared/opora.js';
 import { str } from '../../office/input.js';
@@ -37,6 +37,17 @@ export const oporaHandlers = {
     if (err) return ctx.warn(c, err);
     const name = id === null ? 'the Opora project for its folder' : (floor.opora.view().projects.find((p) => p.id === id)?.name ?? id);
     ctx.toastFloor(floor, `🛰️ ${c.peer.name} linked this floor to ${name}`);
+    void floor.opora.repoll();
+  },
+  'opora.workspace'(ctx, c, msg) {
+    const floor = here(ctx, c);
+    if (!floor) return;
+    const id = msg.workspaceId;
+    if (id !== null && (typeof id !== 'string' || !id || id.length > 64)) return ctx.warn(c, 'That isn’t an Opora workspace');
+    const err = floor.opora.useWorkspace(id);
+    if (err) return ctx.warn(c, err);
+    const label = id === null ? 'its default workspace' : (floor.opora.view().workspaces.find((w) => w.id === id)?.label ?? id);
+    ctx.toastFloor(floor, `🛰️ ${c.peer.name} set this floor to read ${label} on Opora`);
     void floor.opora.repoll();
   },
   'opora.start'(ctx, c) {

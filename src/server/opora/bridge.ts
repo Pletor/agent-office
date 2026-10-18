@@ -60,6 +60,8 @@ export class OporaBridge {
   private autopilotBy = '';
   /** The Opora project someone picked for this floor in the window, which wins over the folder's. */
   private chosen?: string;
+  /** The workspace of the linked project someone picked in the window, which wins over `main` while it's still there. */
+  private chosenWorkspace?: string;
   /** The project whose folder is this floor's checkout, as of the last read. */
   private byFolder?: string;
   private client: OporaClient;
@@ -111,7 +113,20 @@ export class OporaBridge {
     const target = projectId ?? this.byFolder;
     const held = this.runs.filter((r) => r.state !== 'gone').length;
     if (held && target !== this.state.project?.id) return `The office is on ${held} card${held === 1 ? '' : 's'} of ${this.state.project?.name ?? 'the linked project'}: let ${held === 1 ? 'it' : 'them'} finish (or send the workers home) before linking the floor to another project`;
+    // Another project has other workspaces: it starts on its default one.
+    if (target !== this.state.project?.id) this.chosenWorkspace = undefined;
     this.chosen = projectId ?? undefined;
+    this.changed();
+    return undefined;
+  }
+
+  /**
+   * Reads another workspace of the linked project (a work one, where the planning happens, as `main`
+   * is read-only for a git project), or (null) the default one. Cards the office holds stay in theirs.
+   */
+  useWorkspace(workspaceId: string | null): string | undefined {
+    if (workspaceId !== null && !this.state.workspaces.some((w) => w.id === workspaceId)) return this.state.project ? `That workspace isn’t in ${this.state.project.name} on Opora` : (this.state.error ?? 'Opora isn’t linked to this floor');
+    this.chosenWorkspace = workspaceId ?? undefined;
     this.changed();
     return undefined;
   }
@@ -181,6 +196,7 @@ export class OporaBridge {
       startedAt: Date.now(),
       state: 'working',
       ...(lease.expiresAt ? { leaseUntil: lease.expiresAt } : {}),
+      workspace,
       token: lease.token,
       owner: agent,
     });
@@ -233,7 +249,7 @@ export class OporaBridge {
     try {
       await this.client.health();
     } catch (err) {
-      Object.assign(s, { connected: false, embeddable: false, embedOrigins: undefined, error: (err as Error).message, project: null, linkedBy: undefined, projects: [], workspace: null, sectors: [], cards: [], checkedAt: Date.now() });
+      Object.assign(s, { connected: false, embeddable: false, embedOrigins: undefined, error: (err as Error).message, project: null, linkedBy: undefined, projects: [], workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], checkedAt: Date.now() });
       return;
     }
     // Whether Opora lets the office frame it, for O at the boss's chair to open it inside the office.
@@ -253,11 +269,14 @@ export class OporaBridge {
       const lost = this.chosen && !chosen ? `The project this floor was linked to (${this.chosen}) isn't on Opora any more: ${byFolder ? `reading ${byFolder.name}, the one for this floor's folder, instead` : 'pick another'}` : undefined;
       const project = chosen ?? byFolder;
       if (!project) {
-        Object.assign(s, { connected: true, error: lost ?? `No Opora project plans this floor's folder (${this.floor.dir}): pick one in the 🛰️ Opora window, or add the folder in Opora as a local or git project`, project: null, linkedBy: undefined, workspace: null, sectors: [], cards: [], checkedAt: Date.now() });
+        Object.assign(s, { connected: true, error: lost ?? `No Opora project plans this floor's folder (${this.floor.dir}): pick one in the 🛰️ Opora window, or add the folder in Opora as a local or git project`, project: null, linkedBy: undefined, workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], checkedAt: Date.now() });
         return;
       }
+      // The workspace someone picked while it's still there, else `main`, else the first; a picked one that's gone says so.
       const workspaces = await this.client.workspaces(project.id);
-      const workspace = workspaces.includes('main') ? 'main' : (workspaces[0] ?? 'draft');
+      const picked = this.chosenWorkspace ? workspaces.find((w) => w.id === this.chosenWorkspace) : undefined;
+      const workspace = picked?.id ?? (workspaces.some((w) => w.id === 'main') ? 'main' : (workspaces[0]?.id ?? 'draft'));
+      const gone = this.chosenWorkspace && !picked ? `The workspace this floor was set to (${this.chosenWorkspace}) isn't in ${project.name} on Opora any more: reading ${workspaces.find((w) => w.id === workspace)?.label ?? workspace} instead, or pick another` : undefined;
       const nodes = await this.client.nodes(project.id, workspace);
       const byId = new Map(nodes.map((n) => [n.id, n]));
       const isCard = (id: string) => byId.get(id)?.kind === 'node';
@@ -271,7 +290,7 @@ export class OporaBridge {
           cards.push(c);
         }
       }
-      Object.assign(s, { connected: true, error: lost, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, checkedAt: Date.now() });
+      Object.assign(s, { connected: true, error: [lost, gone].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, checkedAt: Date.now() });
     } catch (err) {
       Object.assign(s, { connected: true, error: (err as Error).message, checkedAt: Date.now() });
     }
@@ -292,10 +311,12 @@ export class OporaBridge {
   }
 
   private async heartbeat() {
-    const { project, workspace } = this.state;
-    if (!project || !workspace) return;
+    const { project } = this.state;
+    if (!project) return;
     for (const run of this.runs) {
-      if (run.state === 'gone' || !run.token) continue;
+      // A run keeps the workspace it was leased in; one saved before runs had theirs is in the floor's.
+      const workspace = run.workspace ?? this.state.workspace;
+      if (run.state === 'gone' || !run.token || !workspace) continue;
       try {
         run.leaseUntil = (await this.client.heartbeat(project.id, workspace, run.cardId, run.token, LEASE_TTL)).expiresAt ?? run.leaseUntil;
         run.error = undefined;
@@ -308,7 +329,8 @@ export class OporaBridge {
 
   /** Lets the card's lease go, if the worker didn't itself (an error then is the lease being gone already). */
   private async letGo(run: Held) {
-    const { project, workspace } = this.state;
+    const { project } = this.state;
+    const workspace = run.workspace ?? this.state.workspace;
     if (!project || !workspace || !run.token) return;
     await this.client.release(project.id, workspace, run.cardId, run.token).catch(() => undefined);
     run.token = undefined;
@@ -327,7 +349,7 @@ export class OporaBridge {
 
   private persist() {
     try {
-      writeFileSync(this.statePath, JSON.stringify({ runs: this.runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner, linkedTo: this.chosen }, null, 2), { mode: 0o600 });
+      writeFileSync(this.statePath, JSON.stringify({ runs: this.runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner, linkedTo: this.chosen, workspace: this.chosenWorkspace }, null, 2), { mode: 0o600 });
     } catch {
       // a full disk loses the bridge's state, not the office
     }
@@ -336,7 +358,7 @@ export class OporaBridge {
   private restore() {
     try {
       if (!existsSync(this.statePath)) return;
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string };
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string; workspace?: string };
       if (Array.isArray(saved.runs)) this.runs = saved.runs.filter((r) => r && typeof r.cardId === 'string');
       for (const r of this.runs) if (r.state !== 'gone' && r.workerId) markForOpora(r.workerId);
       this.state.autopilot = saved.autopilot === true;
@@ -344,6 +366,7 @@ export class OporaBridge {
       this.autopilotBy = typeof saved.autopilotBy === 'string' ? saved.autopilotBy : '';
       this.autopilotOwner = typeof saved.autopilotOwner === 'string' ? saved.autopilotOwner : undefined;
       this.chosen = typeof saved.linkedTo === 'string' && saved.linkedTo ? saved.linkedTo : undefined;
+      this.chosenWorkspace = typeof saved.workspace === 'string' && saved.workspace ? saved.workspace : undefined;
     } catch {
       // a broken file starts the bridge afresh
     }
