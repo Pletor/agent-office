@@ -11,6 +11,7 @@ import { h, openModal, timeAgo } from './dom';
 import { agentFields, choiceLabel, officeChoice } from './provider';
 import { openPromptEditor, rewrittenPrompts } from './prompts';
 import { outsideSetting } from './settings-sky';
+import { reaSetting } from './settings-rea';
 import { choiceRow } from './settings-rows';
 
 const VIEWS: [ViewMode, string, string][] = [
@@ -438,6 +439,8 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
 
   // What the sky's doing, and which clock it keeps (see settings-sky.ts).
   const sky = outside && outsideSetting(net, outside, (body) => setting('Outside', 'office', ...body));
+  // Which workers get REA's MCP server, for reverse-engineering a reference app (see settings-rea.ts).
+  const rea = reaSetting(net, (body) => setting('Reverse engineering (REA)', 'office', ...body));
   const account = store.me.account;
   const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');
   signOut.addEventListener('click', onSignOut);
@@ -470,6 +473,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       setting('Default worker', 'office', agentNow, agent.element, agentActions, agentNote),
       setting('Worker limit', 'office', limitRow, limitNote),
       setting('Workers whose pull request merged', 'office', leaveRow, leaveNote),
+      rea.section,
       setting('Prompts', 'office', promptsOpen, promptsNote),
     ],
   };
@@ -523,6 +527,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       offDog();
       offTheme();
       sky?.off();
+      rea.off();
       offMap();
       offLeave();
       offLimit.forEach((off) => off());

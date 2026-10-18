@@ -101,3 +101,24 @@ embed_origins = ["http://localhost:4600"]
 Use the address the office's page has in your browser (the 🛰️ Opora window shows the exact line to add), and restart Opora. The office reads Opora's framing headers (`X-Frame-Options`, CSP `frame-ancestors`) each time it polls it; until they let the office in, **O** opens Opora in a tab of its own instead, as before. Esc closes the full-screen view from inside Opora too: Opora tells the page it's framed in, and the office only listens to Opora's own frame.
 
 Opora's sign-in cookie is `SameSite=Strict`, so the browser has to reach Opora by the same name as the office: with the office on `localhost`, Opora as `localhost` too, and on `127.0.0.1`, as `127.0.0.1`. The office does that itself in the browser, whichever of the two `AGENT_OFFICE_OPORA_URL` names.
+
+### Reverse engineering with REA
+
+[REA (Reverse Engineer Anything)](https://github.com/morluto/rea) is an MCP server that lets an agent take apart an app, a website, an Electron or JavaScript bundle, a binary or an APK, and cite the evidence for what it finds. The office can hand it to its workers, so that a card or a plan that points at a reference app is first dissected and then laid out precisely on the Opora canvas: layers → areas, sectors, nodes/cards. It's **off by default**. An admin turns it on in ⚙️ Settings → **🤖 Workers** → **Reverse engineering (REA)**, for everyone in the building (kept in `.agent-office/rea.json`):
+
+| Setting | Who gets REA |
+| --- | --- |
+| **Off** (default) | Nobody. |
+| **🧭 Opora workers** (`opora`) | The workers the office seats for an Opora card (the developers' and the designers' desks) and the planner when it plans onto the Opora canvas. A plain worker, a board agent, the planner writing a plan file and the router don't. |
+| **🤖 Every worker** (`all`) | Every worker the office starts. |
+
+| Variable | What it does |
+| --- | --- |
+| `AGENT_OFFICE_REA` | `off`, `opora` or `all`: overrides ⚙️ Settings, which then shows the setting but can't change it. Anything else is ignored. |
+| `AGENT_OFFICE_REA_PACKAGE` | The package the workers run, pinned to `rea-agents@6.7.0` by default. Set it to another exact version of the same package (`rea-agents@6.8.0`) to upgrade; a tag (`@latest`), a range (`^6`) or any other package name is ignored, and the pin is used. |
+
+The office doesn't install REA, run it, or add it to anyone's own MCP config (never run `rea-agents setup` for the office: it edits your global `~/.claude.json`). It only puts REA, as `npx -y rea-agents@6.7.0 mcp` (`cmd /c npx …` on Windows), next to the office's own `agent-office` MCP server in the config of the workers the setting covers: Claude Code gets a second `--mcp-config` file, `.agent-office/rea-mcp.json`, so the shared `agent-office-mcp.json` stays the same for everyone; Codex gets `-c mcp_servers.rea.*` (with a 120 s start-up wait, for `npx`'s first download); OpenCode gets it in `OPENCODE_CONFIG_CONTENT`'s `mcp`. Other providers don't take MCP config from the office and don't get it. A change applies from each worker's next start. REA's tools aren't pre-allowed: Claude Code asks before each one, as it does for any tool it hasn't been allowed.
+
+A worker REA is on for (an Opora card's, or the Opora planner) is also told how to use it, by the **Opora · reverse engineering (REA)** prompt after its brief: analyze the reference locally, cite the evidence, map it onto the canvas, only analyze software the user owns or may analyze, and never execute an untrusted target unless the card asks for runtime capture. Rewrite it or empty it in **📝 Edit the prompts…** like the others.
+
+**Security.** REA runs local analysis tools as the worker's user, with that user's permissions, on whatever the worker points it at: treat it like any tool that executes code on the office's machine. The version is pinned so that a new release (or a compromised one) never runs without someone choosing it; check the package name when you move the pin, since lookalike names (`rea-agent`, `reaagents`…) aren't REA. Reverse-engineering software can be restricted by its licence or by law: only analyze what you own or have permission to analyze.

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { slugify } from '../shared/meetings.js';
 import { PLANNER_SEAT, PLANS_DIR, PLAN_LIMITS, planTasks, planTitle } from '../shared/planning.js';
 import { fillPrompt, type PromptId } from '../shared/prompts.js';
+import { forgetForOpora, markForOpora, seatForOpora, withReaBrief } from './rea/index.js';
 import type { AgentEffort, AgentProvider, Plan, PlanMode, PlanRecord, PlanningState, QueueState, WorkerInfo } from '../shared/protocol.js';
 
 const MODE_PROMPT: Record<PlanMode, PromptId> = { file: 'planning.plan', opora: 'planning.opora', router: 'planning.router' };
@@ -94,7 +95,9 @@ export class PlanningRoom {
     const file = this.freeFile(title);
     mkdirSync(path.join(this.dir, PLANS_DIR), { recursive: true });
     const prompt = fillPrompt(this.events.prompt(MODE_PROMPT[mode]), { goal, file: path.join(this.dir, file), base: opora?.base, project: opora?.project, workspace: opora?.workspace });
-    const seated = this.workers.seat(by, prompt, req.provider, req.model, req.effort, owner);
+    // Planning onto the canvas, the planner gets 🔬 REA when it's on, to take a reference app apart first (see rea/).
+    const seat = (brief: string) => this.workers.seat(by, brief, req.provider, req.model, req.effort, owner);
+    const seated = mode === 'opora' ? seatForOpora(() => seat(withReaBrief(prompt, this.events.prompt))) : seat(prompt);
     if (typeof seated === 'string') return seated;
     this.current = {
       id: randomBytes(4).toString('hex'),
@@ -157,7 +160,10 @@ export class PlanningRoom {
     this.past.unshift({ title: p.title, by: p.by, at: p.startedAt, file: p.file, tasks: p.tasks.length, status: p.status });
     this.past.length = Math.min(this.past.length, PAST);
     this.current = null;
-    if (p.workerId) void this.workers.kill(p.workerId);
+    if (p.workerId) {
+      forgetForOpora(p.workerId);
+      void this.workers.kill(p.workerId);
+    }
     this.changed();
     return undefined;
   }
@@ -192,6 +198,7 @@ export class PlanningRoom {
     const p = this.current;
     if (!p || p.workerId !== workerId) return;
     p.workerId = undefined;
+    forgetForOpora(workerId);
     if (p.status === 'planning') return this.halt(p, 'the planner went home');
     this.changed();
   }
@@ -265,6 +272,7 @@ export class PlanningRoom {
       if (!existsSync(this.statePath)) return;
       const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as Partial<PlanningState>;
       if (saved.current && typeof saved.current.id === 'string' && Array.isArray(saved.current.tasks)) this.current = saved.current;
+      if (this.current?.mode === 'opora' && this.current.workerId) markForOpora(this.current.workerId);
       if (Array.isArray(saved.past)) this.past = saved.past.slice(0, PAST);
     } catch {
       // a broken file starts the room empty

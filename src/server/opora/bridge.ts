@@ -4,6 +4,7 @@ import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaAgentName, opor
 import { fillPrompt, type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
 import type { OporaCard, OporaRun, OporaState, WorkerInfo } from '../../shared/protocol.js';
+import { forgetForOpora, markForOpora, seatForOpora, withReaBrief } from '../rea/index.js';
 import { OporaClient, OporaError } from './client.js';
 import { oporaProcess } from './process.js';
 import { describeSketches, oporaCardViews, readSketches, sketchesLine } from './sketches.js';
@@ -162,7 +163,8 @@ export class OporaBridge {
       sketches: design ? '' : sketchesLine(sketches, views, project.id, workspace, card.id),
       design,
     });
-    const seated = this.floor.seat(desk, by, prompt, owner);
+    // 🔬 REA, when it's on: its MCP server for taking a reference app apart, and how to use it (see rea/).
+    const seated = seatForOpora(() => this.floor.seat(desk, by, withReaBrief(prompt, this.events.prompt), owner));
     if (typeof seated === 'string') {
       await this.client.release(project.id, workspace, card.id, lease.token).catch(() => undefined);
       return seated;
@@ -213,6 +215,7 @@ export class OporaBridge {
     const run = this.runs.find((r) => r.workerId === workerId && r.state !== 'gone');
     if (!run) return;
     run.state = 'gone';
+    forgetForOpora(workerId);
     void this.letGo(run);
     this.trim();
     this.changed();
@@ -335,6 +338,7 @@ export class OporaBridge {
       if (!existsSync(this.statePath)) return;
       const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string };
       if (Array.isArray(saved.runs)) this.runs = saved.runs.filter((r) => r && typeof r.cardId === 'string');
+      for (const r of this.runs) if (r.state !== 'gone' && r.workerId) markForOpora(r.workerId);
       this.state.autopilot = saved.autopilot === true;
       if (typeof saved.maxRuns === 'number') this.state.maxRuns = Math.max(1, Math.min(OPORA_LIMITS.maxRuns, saved.maxRuns));
       this.autopilotBy = typeof saved.autopilotBy === 'string' ? saved.autopilotBy : '';

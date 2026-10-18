@@ -442,6 +442,14 @@ Work in this order (the commands are the opora-control-center skill's scripts):
 8. Report through agent-output with the rest of the card: the screenshots' and frames' paths (and the PR's URL) in the evidence notes, your pipeline stage, and done.proposed.
 9. Writing to Opora's storyboard or drawings (/api/storyboard, /api/drawing) is for a person to approve, so don't: put what you'd change there (a new moment, a corrected sketch, a reply to a comment) in the card's agent workspace handoff (/api/desktop-v3/agent-workspace, sections.handoff) or your agent-output report, for the person to take over.`,
   },
+  'opora.rea': {
+    group: 'planning',
+    label: 'Opora · reverse engineering (REA)',
+    used: "Added after the Opora card prompt and the Opora planner's prompt while 🔬 REA is on in ⚙️ Settings (off by default): how to use REA's MCP server to take a reference app apart and map it onto the canvas. Leave it empty to tell them nothing.",
+    vars: { server: "REA's MCP server's name", package: 'The npm package and pinned version it runs' },
+    optional: true,
+    text: `If the card or the plan points at an existing app, website or binary to replicate or learn from, and you have the "{{server}}" MCP server's tools ({{package}}, REA: Reverse Engineer Anything), use them to analyze it locally before you design or build: its screens and flows, its structure, its data and its behavior. Cite the evidence REA gives you (files, offsets, requests, screenshots) for each finding, and map the findings onto the Opora canvas: layers → areas, sectors, nodes/cards. Only analyze software the user owns or is permitted to analyze, and never execute an untrusted target unless the card asks for runtime capture.`,
+  },
 
   // --- 🏷️ Worker signs ---
   'office.namer': {

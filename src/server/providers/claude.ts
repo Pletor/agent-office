@@ -4,6 +4,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../../shared/actions.js';
 import { MCP_READ_ONLY, writeClaudeMcpConfig } from '../office-workers.js';
+import { reaFor, writeReaClaudeConfig } from '../rea/index.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS } from '../stations.js';
 import { answered, notified, wantsPermission } from '../workers/lifecycle.js';
 import { shq } from '../workers/process.js';
@@ -26,6 +27,9 @@ interface ClaudeSetup {
   settings: string;
   /** Its --mcp-config: the office's MCP server. */
   mcp?: string;
+  /** The floor's data dir, where REA's --mcp-config goes the first time a worker gets it (see rea/). */
+  dir: string;
+  rea?: string;
 }
 
 /** Claude Code's --settings for every worker: each hook event posted to the office, with curl or else the office's own node. */
@@ -197,12 +201,15 @@ export const claude: ProviderAdapter<undefined, ClaudeSetup> = {
   prepare: ({ dataDir, mcpScript }) => ({
     settings: writeHookSettings(dataDir),
     mcp: mcpScript ? writeClaudeMcpConfig(dataDir, mcpScript) : undefined,
+    dir: dataDir,
   }),
   launch({ h: { info }, args, prompt, resumeSessionId, station, setup }) {
     args.unshift('--settings', setup.settings);
     // The office's MCP server: its workers, to list, hire, send home and tell (see office-workers.ts).
-    // Ahead of --settings, which ends the list --mcp-config takes.
-    if (setup.mcp) args.unshift('--mcp-config', setup.mcp);
+    // Ahead of --settings, which ends the list --mcp-config takes. 🔬 REA's is a file of its own, for
+    // the workers its setting covers, so the office's own stays the same for everyone.
+    const mcp = [setup.mcp, reaFor(info) ? (setup.rea ??= writeReaClaudeConfig(setup.dir)) : undefined].filter((f): f is string => !!f);
+    if (mcp.length) args.unshift('--mcp-config', ...mcp);
     // A model/effort chosen for this worker overrides whatever --agent-args set office-wide.
     if (info.model) args.push('--model', info.model);
     if (info.effort) args.push('--effort', info.effort);

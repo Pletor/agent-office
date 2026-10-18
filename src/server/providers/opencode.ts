@@ -3,6 +3,7 @@
 import { toolAction } from '../../shared/actions.js';
 import { openCodeMcp } from '../office-workers.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from '../opencode.js';
+import { reaFor, reaOpenCode } from '../rea/index.js';
 import { reportedUsage } from '../reported-usage.js';
 import type { WorkerHandle } from '../workers/types.js';
 import { truncate } from '../workers/util.js';
@@ -119,6 +120,7 @@ export const opencode: ProviderAdapter<StatusState, OpenCodeSetup> = {
     if (resumeSessionId) args.push('--session', resumeSessionId);
     if (prompt) args.push('--prompt', prompt);
     h.state.error = false;
+    const rea = reaFor(info);
     return {
       args,
       rotateToken: true,
@@ -128,7 +130,8 @@ export const opencode: ProviderAdapter<StatusState, OpenCodeSetup> = {
         // (see ../opencode.ts). Like its model, it's for a fresh session: a resumed one carries on with its own.
         env.AGENT_OFFICE_EFFORT = (!resumeSessionId && info.effort) || '';
         env.AGENT_OFFICE_MODEL = (!resumeSessionId && info.model) || '';
-        env.OPENCODE_CONFIG_CONTENT = mergeOpenCodeConfigContent(env.OPENCODE_CONFIG_CONTENT, openCodePluginSpecifier(setup.plugin), setup.mcpScript ? openCodeMcp(setup.mcpScript) : undefined);
+        const mcp = { ...(setup.mcpScript ? openCodeMcp(setup.mcpScript) : {}), ...(rea ? reaOpenCode() : {}) };
+        env.OPENCODE_CONFIG_CONTENT = mergeOpenCodeConfigContent(env.OPENCODE_CONFIG_CONTENT, openCodePluginSpecifier(setup.plugin), Object.keys(mcp).length ? mcp : undefined);
       },
     };
   },

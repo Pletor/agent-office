@@ -17,6 +17,7 @@ import { Themes } from '../theme.js';
 import { Maps } from '../maps.js';
 import { OfficePrompts } from '../prompts.js';
 import { LeaveOnMerge } from '../leave-on-merge.js';
+import { configureRea } from '../rea/index.js';
 import type { ServiceInfo, ServicesState } from '../../shared/protocol.js';
 import type { BuildingServices, Ctx, LateServices } from './context.js';
 import type { Client } from './client.js';
@@ -38,6 +39,8 @@ export function createServices(ctx: Ctx): BuildingServices {
   const prompts = new OfficePrompts(cfg.dataDir, { list: agentProviders(configured), configured }, (state) => ctx.broadcast({ t: 'prompts', state }));
   // Whether a worker whose pull request merged goes home by itself, on every floor (⚙️ Settings).
   const leaveOnMerge = new LeaveOnMerge(cfg.dataDir, (state) => ctx.broadcast({ t: 'leaveOnMerge', state }));
+  // Which workers get 🔬 REA's MCP server, on every floor (⚙️ Settings, or AGENT_OFFICE_REA; see rea/).
+  configureRea(cfg.dataDir, (state) => ctx.broadcast({ t: 'rea', state }));
 
   // What the workers spend, all time and today, with the optional daily budget.
   const ledger = new Ledger(
