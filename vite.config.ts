@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
-import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
 // The whiteboard's fonts (Excalidraw's hand-drawn Virgil/Excalifont and friends), served by the
@@ -34,10 +35,34 @@ function excalidrawFonts(): Plugin {
   };
 }
 
+// The build's stamp, dist/build-info.json: the commit it was built from, and whether there were
+// uncommitted changes to tracked files, which the status wall holds the running office to (see
+// server/status/). Outside a git checkout (an upgrade's git archive) it has no commit.
+function buildStamp(): Plugin {
+  const git = (args: string[]) => {
+    try {
+      return execFileSync('git', args, { cwd: import.meta.dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {
+      return undefined;
+    }
+  };
+  return {
+    name: 'build-stamp',
+    apply: 'build',
+    closeBundle() {
+      const sha = git(['rev-parse', 'HEAD']);
+      const status = sha ? git(['status', '--porcelain', '--untracked-files=no']) : undefined;
+      const dist = resolve(import.meta.dirname, 'dist');
+      mkdirSync(dist, { recursive: true });
+      writeFileSync(join(dist, 'build-info.json'), `${JSON.stringify({ ...(sha ? { sha } : {}), dirty: !!status, at: Date.now() })}\n`);
+    },
+  };
+}
+
 export default defineConfig({
   root: resolve(import.meta.dirname, 'src/client'),
   publicDir: resolve(import.meta.dirname, 'src/client/public'),
-  plugins: [excalidrawFonts()],
+  plugins: [excalidrawFonts(), buildStamp()],
   define: {
     __EXCALIDRAW_ASSETS__: JSON.stringify(EXCALIDRAW_ASSETS),
   },

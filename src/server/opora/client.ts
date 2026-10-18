@@ -37,6 +37,11 @@ export class OporaClient {
     return this.get('/api/health');
   }
 
+  /** What Opora started from (its commit, and hashes of its sources and its page); a 404 on an Opora without it. */
+  buildIdentity(): Promise<{ commit?: unknown }> {
+    return this.get('/api/build-identity');
+  }
+
   /**
    * The framing headers of Opora's page (GET /): X-Frame-Options and Content-Security-Policy, which
    * say whether a browser lets the office show it in a frame. Only the headers are read.

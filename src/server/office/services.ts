@@ -18,6 +18,7 @@ import { Maps } from '../maps.js';
 import { OfficePrompts } from '../prompts.js';
 import { LeaveOnMerge } from '../leave-on-merge.js';
 import { configureRea } from '../rea/index.js';
+import { startStatusWall } from '../status/index.js';
 import type { ServiceInfo, ServicesState } from '../../shared/protocol.js';
 import type { BuildingServices, Ctx, LateServices } from './context.js';
 import type { Client } from './client.js';
@@ -164,5 +165,10 @@ export function createLateServices(ctx: Ctx): LateServices {
       process.kill(process.pid, 'SIGTERM');
     },
   );
+  // 🚦 The status wall by the elevator: the office and Opora against their remote mains (see status/).
+  startStatusWall({
+    emit: (state) => ctx.broadcast({ t: 'status', state }),
+    live: () => [...floors.values()].flatMap((f) => f.workers.list().map((w) => ({ name: w.name, ...(w.worktree ? { path: path.resolve(f.dir, w.worktree.path), branch: w.worktree.branch } : {}) }))),
+  });
   return { team, tailnet, services, images, upgrader, servicesState };
 }

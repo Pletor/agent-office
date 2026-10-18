@@ -21,6 +21,7 @@ import { reaHandlers } from './rea.js';
 import { rooftopHandlers } from './rooftop.js';
 import { servicesView, settingsHandlers } from './settings.js';
 import { signinsHandlers } from './signins.js';
+import { statusHandlers } from './status.js';
 import { teamHandlers } from './team.js';
 import { usageHandlers } from './usage.js';
 import { whiteboardHandlers, whiteboardHooks, whiteboardView } from './whiteboard.js';
@@ -49,6 +50,7 @@ export const handlers: HandlerMap<ClientMsg> = {
   ...rooftopHandlers,
   ...settingsHandlers,
   ...signinsHandlers,
+  ...statusHandlers,
   ...teamHandlers,
   ...usageHandlers,
   ...whiteboardHandlers,
