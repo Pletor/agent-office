@@ -1,3 +1,5 @@
+import { oporaKey } from './opora-identity.js';
+
 /** A missing slot inherits; null explicitly disables it. Values replace, never deep-merge. */
 export type HarnessBinding = { resource: string } | { value: string | number | boolean };
 export type HarnessLayer = Record<string, HarnessBinding | null>;
@@ -17,5 +19,5 @@ export function resolveHarness(layers: HarnessProfile['layers']): HarnessProfile
 }
 /** Namespace task IDs by the external project AND workspace, not just a card's short ID. */
 export function oporaHarnessTask(project: string, workspace: string, card: string): string {
-  return 'opora:' + [project, workspace, card].map(encodeURIComponent).join(':');
+  return oporaKey({ project, workspace }, card);
 }
