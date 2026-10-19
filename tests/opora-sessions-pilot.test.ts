@@ -1,18 +1,22 @@
 // What the pilot of PR #13 (a real office, a real Opora, a stub agent as the worker) found, kept as
 // regression tests on a stand-in Opora: a restart while a session holds its lease, a lease someone
 // else took over, where the lease token may go, and a turn that ends without the stage handed in.
-// The `todo` ones are the pilot's blockers: they report until the fix lands, then pass.
+// The pilot's two blockers (the token in the prompt and opora.json, a turn's end letting the card go)
+// are the last tests here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { OporaBridge, type BridgeFloor } from '../src/server/opora/bridge.js';
 import { forgetSession } from '../src/server/opora/session.js';
+import { claude } from '../src/server/providers/claude.js';
 import { childEnv } from '../src/server/workers/env.js';
+import { saveWorkers } from '../src/server/workers/persist.js';
+import type { Worker } from '../src/server/workers/types.js';
 import { PROMPTS } from '../src/shared/prompts.js';
 import type { WorkerInfo } from '../src/shared/protocol.js';
 
@@ -22,6 +26,8 @@ const WORK = { id: 'a1b2c3d4-work', kind: 'work', lens: '', title: 'Práce' };
 /** Opora's lease API as the pilot saw it: a token per claim, heartbeat and release only with it, 409 otherwise. */
 function strictOpora(dir: string) {
   const calls: { op: string; owner?: string; token?: string }[] = [];
+  /** The work stage's status in the card's node-brief, and whether node-brief answers at all. */
+  const brief = { status: 'todo', down: false };
   const leases = new Map<string, { owner: string; token: string; expires: number }>();
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
@@ -53,6 +59,8 @@ function strictOpora(dir: string) {
           return send(200, { scene: { elements: [] } });
         case '/api/storyboard':
           return send(200, { storyboard: null });
+        case '/api/desktop-v3/node-brief':
+          return brief.down ? send(500, { detail: 'down' }) : send(200, { pipeline: { current: brief.status === 'todo' ? WORK : null, stages: [{ ...WORK, status: brief.status }] } });
         case '/api/desktop-v3/lease': {
           const op = String(body.op);
           calls.push({ op, ...(typeof body.owner === 'string' ? { owner: body.owner } : {}), ...(typeof body.token === 'string' ? { token: body.token } : {}) });
@@ -74,7 +82,7 @@ function strictOpora(dir: string) {
       send(404, { detail: 'nope' });
     });
   });
-  return { server, calls, leases };
+  return { server, calls, leases, brief };
 }
 
 async function office(t: { after(fn: () => void): void }) {
@@ -119,24 +127,29 @@ async function office(t: { after(fn: () => void): void }) {
 
 const claims = (calls: { op: string }[]) => calls.filter((c) => c.op === 'claim');
 
-test('an office that restarts while a session holds its lease gives the worker its own name back and claims nothing anew', async (t) => {
+test('an office that restarts while a session holds its lease keeps the card and the name, but no token: it renews nothing and claims nothing (fail closed)', async (t) => {
   const f = await office(t);
   const before = await f.open();
   assert.equal(await before.take(CARD, 'Ana'), undefined);
   const { owner, token } = f.opora.leases.get(CARD)!;
   before.shutdown();
+  assert.ok(!readFileSync(path.join(f.dir, 'opora.json'), 'utf8').includes(token), 'the token never reaches the disk');
   // A new office process: nothing of the old one's sessions is left in memory.
   forgetSession(f.workers[0].id);
   const after = await f.open();
+  await f.heartbeat(after);
   await f.settle();
   assert.equal(childEnv(f.workers[0].id).OPORA_AGENT_NAME, owner, 'the relaunched worker reports under the same session');
+  assert.equal(childEnv(f.workers[0].id).OPORA_LEASE_TOKEN, undefined, 'and isn’t handed a token the office no longer has');
   assert.equal(claims(f.opora.calls).length, 1, 'no new claim, under no name');
-  const renewed = f.opora.calls.filter((c) => c.op === 'heartbeat').map((c) => c.token);
-  assert.ok(renewed.every((x) => x === token), 'only the session’s own token is ever renewed');
-  assert.equal(f.opora.leases.get(CARD)?.owner, owner, 'Opora still has the card under that session');
-  after.onWorkerGone(f.workers[0].id);
-  await f.settle();
-  assert.equal(f.opora.leases.has(CARD), false, 'and the restarted office lets it go once the worker goes home');
+  assert.deepEqual(f.opora.calls.filter((c) => c.op !== 'claim'), [], 'nothing renewed or let go with any token');
+  assert.equal(f.opora.leases.get(CARD)?.owner, owner, 'Opora keeps the lease until it runs out');
+  assert.match(after.view().runs[0].error ?? '', /restarted/);
+  // Once it ran out the card is free on Opora, and still the session's: no second session on the stage.
+  f.opora.leases.delete(CARD);
+  await after.repoll();
+  assert.match((await after.take(CARD, 'Ana')) ?? '', /already on/);
+  assert.equal(claims(f.opora.calls).length, 1);
 });
 
 test('a lease someone else took over is never claimed back, under any name, even once the card is free again', async (t) => {
@@ -156,28 +169,69 @@ test('a lease someone else took over is never claimed back, under any name, even
   assert.equal(f.opora.calls.filter((c) => c.op === 'heartbeat').length, 1, 'one 409 ends the renewing');
 });
 
-test('the lease token reaches the worker only through its environment, never its prompt, which every client and workers.json get', { todo: 'blocker found by the pilot of #13: src/server/opora/bridge.ts:260 puts the token into the prompt (WorkerInfo.prompt)' }, async (t) => {
+test('the lease token reaches the worker only through its environment, never its prompt, which every client and workers.json get', async (t) => {
   const f = await office(t);
   const bridge = await f.open();
   await bridge.take(CARD, 'Ana');
   const { token } = f.opora.leases.get(CARD)!;
-  assert.equal(f.envs.get(f.workers[0].id)!.OPORA_LEASE_TOKEN, token);
-  assert.ok(!f.workers[0].prompt!.includes(token), 'WorkerInfo.prompt goes to every client (worker.update, welcome) and into workers.json');
+  const info = f.workers[0];
+  assert.equal(f.envs.get(info.id)!.OPORA_LEASE_TOKEN, token);
+  assert.ok(!info.prompt!.includes(token), 'WorkerInfo.prompt goes to every client (worker.update, welcome) and into workers.json');
+  assert.match(info.prompt!, /OPORA_LEASE_TOKEN/, 'the prompt says where the token is');
+  // worker.update sends { ...info }, welcome the floor's WorkerInfo list: neither carries it.
+  assert.ok(!JSON.stringify({ t: 'worker.update', worker: { ...info } }).includes(token));
+  assert.ok(!JSON.stringify({ t: 'welcome', workers: [info] }).includes(token));
+  // Nor the Opora window's state.
+  assert.ok(!JSON.stringify(bridge.view()).includes(token));
+  // workers.json, as the worker manager writes it.
+  const file = path.join(f.dir, 'workers.json');
+  saveWorkers(file, [{ info, owner: 'Ana' } as unknown as Worker], false);
+  assert.ok(!readFileSync(file, 'utf8').includes(token));
 });
 
-test('the office keeps no lease token in .agent-office/opora.json', { todo: 'blocker found by the pilot of #13: src/server/opora/bridge.ts:517 persists runs[].token' }, async (t) => {
+test('a token an older office saved in opora.json is dropped from the file and never used', async (t) => {
+  const f = await office(t);
+  const fake = 'f00d'.repeat(16);
+  const run = { cardId: CARD, cardName: 'Pay API', group: 'dev', workerId: 'w-old', workerName: 'Old', deskId: 'desk-1', by: 'Ana', startedAt: 1, state: 'working', workspace: 'main', token: fake, owner: 'office-shop-c1aa11bb-work-a1b2c3d4-0a1b' };
+  writeFileSync(path.join(f.dir, 'opora.json'), JSON.stringify({ runs: [run] }));
+  f.workers.push({ id: 'w-old', deskId: 'desk-1', status: 'working' } as WorkerInfo);
+  const bridge = await f.open();
+  await f.heartbeat(bridge);
+  assert.ok(!readFileSync(path.join(f.dir, 'opora.json'), 'utf8').includes(fake));
+  assert.equal(childEnv('w-old').OPORA_LEASE_TOKEN, undefined);
+  assert.equal(childEnv('w-old').OPORA_AGENT_NAME, run.owner);
+  assert.deepEqual(f.opora.calls, [], 'no heartbeat, release or claim with it');
+  assert.match(bridge.view().runs[0].error ?? '', /restarted/);
+});
+
+test('a Claude worker’s command line (its first prompt, shown in its terminal, transcript and task name) carries no token', async (t) => {
   const f = await office(t);
   const bridge = await f.open();
   await bridge.take(CARD, 'Ana');
   const { token } = f.opora.leases.get(CARD)!;
+  const info = { ...f.workers[0], provider: 'claude' } as WorkerInfo;
+  const { args } = claude.launch({ h: { info } as never, args: [], prompt: info.prompt, cwd: f.dir, setup: { settings: path.join(f.dir, 'settings.json'), dir: f.dir } });
+  assert.ok(args.includes(info.prompt!), 'the prompt is its argv');
+  assert.ok(!args.join('\n').includes(token));
+  assert.equal(f.envs.get(info.id)!.OPORA_LEASE_TOKEN, token, 'the token is its process’s environment');
+});
+
+test('the office keeps no lease token in .agent-office/opora.json', async (t) => {
+  const f = await office(t);
+  const bridge = await f.open();
+  await bridge.take(CARD, 'Ana');
+  const { token } = f.opora.leases.get(CARD)!;
+  await f.heartbeat(bridge);
+  assert.ok(!readFileSync(path.join(f.dir, 'opora.json'), 'utf8').includes(token), 'while it holds the lease');
   bridge.shutdown();
-  assert.ok(!readFileSync(path.join(f.dir, 'opora.json'), 'utf8').includes(token));
+  assert.ok(!readFileSync(path.join(f.dir, 'opora.json'), 'utf8').includes(token), 'nor once it stops');
 });
 
-test('a worker that ends its turn without handing its stage in keeps the card: the same stage is not seated twice', { todo: 'blocker found by the pilot of #13: bridge.ts:331 lets the lease go on any done, and onCard (bridge.ts:300) then frees the card' }, async (t) => {
+test('a worker that ends its turn without handing its stage in keeps the card: the same stage is not seated twice', async (t) => {
   const f = await office(t);
   const bridge = await f.open();
   await bridge.take(CARD, 'Ana');
+  const { owner, token } = f.opora.leases.get(CARD)!;
   // It ends its turn with a question for whoever's at the terminal: the stage is still on turn.
   f.workers[0].status = 'done';
   bridge.onWorker(f.workers[0]);
@@ -186,4 +240,66 @@ test('a worker that ends its turn without handing its stage in keeps the card: t
   const again = await bridge.take(CARD, 'Ana');
   assert.equal(f.workers.length, 1, `a second session was seated on the same stage (${again ?? 'taken'})`);
   assert.equal(claims(f.opora.calls).length, 1);
+  assert.equal(f.opora.leases.get(CARD)?.owner, owner, 'the session keeps its lease');
+  assert.deepEqual(f.opora.calls.filter((c) => c.op === 'release'), [], 'nothing let go');
+  await f.heartbeat(bridge);
+  assert.deepEqual(f.opora.calls.filter((c) => c.op === 'heartbeat').map((c) => c.token), [token], 'and the office keeps renewing it');
+  assert.equal(childEnv(f.workers[0].id).OPORA_LEASE_TOKEN, token, 'a resumed turn still has it');
+  // Even with the lease gone from Opora (let go by hand, run out), the stage stays the session's.
+  f.opora.leases.delete(CARD);
+  await bridge.repoll();
+  assert.match((await bridge.take(CARD, 'Ana')) ?? '', /already on/);
+  assert.equal(f.workers.length, 1);
+});
+
+test('a turn that ends with Opora not answering keeps the lease; once Opora has the stage reported the session ends and lets it go', async (t) => {
+  const f = await office(t);
+  const bridge = await f.open();
+  await bridge.take(CARD, 'Ana');
+  const { token } = f.opora.leases.get(CARD)!;
+  f.opora.brief.down = true;
+  f.workers[0].status = 'done';
+  bridge.onWorker(f.workers[0]);
+  await f.settle();
+  assert.ok(f.opora.leases.has(CARD), 'it can’t tell the stage is in: it keeps the lease');
+  // The person answers, the worker hands the stage in and ends its turn again.
+  f.opora.brief.down = false;
+  f.workers[0].status = 'working';
+  bridge.onWorker(f.workers[0]);
+  f.opora.brief.status = 'passed';
+  f.workers[0].status = 'done';
+  bridge.onWorker(f.workers[0]);
+  await f.settle();
+  assert.deepEqual(f.opora.calls.filter((c) => c.op === 'release').map((c) => c.token), [token]);
+  assert.equal(f.opora.leases.has(CARD), false);
+  assert.equal(childEnv(f.workers[0].id).OPORA_LEASE_TOKEN, undefined);
+});
+
+test('a stage handed in while Opora was down is seen at the next heartbeat', async (t) => {
+  const f = await office(t);
+  const bridge = await f.open();
+  await bridge.take(CARD, 'Ana');
+  f.opora.brief.down = true;
+  f.workers[0].status = 'done';
+  bridge.onWorker(f.workers[0]);
+  await f.settle();
+  f.opora.brief.down = false;
+  f.opora.brief.status = 'failed';
+  await f.heartbeat(bridge);
+  assert.equal(f.opora.leases.has(CARD), false, 'a failed stage is reported too: the fix is a new session’s');
+  assert.equal(f.opora.calls.filter((c) => c.op === 'heartbeat').length, 0, 'a lease let go isn’t renewed');
+});
+
+test('a worker waiting on the person (needs_input) keeps its lease and its card', async (t) => {
+  const f = await office(t);
+  const bridge = await f.open();
+  await bridge.take(CARD, 'Ana');
+  f.workers[0].status = 'needs_input';
+  bridge.onWorker(f.workers[0]);
+  await f.settle();
+  assert.ok(f.opora.leases.has(CARD));
+  assert.deepEqual(f.opora.calls.filter((c) => c.op === 'release'), []);
+  f.opora.leases.delete(CARD);
+  await bridge.repoll();
+  assert.match((await bridge.take(CARD, 'Ana')) ?? '', /already on/);
 });

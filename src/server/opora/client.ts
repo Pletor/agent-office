@@ -153,6 +153,17 @@ export class OporaClient {
     await this.post('/api/desktop-v3/lease', { project, workspace, nodeId, op: 'release', token });
   }
 
+  /**
+   * A pipeline stage's status on the card as Opora has it now (todo, doing, passed, failed, skipped),
+   * from its node-brief; undefined when the card has no such stage.
+   */
+  async stageStatus(project: string, workspace: string, nodeId: string, stageId: string): Promise<string | undefined> {
+    const b = await this.get<{ pipeline?: { stages?: unknown } }>('/api/desktop-v3/node-brief', { project, workspace, nodeId });
+    const stages = Array.isArray(b.pipeline?.stages) ? (b.pipeline!.stages as Record<string, unknown>[]) : [];
+    const stage = stages.find((s) => s && s.id === stageId);
+    return typeof stage?.status === 'string' ? stage.status : undefined;
+  }
+
   private get<T>(path: string, query: Record<string, string> = {}): Promise<T> {
     const url = new URL(path, this.base);
     for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);

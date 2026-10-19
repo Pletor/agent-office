@@ -41,13 +41,22 @@ export interface BridgeEvents {
 /**
  * The office's side of a card it took: what it needs to keep the lease and let it go. Each run is one
  * session, for one stage of the card's pipeline, under a name of its own (`owner`, see session.ts).
+ * The lease token lives only here, in memory, and in its worker's environment: never in the prompt,
+ * what clients are sent, or opora.json, so it doesn't outlive the office process.
  */
 interface Held extends OporaRun {
   token?: string;
   owner?: string;
   stageId?: string;
   stageKind?: string;
+  /** The session is over (Opora has its stage reported, or its worker's process ended): the card's next stage is a new session's. */
+  ended?: boolean;
+  /** Saved in opora.json in the token's stead: the session held a lease when the office stopped. */
+  leased?: boolean;
 }
+
+/** A stage still on turn: a session whose turn ended with its stage in one of these hasn't handed it in. */
+const OPEN_STAGE = new Set(['todo', 'doing']);
 
 const POLL_MS = 20_000;
 const HEARTBEAT_MS = 5 * 60_000;
@@ -89,8 +98,6 @@ export class OporaBridge {
   private byFolder?: string;
   /** Session names Opora refused a claim under (someone else held the card), never claimed with again. */
   private refused: { owner: string }[] = [];
-  /** Whether the leases saved before the office started were renewed on the first read. */
-  private renewed = false;
   private client: OporaClient;
   private statePath: string;
   private pollTimer: NodeJS.Timeout;
@@ -117,7 +124,7 @@ export class OporaBridge {
 
   view(): OporaState {
     const focus = this.state.scope.length ? cleanFocus(this.state.scope, this.focus) : [...this.focus];
-    return { ...this.state, focus, activity: this.live.list(), handOutWaiting: [...this.handed.keys()], runs: this.runs.map(({ token: _t, owner: _o, stageId: _s, stageKind: _k, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
+    return { ...this.state, focus, activity: this.live.list(), handOutWaiting: [...this.handed.keys()], runs: this.runs.map(({ token: _t, owner: _o, stageId: _s, stageKind: _k, ended: _e, leased: _l, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
   }
 
   /** Reads the canvas again: the floor's Opora project, its sectors and their cards. */
@@ -206,11 +213,6 @@ export class OporaBridge {
         void this.letGo(run);
       }
       await this.read();
-      // A lease saved while the office was down may be close to running out: renew it now, not in five minutes.
-      if (!this.renewed && this.state.project) {
-        this.renewed = true;
-        await this.heartbeat();
-      }
       if (this.state.handOut) await this.handOut();
       if (this.state.autopilot) await this.autopilot();
     } finally {
@@ -257,7 +259,8 @@ export class OporaBridge {
       card: card.name,
       sector: card.sectorName ?? '—',
       agent,
-      token: lease.token,
+      // Where the token is, never the token: the prompt is in WorkerInfo, every client and workers.json.
+      token: 'OPORA_LEASE_TOKEN',
       stage: card.stage ? `“${card.stage}”${card.stageKind ? ` (${card.stageKind})` : ''}` : 'none (the card has no pipeline)',
       sketches: design ? '' : sketchesLine(sketches, views, project.id, workspace, card.id),
       design,
@@ -294,11 +297,12 @@ export class OporaBridge {
   }
 
   /**
-   * Whether a session of the office's is still on the card: its worker working, or the lease still
-   * held. One whose worker ended its turn and let the lease go leaves the next stage to a new session.
+   * Whether a session of the office's is still on the card: its worker at its desk and the session not
+   * over. A turn that ended isn't the stage handed in (the worker may only be asking a question), so the
+   * card is the session's until Opora has its stage reported, its process ends, or it goes home.
    */
   private onCard(cardId: string): boolean {
-    return this.runs.some((r) => r.cardId === cardId && (r.state === 'working' || (r.state === 'done' && !!r.token)));
+    return this.runs.some((r) => r.cardId === cardId && r.state !== 'gone' && !r.ended);
   }
 
   setAutopilot(on: boolean, maxRuns: number | undefined, by: string, owner?: string) {
@@ -324,11 +328,38 @@ export class OporaBridge {
   onWorker(info: WorkerInfo) {
     const run = this.runs.find((r) => r.workerId === info.id && r.state !== 'gone');
     if (!run) return;
-    const state = info.status === 'done' || info.status === 'exited' ? 'done' : 'working';
-    if (run.state === state) return;
+    const exited = info.status === 'exited';
+    const state = info.status === 'done' || exited ? 'done' : 'working';
+    if (run.state === state && !(exited && !run.ended)) return;
     run.state = state;
-    // Its session is over: it handed its stage in (and let the lease go, as its brief says) or it crashed.
-    if (state === 'done') void this.letGo(run);
+    // Its process ended (it crashed, or quit): the session is over, and its lease goes.
+    if (exited) {
+      run.ended = true;
+      void this.letGo(run);
+    } else if (state === 'done') void this.settle(run);
+    this.changed();
+  }
+
+  /**
+   * A session whose turn ended is over only once Opora has its stage reported (passed, failed or
+   * skipped), as its node-brief says: then its lease goes and the card's next stage is a new session's.
+   * Until then (a question for the person, Opora not answering, a card with no pipeline) it keeps the
+   * card and the office keeps renewing its lease; the heartbeat asks again.
+   */
+  private async settle(run: Held) {
+    const { project } = this.state;
+    const workspace = run.workspace ?? this.state.workspace;
+    if (run.ended || !run.stageId || !project || !workspace) return;
+    let status: string | undefined;
+    try {
+      status = await this.client.stageStatus(project.id, workspace, run.cardId, run.stageId);
+    } catch {
+      return;
+    }
+    if (!status || OPEN_STAGE.has(status) || run.ended || run.state !== 'done') return;
+    run.ended = true;
+    run.error = undefined;
+    await this.letGo(run);
     this.changed();
   }
 
@@ -465,6 +496,8 @@ export class OporaBridge {
   private async heartbeat() {
     const { project } = this.state;
     if (!project) return;
+    // A turn that ended before its stage was in: whether it's in now.
+    for (const run of this.runs) if (run.state === 'done' && !run.ended) await this.settle(run);
     for (const run of this.runs) {
       // A run keeps the workspace it was leased in; one saved before runs had theirs is in the floor's.
       const workspace = run.workspace ?? this.state.workspace;
@@ -514,7 +547,9 @@ export class OporaBridge {
 
   private persist() {
     try {
-      writeFileSync(this.statePath, JSON.stringify({ runs: this.runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner, linkedTo: this.chosen, workspace: this.chosenWorkspace, focus: this.focus, handOut: this.state.handOut }, null, 2), { mode: 0o600 });
+      // No lease token on disk: only that the session held one.
+      const runs = this.runs.map(({ token, ...r }) => (token ? { ...r, leased: true } : r));
+      writeFileSync(this.statePath, JSON.stringify({ runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner, linkedTo: this.chosen, workspace: this.chosenWorkspace, focus: this.focus, handOut: this.state.handOut }, null, 2), { mode: 0o600 });
     } catch {
       // a full disk loses the bridge's state, not the office
     }
@@ -526,8 +561,17 @@ export class OporaBridge {
       const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string; workspace?: string; focus?: unknown; handOut?: boolean };
       if (Array.isArray(saved.runs)) this.runs = saved.runs.filter((r) => r && typeof r.cardId === 'string');
       for (const r of this.runs) if (r.state !== 'gone' && r.workerId) markForOpora(r.workerId);
-      // A worker the office relaunches keeps its session's name, and its lease while the office holds it.
-      for (const r of this.runs) if (r.state !== 'gone' && r.workerId && r.owner) keepSession(r.workerId, sessionEnv(this.state.url, r.owner, r.token));
+      // The lease token died with the office that claimed it (one an older office saved is dropped):
+      // a session that held one keeps its card and its name, but the office neither renews nor claims
+      // it again, and the lease runs out on Opora by itself unless the worker's own process renews it.
+      for (const r of this.runs) {
+        const held = r.leased || !!r.token;
+        delete r.token;
+        delete r.leased;
+        if (r.state !== 'gone' && !r.ended && held) r.error = 'The office restarted while this session held its lease: it no longer renews it, and Opora lets it run out';
+      }
+      // A worker the office relaunches keeps its session's name (and no lease token).
+      for (const r of this.runs) if (r.state !== 'gone' && r.workerId && r.owner) keepSession(r.workerId, sessionEnv(this.state.url, r.owner));
       this.state.autopilot = saved.autopilot === true;
       this.state.handOut = saved.handOut !== false;
       if (typeof saved.maxRuns === 'number') this.state.maxRuns = Math.max(1, Math.min(OPORA_LIMITS.maxRuns, saved.maxRuns));

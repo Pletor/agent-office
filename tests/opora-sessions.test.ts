@@ -59,6 +59,9 @@ function strictOpora(dir: string) {
           return send(200, { scene: { elements: [] } });
         case '/api/storyboard':
           return send(200, { storyboard: null });
+        case '/api/desktop-v3/node-brief':
+          // The stages before the one on turn are handed in.
+          return send(200, { pipeline: { stages: STAGES.map((s, i) => ({ ...s, status: i < opora.current ? 'passed' : 'todo' })) } });
         case '/api/desktop-v3/lease': {
           const nodeId = String(body.nodeId);
           const op = String(body.op);
@@ -130,10 +133,10 @@ test('the work stage and the review after it run under different names, and the 
   assert.equal(await f.bridge.take(CARD, 'Ana'), undefined);
   const work = f.opora.leases.get(CARD)!.owner;
   // The worker hands its stage in and ends its turn; the review is on turn next.
+  f.opora.current = 1;
   f.workers[0].status = 'done';
   f.bridge.onWorker(f.workers[0]);
   await f.settle();
-  f.opora.current = 1;
   await f.bridge.repoll();
   assert.equal(await f.bridge.take(CARD, 'Ana'), undefined);
   const review = f.opora.leases.get(CARD)!.owner;
@@ -152,7 +155,9 @@ test('the token the office claimed is the one its worker gets, and the one the o
   await f.bridge.take(CARD, 'Ana');
   const lease = f.opora.leases.get(CARD)!;
   assert.equal(f.envs.get(f.workers[0].id)!.OPORA_LEASE_TOKEN, lease.token);
-  assert.match(f.workers[0].prompt!, new RegExp(lease.token));
+  // The prompt says where the token is, never the token: every client and workers.json get the prompt.
+  assert.ok(!f.workers[0].prompt!.includes(lease.token));
+  assert.match(f.workers[0].prompt!, /OPORA_LEASE_TOKEN/);
   await f.heartbeat();
   const beat = f.opora.calls.filter((c) => c.op === 'heartbeat');
   assert.deepEqual(beat.map((c) => c.token), [lease.token]);

@@ -174,7 +174,7 @@ test('taking a card claims its lease on Opora and seats a worker for it, a desig
   assert.deepEqual({ project: claim.body!.project, workspace: claim.body!.workspace, nodeId: claim.body!.nodeId }, { project: 'p1', workspace: 'draft', nodeId: 'c1' });
   assert.match(String(claim.headers['x-opora-actor']), /^agent; name=office-shop/);
   assert.equal(f.workers[0].deskId, 'desk-3');
-  assert.match(f.workers[0].prompt!, /tok-c1/);
+  assert.doesNotMatch(f.workers[0].prompt!, /tok-c1/, 'the lease token is in the worker’s environment, not its prompt');
   assert.match(f.workers[0].prompt!, /Cart page/);
   assert.match(f.workers[0].prompt!, /design card/);
   const run = f.state().runs[0];
