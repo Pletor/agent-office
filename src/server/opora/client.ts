@@ -90,6 +90,7 @@ export class OporaClient {
           kind: String(n.kind ?? ''),
           name: String(n.name ?? '').slice(0, 120),
           parentId: typeof n.parentId === 'string' ? n.parentId : null,
+          ...(typeof n.memberOf === 'string' && n.memberOf ? { memberOf: n.memberOf } : {}),
           ...(typeof env?.name === 'string' && env.name.trim() ? { env: env.name.trim().slice(0, 60) } : {}),
           ...(typeof env?.host === 'string' && env.host.trim() ? { host: env.host.trim().slice(0, 120) } : {}),
         };
