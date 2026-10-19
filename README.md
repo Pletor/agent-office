@@ -47,6 +47,8 @@ There's a lot more (a rooftop bar, an office dog, an arcade, supercars in the ga
 
 ## Requirements
 
+**Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP and memory references. Press **E**, search local resources and copy or download a context pack for any model. Local agents can read the same catalog with `node bin/office-harness.js`. OpenViking sources, publishing resources and access scopes are covered in [docs/harness.md](docs/harness.md).
+
 On the machine that runs the office:
 
 - **Node.js 20+**

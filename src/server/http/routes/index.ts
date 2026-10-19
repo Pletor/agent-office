@@ -2,6 +2,7 @@
 // come in that order (see http/router.ts). The public ones are tried first, then the sign-in check,
 // then the rest; the last one answers every path left with the client bundle, or a 404.
 import type { Route } from '../router.js';
+import { harnessRoute } from './harness.js';
 import { agentRoutes } from './agents.js';
 import { authRoutes } from './auth.js';
 import { fileRoutes } from './files.js';
@@ -33,6 +34,7 @@ export const routes: readonly Route[] = [
   fileRoutes.termDrop,
   fileRoutes.changedFile,
   fileRoutes.docs,
+  harnessRoute,
   searchRoutes.search,
   serviceRoutes.forwards,
   githubRoutes.github,

@@ -9,6 +9,7 @@ import { elevator, garageLift } from '../elevator';
 import { gong } from '../../features/gong/world';
 import { jukebox } from '../../features/jukebox/world';
 import { bookshelf } from '../../features/bookshelf/world';
+import { harnessShelf } from '../../features/harness/world';
 import { cabinet } from '../../features/cabinet/world';
 import { whiteboard } from '../../features/whiteboard/world';
 import { green, tee } from '../../features/golf/world';
@@ -59,6 +60,7 @@ function floorPlan() {
     jukebox,
     cabinet,
     bookshelf,
+    harnessShelf,
     kitchen,
     plants,
     lamps,

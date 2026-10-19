@@ -21,8 +21,8 @@ const SIDE = 0.05;
 const BASE = 0.1;
 const BOARD = 0.03;
 
-export function buildBookshelf(): BookshelfModel {
-  const { width: W, depth: D, height: H } = BOOKSHELF;
+export function buildBookshelf(at: { x: number; z: number; width: number; depth: number; height: number } = BOOKSHELF, label = '📚 Docs', kind: Interactable['kind'] = 'bookshelf'): BookshelfModel {
+  const { width: W, depth: D, height: H } = at;
   // Seeded, so the shelf looks the same in every browser.
   let seed = 20250928;
   const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -106,15 +106,15 @@ export function buildBookshelf(): BookshelfModel {
   group.add(mergeByMaterial(parts));
 
   // A sign along the crown.
-  const sign = textPlane('📚 Docs', { size: 40, bg: '#fffaf3' });
+  const sign = textPlane(label, { size: 40, bg: '#fffaf3' });
   sign.position.set(0, H + 0.3, 0.02);
   group.add(sign);
 
   // Built facing +z; it stands against the south wall facing into the room (-z).
-  group.position.set(BOOKSHELF.x, 0, BOOKSHELF.z);
+  group.position.set(at.x, 0, at.z);
   group.rotation.y = Math.PI;
-  const collider: Collider = { minX: BOOKSHELF.x - W / 2 - 0.04, maxX: BOOKSHELF.x + W / 2 + 0.04, minZ: BOOKSHELF.z - D / 2 - 0.03, maxZ: FLOOR.maxZ, top: H + 0.07 };
-  const interactable: Interactable = { kind: 'bookshelf', x: BOOKSHELF.x, z: BOOKSHELF.z - 1.2, radius: 1.6 };
+  const collider: Collider = { minX: at.x - W / 2 - 0.04, maxX: at.x + W / 2 + 0.04, minZ: at.z - D / 2 - 0.03, maxZ: FLOOR.maxZ, top: H + 0.07 };
+  const interactable: Interactable = { kind, x: at.x, z: at.z - 1.2, radius: 1.6 };
   group.userData.interact = interactable;
   return { group, collider, interactable };
 }
