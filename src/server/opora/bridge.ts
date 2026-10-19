@@ -32,6 +32,8 @@ export interface BridgeFloor {
 }
 
 export interface BridgeEvents {
+  /** Optional task context, prepared before claiming a lease; failure prevents dispatch. */
+  prepareTask?(project: string, workspace: string, card: string, owner?: string): Promise<string>;
   update(state: OporaState): void;
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
   prompt(id: PromptId): string;
@@ -216,6 +218,9 @@ export class OporaBridge {
     const desk = deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
     if (!desk) return 'Every desk is taken: send someone home, or build the back office out';
     const agent = oporaAgentName(this.floor.id, card.id);
+    let context = '';
+    try { context = await this.events.prepareTask?.(project.id, workspace, card.id, owner) ?? ''; }
+    catch (err) { return 'Task context: ' + (err as Error).message; }
     let lease;
     try {
       lease = await this.client.claim(project.id, workspace, card.id, agent, LEASE_TTL);
@@ -237,7 +242,7 @@ export class OporaBridge {
       design,
     });
     // 🔬 REA, when it's on: its MCP server for taking a reference app apart, and how to use it (see rea/).
-    const seated = seatForOpora(() => this.floor.seat(desk, by, withReaBrief(prompt, this.events.prompt), owner));
+    const seated = seatForOpora(() => this.floor.seat(desk, by, withReaBrief(prompt + context, this.events.prompt), owner));
     if (typeof seated === 'string') {
       await this.client.release(project.id, workspace, card.id, lease.token).catch(() => undefined);
       return seated;

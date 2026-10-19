@@ -24,6 +24,7 @@ import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
 import { PlanningRoom } from './planning.js';
 import { OporaBridge } from './opora/bridge.js';
+import { harnessPlannerBrief } from './harness/handoff.js';
 import { PLANNER_SEAT } from '../shared/planning.js';
 import { Worktrees, type WorktreeCleanup } from './worktrees.js';
 import { landedWork, landedWorkers, type Landed } from './leave-on-merge.js';
@@ -35,6 +36,7 @@ type ToastLevel = 'info' | 'warn' | 'error';
 
 /** What a floor needs from the building around it. */
 export interface FloorContext {
+  prepareTask?(dir: string, project: string, workspace: string, card: string, owner?: string): Promise<string>;
   agentCmd: string;
   agentArgs: string[];
   /** The DSH profile DeepSeek Harness workers boot (see server/dsh.ts). */
@@ -308,7 +310,7 @@ export class Floor {
         },
         toast: (text, level) => ctx.toast(this, text, level),
         hiringPaused: () => ctx.ledger.hiringPaused,
-        prompt: (id) => ctx.prompts.text(id),
+        prompt: (id) => harnessPlannerBrief(ctx.prompts.text(id), id),
         opora: () => {
           const o = this.opora.view();
           return { base: o.url, project: o.project?.id, name: o.project?.name, workspace: o.workspace ?? undefined, focus: this.opora.focusLine() };
@@ -335,6 +337,7 @@ export class Floor {
       dataDir,
       {
         update: (state) => ctx.emit(this, { t: 'opora', state }),
+        prepareTask: (project, workspace, card, owner) => ctx.prepareTask?.(def.dir, project, workspace, card, owner) ?? Promise.resolve(''),
         toast: (text, level) => ctx.toast(this, text, level),
         prompt: (id) => ctx.prompts.text(id),
       },

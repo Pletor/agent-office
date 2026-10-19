@@ -33,6 +33,7 @@ import { installBarGames } from './features/bargames';
 import { installBasketball } from './features/basketball';
 import { installBoards } from './features/boards';
 import { installBookshelf } from './features/bookshelf';
+import { installHarness } from './features/harness';
 import { installCabinet } from './features/cabinet';
 import { installCarrying } from './features/carrying';
 import { installCars } from './features/cars';
@@ -158,6 +159,7 @@ const opora = installOpora(ctx, parts, { showPlanning: planning.showPlanning, ar
 installOporaScope(ctx);
 installOporaLive(ctx, { openFull: opora.openFull, showPlanning: planning.showPlanning });
 parts.bookshelf = installBookshelf(ctx);
+installHarness(ctx);
 installHerald(ctx, parts);
 
 parts.bar = installBar(ctx, { roof: parts.rooftop.roof, djAt: parts.rooftop.djAt, reach });

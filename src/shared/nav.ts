@@ -10,6 +10,8 @@ import { planningObstacles } from './planning.js';
 
 export type Pt = [number, number];
 
+import { HARNESS_SHELF } from './harness-layout.js';
+
 const CELL = 0.5;
 /** Half the width of whoever walks it (the dog, a worker), plus a little room: how far they keep from things. */
 const R = 0.3;
@@ -73,6 +75,7 @@ function obstacles(wing: number): Obstacles {
   rects.push([CABINET.x - 0.45, FLOOR.maxX, CABINET.z - CABINET.width / 2 - 0.02, CABINET.z + CABINET.width / 2 + 0.02]);
   // The bookshelf against the south wall, as features/bookshelf/world.ts puts it.
   rects.push([BOOKSHELF.x - BOOKSHELF.width / 2 - 0.04, BOOKSHELF.x + BOOKSHELF.width / 2 + 0.04, BOOKSHELF.z - BOOKSHELF.depth / 2 - 0.03, FLOOR.maxZ]);
+  rects.push([HARNESS_SHELF.x - HARNESS_SHELF.width / 2 - 0.04, HARNESS_SHELF.x + HARNESS_SHELF.width / 2 + 0.04, HARNESS_SHELF.z - HARNESS_SHELF.depth / 2 - 0.03, FLOOR.maxZ]);
   // The ladder up the west wall, and the fire poles: a hole with a railing round it, or a landing mat.
   // Which spot has which changes floor by floor, so the dog keeps off both.
   rects.push([FLOOR.minX, FLOOR.minX + 0.3, LADDER.z - LADDER.width / 2 - 0.05, LADDER.z + LADDER.width / 2 + 0.05]);

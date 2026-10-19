@@ -1,0 +1,36 @@
+.modal.harness-window { width: min(1220px, 96vw); height: min(850px, 92vh); }
+.harness-window header { gap: 18px; }
+.harness-tag, .harness-origin { color: var(--muted); font-size: 13px; }
+.harness-intro { margin: 0; padding: 12px 20px; color: var(--muted); }
+.harness-toolbar { display: flex; gap: 10px; padding: 0 20px 14px; flex-wrap: wrap; }
+.harness-toolbar input { flex: 1; min-width: 180px; }
+.harness-toolbar input, .harness-toolbar select { padding: 9px; border-radius: 8px; }
+.harness-window .body.harness-body { display: grid; grid-template-columns: 320px minmax(0, 1fr); padding: 0; flex: 1; min-height: 0; overflow: hidden; }
+.harness-body aside { overflow: auto; padding: 0 12px 16px; border-right: 1px solid #8884; }
+.harness-list { display: grid; gap: 7px; }
+.harness-entry { display: grid; gap: 4px; text-align: left; border: 1px solid #8884; border-radius: 9px; padding: 12px; background: transparent; color: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.harness-entry:hover, .harness-entry[aria-pressed=true] { background: #32a89a22; border-color: #32a89a; }
+.harness-entry small { color: var(--muted); }
+.harness-reader { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 16px 22px; align-items: flex-start; }
+.harness-reader h3 { margin: 0; }
+.harness-origin { overflow-wrap: anywhere; }
+.harness-text { width: 100%; min-height: 0; flex: 1; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.65 ui-monospace, monospace; user-select: text; }
+.harness-sources { margin-top: 18px; font-size: 12px; overflow-wrap: anywhere; }
+.harness-window footer { display: flex; gap: 10px; align-items: center; padding: 14px 20px; flex-wrap: wrap; }
+.harness-window footer span { margin-right: auto; }
+.harness-window .body.harness-body { grid-template-rows: auto minmax(0, 1fr); }
+.harness-cascade { grid-column: 1 / -1; margin: 0 12px 12px; padding: 12px; border: 1px solid #32a89a; border-radius: 9px; font-size: 14px; }
+.harness-body:has(> .harness-cascade[open]) { display: block !important; overflow: auto !important; }
+.harness-body:has(> .harness-cascade[open]) > aside, .harness-body:has(> .harness-cascade[open]) > .harness-reader { display: none; }
+.harness-profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.harness-profile-grid > section { min-width: 0; }
+.harness-cascade summary { cursor: pointer; font-weight: 600; }
+.harness-cascade textarea, .harness-cascade input, .harness-cascade select { width: 100%; box-sizing: border-box; padding: 8px; }
+.harness-cascade textarea { min-height: 150px; font: 12px/1.5 monospace; }
+.harness-cascade .harness-toolbar { padding: 0; }
+.harness-effective { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; }
+@media (max-width: 700px) {
+  .harness-profile-grid { grid-template-columns: 1fr; }
+  .harness-window .body.harness-body { grid-template-columns: 1fr; grid-template-rows: auto 30% minmax(0, 1fr); }
+  .harness-tag { display: none; }
+}
