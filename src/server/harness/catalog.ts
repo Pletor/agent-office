@@ -1,5 +1,5 @@
 import { readdir, lstat, realpath, open } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, constants, type BigIntStats } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
@@ -14,6 +14,12 @@ const SKIP = /^(?:node_modules|\.git|\.worktrees|worktrees|dist|build|\.venv|__p
 const SECRET = /(?:^|[./_-])(?:secrets?|credentials?|tokens?|auth|ovcli\.conf|ov\.conf)(?:[./_-]|$)|\.env(?:\.|$)|\.(?:pem|key|p12)$/i;
 const TEXT = /\.(?:md|markdown|txt|ts|js|mjs|cjs|py|sh|ps1|yaml|yml|json|toml)$/i;
 const inside = (root: string, file: string) => { const rel = path.relative(root, file); return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel); };
+const CASELESS = process.platform === 'win32' || process.platform === 'darwin';
+const samePath = (a: string, b: string) => CASELESS ? a.toLowerCase() === b.toLowerCase() : a === b;
+// O_NOFOLLOW exists on POSIX only; there it refuses a final component that became a link after validation.
+const READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
+// Windows path stats report dev 0 (only handle stats carry the volume), so dev is compared when both have one.
+const sameFile = (a: BigIntStats, b: BigIntStats) => a.ino === b.ino && (a.dev === b.dev || !a.dev || !b.dev);
 
 export function sourceCategory(file: string, fallback: HarnessCategory = 'instructions'): HarnessCategory {
   if (/SKILL\.md$/i.test(file)) return 'skills';
@@ -48,7 +54,8 @@ export function harnessSources(project: string, local: boolean, env: NodeJS.Proc
   return sources;
 }
 
-interface Located { source: HarnessSource; file: string }
+/** Where list() found a file: its path relative to the source, and the real root/boundary it was verified against. */
+interface Located { source: HarnessSource; file: string; rel: string; root: string; boundary?: string }
 export class HarnessLibrary {
   private locations = new Map<string, Located>();
   constructor(private sources: HarnessSource[]) {}
@@ -59,13 +66,15 @@ export class HarnessLibrary {
     let visits = 0;
     let limited = false;
     for (const source of this.sources) {
-      let available = false;
-      try { available = !!source.dir && (await lstat(source.dir)).isDirectory() && !(await lstat(source.dir)).isSymbolicLink(); } catch { /* optional source */ }
-      if (available && source.boundary) {
-        try { available = inside(await realpath(source.boundary), await realpath(source.dir)); } catch { available = false; }
-      }
-      sources.push({ name: source.name, available });
-      if (!available) continue;
+      let root: string | undefined, boundary: string | undefined;
+      try {
+        const stat = source.dir ? await lstat(source.dir) : undefined;
+        if (stat?.isDirectory() && !stat.isSymbolicLink()) root = await realpath(source.dir);
+        if (root && source.boundary && !inside(boundary = await realpath(source.boundary), root)) root = undefined;
+      } catch { root = undefined; /* optional source */ }
+      sources.push({ name: source.name, available: !!root });
+      if (!root) continue;
+      const verified = root;
       const walk = async (rel: string, depth: number): Promise<void> => {
         if (++visits > MAX_VISITS || entries.length >= MAX_FILES || depth > 10) { limited = true; return; }
         const file = path.join(source.dir, rel);
@@ -82,7 +91,7 @@ export class HarnessLibrary {
         } else if (stat.isFile() && TEXT.test(rel) && stat.size <= MAX_BYTES) {
           const id = createHash('sha256').update(path.resolve(file)).digest('hex').slice(0, 24);
           if (this.locations.has(id)) return;
-          this.locations.set(id, { source, file });
+          this.locations.set(id, { source, file, rel, root: verified, boundary });
           entries.push({ id, title: this.title(rel), category: sourceCategory(rel, source.category), source: source.name, path: rel.replaceAll('\\', '/') });
         }
       };
@@ -101,19 +110,40 @@ export class HarnessLibrary {
     if (!found) return undefined;
     const { source, file } = found;
     try {
-      const root = await realpath(source.dir);
-      const resolved = await realpath(file);
-      if (!inside(root, resolved) || (await lstat(file)).isSymbolicLink()) return undefined;
-      const handle = await open(resolved, 'r');
+      const before = await this.verify(found);
+      if (!before) return undefined;
+      const handle = await open(before.real, READ_FLAGS);
       try {
-        const stat = await handle.stat();
-        if (!stat.isFile() || stat.size > MAX_BYTES) return undefined;
+        // The opened file must be the one just verified, not whatever a swapped path now points at.
+        const stat = await handle.stat({ bigint: true });
+        if (!stat.isFile() || !sameFile(stat, before.stat) || stat.size > MAX_BYTES) return undefined;
         const buffer = Buffer.alloc(MAX_BYTES + 1);
         const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
         if (bytesRead > MAX_BYTES || buffer.subarray(0, bytesRead).includes(0)) return undefined;
-        const rel = path.relative(source.dir, file).replaceAll('\\', '/');
+        // Verify again after reading, so a path swapped out and back around the open is caught too.
+        const after = await this.verify(found);
+        if (!after || !sameFile(stat, after.stat)) return undefined;
+        const rel = found.rel.replaceAll('\\', '/');
         return { id, title: this.title(file), category: sourceCategory(rel, source.category), source: source.name, path: rel, text: buffer.subarray(0, bytesRead).toString('utf8') };
       } finally { await handle.close(); }
     } catch { return undefined; }
+  }
+  /**
+   * A successful list() is not a standing grant: every read re-checks, against the disk as it is now,
+   * that the boundary and the source folder still resolve to the real paths list() verified, that no
+   * component from the source folder down to the file is a link (list() never follows one, even to a
+   * target inside the boundary), and that the file's real path is exactly that file under the root.
+   * These are path checks, so they narrow a concurrent rename race rather than rule it out at the OS level.
+   */
+  private async verify({ source, file, rel, root, boundary }: Located) {
+    if (boundary !== undefined && (!source.boundary || (await realpath(source.boundary)) !== boundary || !inside(boundary, root))) return;
+    for (let at = source.dir, parts = rel.split(path.sep); ; at = path.join(at, parts.shift()!)) {
+      if ((await lstat(at)).isSymbolicLink()) return;
+      if (!parts.length) break;
+    }
+    const real = await realpath(file);
+    if ((await realpath(source.dir)) !== root || !inside(root, real) || !samePath(path.relative(root, real), rel)) return;
+    const stat = await lstat(real, { bigint: true });
+    return stat.isFile() ? { real, stat } : undefined;
   }
 }
