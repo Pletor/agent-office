@@ -67,6 +67,8 @@ export class Arcade {
   private readonly texture = new THREE.CanvasTexture(this.picture);
   /** The board you click while playing, drawn at the size it shows on screen so it stays crisp. */
   private board: HTMLCanvasElement | null = null;
+  /** Drawn over the game on the monitor while nobody's playing (what else the boss's PC is for, see features/opora). */
+  private overlay: ((g: CanvasRenderingContext2D) => void) | null = null;
 
   constructor(screen: THREE.Mesh) {
     this.view = new ScreenZoom(screen);
@@ -186,6 +188,12 @@ export class Arcade {
     stop.addEventListener('click', () => this.modal?.close());
   }
 
+  /** Puts `paint` over the game on the monitor while nobody's playing (null takes it off), and draws it now. */
+  setOverlay(paint: ((g: CanvasRenderingContext2D) => void) | null) {
+    this.overlay = paint;
+    this.draw();
+  }
+
   /** Moves the camera toward the monitor while you play, and back after. Call it once the player has placed the camera. */
   update(camera: THREE.PerspectiveCamera, dt: number) {
     this.view.update(camera, dt, !!this.modal);
@@ -198,7 +206,9 @@ export class Arcade {
       g.setTransform(this.board.width / W, 0, 0, this.board.height / H, 0, 0);
       this.game.paint(g, false);
     } else {
-      this.game.paint(this.picture.getContext('2d')!, true);
+      const g = this.picture.getContext('2d')!;
+      this.game.paint(g, true);
+      this.overlay?.(g);
       this.texture.needsUpdate = true;
     }
   }

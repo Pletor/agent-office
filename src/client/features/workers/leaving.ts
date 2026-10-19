@@ -436,7 +436,12 @@ interface Arriver {
   /** Where the hop up onto its chair starts, once it's beside it. */
   from?: THREE.Vector3;
   hop: number;
+  /** A stop on the way: once at point `at` of `way`, it stands `left` more seconds facing `face`. */
+  stop?: { at: number; face: number; left: number };
 }
+
+/** How long a worker stands at the 🛰️ Opora screen reading the card it came for. */
+const READ_CARD = 1.6;
 
 /** Walking pace on the way in to a meeting: a little brisker than on the way out. */
 const IN_PACE = 2.8;
@@ -462,19 +467,22 @@ export class Arrivals {
     private ways: () => Ways,
   ) {}
 
-  /** Walks `model` in to its seat at `desk`, a moment after whoever stepped out of the elevator last. */
-  add(model: Worker, desk: DeskView) {
+  /**
+   * Walks `model` in to its seat at `desk`, a moment after whoever stepped out of the elevator last;
+   * or along `way` when it comes from somewhere else (a card fetched from the planning room's board).
+   */
+  add(model: Worker, desk: DeskView, from?: Pt[], stop?: { at: number; face: number }) {
     const now = performance.now() / 1000;
     const delay = Math.max(0, this.nextAt - now);
     this.nextAt = now + delay + IN_SPACING;
-    const way = this.ways().in(desk.def);
+    const way = from?.length ? from : this.ways().in(desk.def);
     const [x, z] = way[0];
     this.parent.add(model.root);
     model.root.position.set(x, this.ground(x, z, 0) - FEET, z);
     model.root.rotation.set(0, 0, 0);
     model.root.scale.setScalar(desk.seatAnchor.getWorldScale(new THREE.Vector3()).x);
     model.root.visible = delay <= 0;
-    this.walkers.push({ model, desk, way, next: 1, t: -delay, heading: 0, stepIn: 0, hop: 0 });
+    this.walkers.push({ model, desk, way, next: 1, t: -delay, heading: 0, stepIn: 0, hop: 0, ...(stop ? { stop: { ...stop, left: READ_CARD } } : {}) });
   }
 
   /** Stops walking `model` in: it was sent home before it sat down, or it's gone. */
@@ -519,6 +527,13 @@ export class Arrivals {
       pos.set(THREE.MathUtils.lerp(w.from.x, seat.x, w.hop), THREE.MathUtils.lerp(w.from.y, seat.y, w.hop) + Math.sin(w.hop * Math.PI) * 0.35, THREE.MathUtils.lerp(w.from.z, seat.z, w.hop));
       root.rotation.y += wrap(w.desk.def.rotY + Math.PI - root.rotation.y) * Math.min(1, dt * 9);
       return w.hop < 1;
+    }
+    // At its stop (the card on the glass): it stands and reads, then walks on.
+    if (w.stop && w.next > w.stop.at && w.stop.left > 0) {
+      w.stop.left -= dt;
+      w.model.walking = false;
+      root.rotation.y += wrap(w.stop.face - root.rotation.y) * Math.min(1, dt * 8);
+      return true;
     }
     let move = IN_PACE * dt;
     while (move > 0 && w.next < w.way.length) {

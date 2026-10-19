@@ -62,3 +62,84 @@ agent-office tunnel [office@address | url] [--port <n>] [--office-port <n>] [--n
   the worker stops it. Given an SSH address it opens the tunnel to the office too.
   See docs/tunnel.md.
 ```
+
+## Opora Canvas
+
+The planning room links each floor to [Opora Canvas](features.md#opora-canvas), the app where the work is planned, through Opora's HTTP API, from the office's server. Two environment variables set it up, and neither is needed when Opora runs on its default address on the same machine:
+
+| Variable | What it does |
+| --- | --- |
+| `AGENT_OFFICE_OPORA_URL` | Where Opora listens, from the office's machine. Default `http://127.0.0.1:8740`, `uv run opora`'s default. Opora only answers on loopback, so it has to run on the office's machine. |
+| `AGENT_OFFICE_OPORA_DIR` | Opora's repository (the folder with `opora.toml`). With it set, an admin can start Opora from the 🛰️ Opora window (`uv run opora --no-open` there) when it isn't running. The office never starts a second one while one answers. |
+
+A floor is linked to the Opora project whose folder is that floor's checkout (Opora's local or git project for the same folder). When no project's folder is the floor's, or you want another one, pick the project in the 🛰️ Opora window's **Linked to** list; *— by folder —* goes back to matching by folder. The choice is the floor's, for everyone on it, and it can't change while the office is on cards of the project it's linked to. If the chosen project is deleted on Opora, the floor falls back to the folder's (and the window says so). The floor reads the project's `main` workspace (else its first), and that's read-only for a git project on Opora, where the planning happens in work workspaces: pick the one to read and take cards from in the window's **Workspace** list (Opora's labels, ● on the one in use); *— default —* goes back to `main`. Linking another project resets it to the default, and if the picked workspace is deleted on Opora the floor reads the default one again (and the window says so). A card the office already took keeps the workspace it was claimed in until its worker goes home. The office keeps the choices and what it took from Opora in the floor's `.agent-office/opora.json` (`linkedTo` for the project, `workspace` for the workspace), the lease tokens included.
+
+### Designers
+
+Cards on Opora's design pipeline go to the designers' desks, and their brief has them read what the person sketched (drawings, storyboards, attachments) and build it. They work with what the worker's Claude Code has, and do without what it doesn't:
+
+- **The opora-control-center skill**, for reading the card: `opora_read.py node-brief --raw`, `drawing --layer <card id>` (and `sb/<card id>/<moment id>` for a storyboard moment's sketch) and `drawing-file --id <fileId> --out <file>.png` for the images in them.
+- **The chrome-devtools MCP**, to open the card's drawing (`?…&mode=drawing&layer=<card id>`) and storyboard (`?…&mode=storyboard&node=<card id>`) on Opora in a headless browser and screenshot them, and to screenshot their own work. Opora has to be on the same machine (it only answers on loopback).
+- **The frontend-design and ui-theme-designer skills** (Claude Code plugins), for building the screens and their tokens and themes.
+- **The claude-design MCP** (optional), to read a Claude Design artifact a card links to. Add it once for your user, then authenticate it in an interactive Claude Code session with `/mcp` (and run `/design-consent` if it refuses):
+
+  ```bash
+  claude mcp add --scope user --transport http claude-design https://api.anthropic.com/v1/design/mcp
+  ```
+
+  Until it's connected, designers work from the sketches alone.
+
+### Opora full screen inside the office
+
+**O** at the boss's chair (and **⛶ Open Opora full screen** in the 🛰️ Opora window) opens Opora inside the office, in a frame over the whole screen. Opora refuses to be framed until you list the office's address on Opora's side, in its `opora.local.toml`:
+
+```toml
+[app]
+embed_origins = ["http://localhost:4600"]
+```
+
+Use the address the office's page has in your browser (the 🛰️ Opora window shows the exact line to add), and restart Opora. The office reads Opora's framing headers (`X-Frame-Options`, CSP `frame-ancestors`) each time it polls it; until they let the office in, **O** opens Opora in a tab of its own instead, as before. Esc closes the full-screen view from inside Opora too: Opora tells the page it's framed in, and the office only listens to Opora's own frame.
+
+Opora's sign-in cookie is `SameSite=Strict`, so the browser has to reach Opora by the same name as the office: with the office on `localhost`, Opora as `localhost` too, and on `127.0.0.1`, as `127.0.0.1`. The office does that itself in the browser, whichever of the two `AGENT_OFFICE_OPORA_URL` names.
+
+### Reverse engineering with REA
+
+[REA (Reverse Engineer Anything)](https://github.com/morluto/rea) is an MCP server that lets an agent take apart an app, a website, an Electron or JavaScript bundle, a binary or an APK, and cite the evidence for what it finds. The office can hand it to its workers, so that a card or a plan that points at a reference app is first dissected and then laid out precisely on the Opora canvas: layers → areas, sectors, nodes/cards. It's **off by default**. An admin turns it on in ⚙️ Settings → **🤖 Workers** → **Reverse engineering (REA)**, for everyone in the building (kept in `.agent-office/rea.json`):
+
+| Setting | Who gets REA |
+| --- | --- |
+| **Off** (default) | Nobody. |
+| **🧭 Opora workers** (`opora`) | The workers the office seats for an Opora card (the developers' and the designers' desks) and the planner when it plans onto the Opora canvas. A plain worker, a board agent, the planner writing a plan file and the router don't. |
+| **🤖 Every worker** (`all`) | Every worker the office starts. |
+
+| Variable | What it does |
+| --- | --- |
+| `AGENT_OFFICE_REA` | `off`, `opora` or `all`: overrides ⚙️ Settings, which then shows the setting but can't change it. Anything else is ignored. |
+| `AGENT_OFFICE_REA_PACKAGE` | The package the workers run, pinned to `rea-agents@6.7.0` by default. Set it to another exact version of the same package (`rea-agents@6.8.0`) to upgrade; a tag (`@latest`), a range (`^6`) or any other package name is ignored, and the pin is used. |
+
+The office doesn't install REA, run it, or add it to anyone's own MCP config (never run `rea-agents setup` for the office: it edits your global `~/.claude.json`). It only puts REA, as `npx -y rea-agents@6.7.0 mcp` (`cmd /c npx …` on Windows), next to the office's own `agent-office` MCP server in the config of the workers the setting covers: Claude Code gets a second `--mcp-config` file, `.agent-office/rea-mcp.json`, so the shared `agent-office-mcp.json` stays the same for everyone; Codex gets `-c mcp_servers.rea.*` (with a 120 s start-up wait, for `npx`'s first download); OpenCode gets it in `OPENCODE_CONFIG_CONTENT`'s `mcp`. Other providers don't take MCP config from the office and don't get it. A change applies from each worker's next start. REA's tools aren't pre-allowed: Claude Code asks before each one, as it does for any tool it hasn't been allowed.
+
+A worker REA is on for (an Opora card's, or the Opora planner) is also told how to use it, by the **Opora · reverse engineering (REA)** prompt after its brief: analyze the reference locally, cite the evidence, map it onto the canvas, only analyze software the user owns or may analyze, and never execute an untrusted target unless the card asks for runtime capture. Rewrite it or empty it in **📝 Edit the prompts…** like the others.
+
+**Security.** REA runs local analysis tools as the worker's user, with that user's permissions, on whatever the worker points it at: treat it like any tool that executes code on the office's machine. The version is pinned so that a new release (or a compromised one) never runs without someone choosing it; check the package name when you move the pin, since lookalike names (`rea-agent`, `reaagents`…) aren't REA. Reverse-engineering software can be restricted by its licence or by law: only analyze what you own or have permission to analyze.
+
+## The status wall
+
+The 🚦 status wall over the gong (*Stav*) holds two repositories to their remote main, and checks what runs. Its words are Czech, the language of the people it was made for; the rest of the office stays English.
+
+- **Kancelář** is the office's own install, the folder the server runs from. Its remote main is `AGENT_OFFICE_STATUS_REMOTE` when that's set (`fork/main`, say), else `fork/main` when the checkout has a remote called `fork` (a fork you push to, next to a read-only upstream `origin`), else what the local `main` tracks, else `origin/main`.
+- **Opora** is Opora Canvas's repository, held to its `origin/main`: `AGENT_OFFICE_OPORA_DIR` when it's set, else the folder `Opora-control-center-canvas` next to the office's install, when either has `opora.toml`. The live Opora is the one at `AGENT_OFFICE_OPORA_URL` (default `http://127.0.0.1:8740`).
+
+**Green** takes all of these: the office runs the remote main's commit (its `HEAD` as it started), `dist` was built from that commit with no uncommitted changes (the build stamps it in `dist/build-info.json`; under `npm run dev` there's no `dist` to match), the local `main` is neither ahead of nor behind the remote main, every branch, local or on that remote, with commits main doesn't have is merged (its pull request merged, which a squash merge needs since it leaves no ancestry, or its changes already in main: `git merge-tree` of it into main changes nothing), no worktree of the repository has uncommitted changes to tracked files, and neither does the main checkout. Untracked files don't count. For Opora: it answers `GET /api/health`, its `GET /api/build-identity` says it started from the remote main's commit, and its `dist/index.html` is newer than the last change to `frontend/` in main.
+
+**Amber** is work in progress, or a version a restart catches up: an open pull request (*mergni PR #n*), a branch or a worktree with changes that belongs to a seated worker (by its worktree's folder or its branch), the local `main` behind the remote one (*git pull*), the office or Opora running an older commit of main (*potřeba restart*: just *restartuj kancelář* once the install is on main and built, else pull, build and restart), a new build on disk since the office started, or a version it can't tell: Opora without `/api/build-identity` is *verze neověřena*, unless the process on its port started after the checkout's `HEAD` commit, `HEAD` is the remote main and the frontend was built after its last change.
+
+**Red** is work that isn't in main and nobody is on, or a build that doesn't match: the local `main` ahead of the remote (*pushni main*), a branch ahead of main with no pull request (*otevři PR*) or a closed one, uncommitted changes in a worktree with no worker or in the main checkout, a running commit that isn't in main, `dist` built from another commit or with uncommitted changes, and Opora not answering.
+
+The checks run on the office's server, with `git` and `gh` started with fixed arguments and no shell: the cheap local ones every 30 seconds, `git fetch --prune` of each remote and `gh pr list --state all` every 5 minutes, and both as soon as someone opens the wall's window (at most one fetch a minute). Each result goes to everyone signed in. They only read, apart from the fetch (which updates the remote-tracking branches) and `git merge-tree`, which writes the merged tree it tries into the repository's object store. Nothing reads a process's command line: without `/api/build-identity`, only the start time of the process listening on Opora's port is looked up (`netstat` and `Get-Process` on Windows, `lsof` and `ps` elsewhere).
+
+| Variable | What it does |
+| --- | --- |
+| `AGENT_OFFICE_STATUS_REMOTE` | The office's remote main, as `remote/branch` (`fork/main`). |
+| `AGENT_OFFICE_STATUS_FETCH` | `off` (or `0`, `false`, `no`): never fetch, only compare with the remote-tracking branches as they are. |
+| `AGENT_OFFICE_OPORA_DIR`, `AGENT_OFFICE_OPORA_URL` | Opora's repository and address, as for [Opora Canvas](#opora-canvas). |

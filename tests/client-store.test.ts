@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { EMPTY_PLAN } from '../src/shared/floorplan.js';
 import { parked } from '../src/shared/garage.js';
 import { JUKEBOX_TUNES } from '../src/shared/jukebox.js';
+import { EMPTY_OPORA } from '../src/shared/opora.js';
 import type { ServerMsg } from '../src/shared/protocol.js';
 
 // The store keeps the floor you're on in localStorage and times things by performance.now(): stand both
@@ -225,7 +226,7 @@ test('what the browser remembers keeps its keys and shapes', () => {
 
 test("the store's keys are its state, as window.__office shows them", () => {
   // As the office had them before its store was split into slices: methods and the slices aren't among them.
-  assert.deepEqual(Object.keys(store).sort(), ['accounts', 'ball', 'cabinet', 'cabinetFrame', 'cars', 'carsAt', 'chat', 'clock', 'decor', 'dog', 'dogStart', 'drawing', 'floor', 'floorPlan', 'floors', 'ice', 'invites', 'issues', 'jail', 'jukebox', 'leaveOnMerge', 'limits', 'machine', 'map', 'me', 'meeting', 'notify', 'peers', 'profile', 'project', 'projectsDir', 'prompts', 'pulls', 'queue', 'repos', 'screens', 'services', 'signins', 'sky', 'subs', 'team', 'theme', 'upgrade', 'usage', 'whiteboard', 'workers', 'you']);
+  assert.deepEqual(Object.keys(store).sort(), ['accounts', 'ball', 'cabinet', 'cabinetFrame', 'cars', 'carsAt', 'chat', 'clock', 'decor', 'dog', 'dogStart', 'drawing', 'floor', 'floorPlan', 'floors', 'ice', 'invites', 'issues', 'jail', 'jukebox', 'leaveOnMerge', 'limits', 'machine', 'map', 'me', 'meeting', 'notify', 'opora', 'peers', 'planning', 'profile', 'project', 'projectsDir', 'prompts', 'pulls', 'queue', 'rea', 'repos', 'screens', 'services', 'signins', 'sky', 'status', 'subs', 'team', 'theme', 'upgrade', 'usage', 'whiteboard', 'workers', 'you']);
 });
 
 test('a new store starts every field where it always has', async () => {
@@ -245,7 +246,7 @@ test('a new store starts every field where it always has', async () => {
       usage: { total: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 }, today: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 }, day: '', pauseHiring: false },
       limits: { windows: [], at: 0 }, notify: {}, machine: { cpu: 0, cores: 0, memUsed: 0, memTotal: 0, history: [], workers: 0 },
       sky: null, theme: { pick: 'auto', active: null }, prompts: { custom: {} }, leaveOnMerge: { on: false }, map: { pick: 'office', custom: [] },
-      meeting: { current: null, past: [] }, decor: [], floorPlan: EMPTY_PLAN, services: { items: [], port: 4600 },
+      meeting: { current: null, past: [] }, planning: { current: null, past: [] }, opora: EMPTY_OPORA, rea: null, status: null, decor: [], floorPlan: EMPTY_PLAN, services: { items: [], port: 4600 },
       dog: null, dogStart: 0, jukebox: { on: false, track: JUKEBOX_TUNES[0].id, startedAt: 0, elapsed: 0, since: 0 }, clock: '<undefined>',
       whiteboard: [], drawing: [], cabinet: { player: null, scores: [] }, cabinetFrame: null, ball: {},
       cars: parked(), carsAt: [], jail: { prisoners: [], bones: 0 },

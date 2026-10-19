@@ -18,7 +18,8 @@ function findAppDir(): string | undefined {
   return undefined;
 }
 
-const APP_DIR = findAppDir() ?? process.cwd();
+/** The install this server runs from (the status wall checks it too, see status/). */
+export const APP_DIR = findAppDir() ?? process.cwd();
 // The new version is built here, next to the install, so swapping it in is a few renames.
 const STAGE = path.join(APP_DIR, '.upgrade');
 const CHECK_EVERY_MS = 15 * 60_000;

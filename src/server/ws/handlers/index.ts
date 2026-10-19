@@ -12,12 +12,16 @@ import { floorHandlers, projectView } from './floors.js';
 import { githubHandlers, issuesView, pullsView } from './github.js';
 import { jukeboxHandlers, jukeboxView } from './jukebox.js';
 import { meetingHandlers, meetingView } from './meetings.js';
+import { oporaHandlers, oporaView } from './opora.js';
 import { planHandlers, planView } from './plan.js';
+import { planningHandlers, planningView } from './planning.js';
 import { presenceHandlers } from './presence.js';
 import { queueHandlers, queueView } from './queue.js';
+import { reaHandlers } from './rea.js';
 import { rooftopHandlers } from './rooftop.js';
 import { servicesView, settingsHandlers } from './settings.js';
 import { signinsHandlers } from './signins.js';
+import { statusHandlers } from './status.js';
 import { teamHandlers } from './team.js';
 import { usageHandlers } from './usage.js';
 import { whiteboardHandlers, whiteboardHooks, whiteboardView } from './whiteboard.js';
@@ -37,12 +41,16 @@ export const handlers: HandlerMap<ClientMsg> = {
   ...githubHandlers,
   ...jukeboxHandlers,
   ...meetingHandlers,
+  ...oporaHandlers,
   ...planHandlers,
+  ...planningHandlers,
   ...presenceHandlers,
   ...queueHandlers,
+  ...reaHandlers,
   ...rooftopHandlers,
   ...settingsHandlers,
   ...signinsHandlers,
+  ...statusHandlers,
   ...teamHandlers,
   ...usageHandlers,
   ...whiteboardHandlers,
@@ -72,5 +80,7 @@ export const views: ViewPieces = {
   jukebox: jukeboxView,
   whiteboard: whiteboardView,
   meeting: meetingView,
+  planning: planningView,
+  opora: oporaView,
   cabinet: cabinetView,
 };

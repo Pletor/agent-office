@@ -7,6 +7,7 @@ import { agentRoutes } from './agents.js';
 import { authRoutes } from './auth.js';
 import { fileRoutes } from './files.js';
 import { githubRoutes } from './github.js';
+import { jukeboxRoutes } from './jukebox.js';
 import { pageRoutes } from './pages.js';
 import { searchRoutes } from './search.js';
 import { serviceRoutes } from './services.js';
@@ -38,6 +39,10 @@ export const routes: readonly Route[] = [
   searchRoutes.search,
   serviceRoutes.forwards,
   githubRoutes.github,
+  jukeboxRoutes.upload,
+  jukeboxRoutes.songs,
+  jukeboxRoutes.remove,
+  jukeboxRoutes.song,
   pageRoutes.office,
   pageRoutes.lite,
   pageRoutes.bundle,

@@ -1,0 +1,27 @@
+/* The 🛰️ Opora window: the link to Opora Canvas, its cards, and the office's work on them */
+.modal.opora-window { width: min(820px, 100%); }
+.opora-window .muted { color: var(--muted); font-weight: 700; font-size: 12px; }
+.opora-window .btn.small { padding: 3px 8px; font-size: 12px; border-width: 2px; border-radius: 9px; text-decoration: none; }
+.opora-window h3 { margin: 14px 0 6px; font-size: 15px; }
+.opora-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; }
+.opora-status > .btn:not(.btn ~ .btn) { margin-left: auto; }
+.opora-window .opora-link { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; }
+.opora-link select { max-width: 100%; }
+.opora-window .opora-link.cta { background: #fff; border: 2px solid var(--ink); border-left: 6px solid #38d9a9; border-radius: 12px; padding: 8px 12px; }
+.opora-embed { margin: 8px 0 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+.opora-embed code { font-size: 12px; background: #fff; border: 1px solid var(--ink); border-radius: 6px; padding: 0 4px; }
+.opora-error { color: var(--bad); font-weight: 700; font-size: 13px; }
+.opora-plan, .opora-auto { background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
+.opora-plan h3 { margin-top: 2px; }
+.opora-plan p { margin: 0 0 8px; }
+.opora-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.opora-auto { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.opora-window .opora-toggle { display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer; }
+.opora-toggle input { width: 18px; height: 18px; accent-color: #38d9a9; }
+.opora-runs, .opora-cards { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-direction: column; gap: 5px; }
+.opora-runs li, .opora-cards li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #fff; border: 2px solid var(--ink); border-left-width: 6px; border-left-color: #38d9a9; border-radius: 10px; padding: 5px 10px; }
+.opora-runs li.design, .opora-cards li.design { border-left-color: #9b5de5; }
+.opora-runs li .btn, .opora-cards li .btn { margin-left: auto; }
+.opora-card-name { font-weight: 800; }
+.opora-sector { margin: 6px 0; }
+.opora-sector summary { font-weight: 800; cursor: pointer; }

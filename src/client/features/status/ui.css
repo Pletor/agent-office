@@ -1,0 +1,29 @@
+/* The 🚦 Stav window: the office's and Opora's lights, with the reasons and what to do about each */
+.modal.status-window { width: min(860px, 100%); }
+.status-window .muted { color: var(--muted); font-weight: 700; font-size: 12px; }
+.status-window .btn.small { padding: 3px 8px; font-size: 12px; border-width: 2px; border-radius: 9px; text-decoration: none; }
+.status-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.status-top .btn { margin-left: auto; }
+.status-panel { background: #fff; border: 2px solid var(--ink); border-left-width: 8px; border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
+.status-panel.green { border-left-color: #2fd67b; }
+.status-panel.amber { border-left-color: #ffb020; }
+.status-panel.red { border-left-color: #ff4d4f; }
+.status-panel.unknown { border-left-color: #8a96b2; }
+.status-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.status-head h3 { margin: 0; font-size: 18px; }
+.status-head .status-word { font-size: 15px; }
+.status-head .btn:not(.btn ~ .btn) { margin-left: auto; }
+.status-lamp { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--ink); background: #8a96b2; }
+.status-lamp.green { background: #2fd67b; box-shadow: 0 0 10px #2fd67b; }
+.status-lamp.amber { background: #ffb020; box-shadow: 0 0 10px #ffb020; }
+.status-lamp.red { background: #ff4d4f; box-shadow: 0 0 10px #ff4d4f; }
+.status-facts { margin: 6px 0 0; font-size: 12px; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.status-facts code, .status-text code { font-size: 11px; background: #f4f1ea; border: 1px solid var(--ink); border-radius: 6px; padding: 0 4px; margin: 0 6px; }
+.status-reasons { list-style: none; padding: 0; margin: 8px 0 2px; display: flex; flex-direction: column; gap: 4px; }
+.status-reasons li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; font-weight: 700; }
+.status-reasons li .btn { margin-left: auto; }
+.status-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; margin-top: 3px; background: #2fd67b; border: 1px solid var(--ink); }
+.status-reasons li.warn .status-dot { background: #ffb020; }
+.status-reasons li.bad .status-dot { background: #ff4d4f; }
+.status-text { overflow-wrap: anywhere; }
+.status-fix { display: block; color: var(--muted); font-size: 12px; }

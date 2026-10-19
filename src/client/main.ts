@@ -50,12 +50,17 @@ import { installHerald } from './features/herald';
 import { installHud } from './features/hud';
 import { installJukebox } from './features/jukebox';
 import { installMeeting } from './features/meeting';
+import { installPlanning } from './features/planning';
+import { installOpora } from './features/opora';
+import { installOporaScope } from './features/oporascope';
+import { installOporaLive } from './features/oporalive';
 import { installNeedsYou } from './features/needsyou';
 import { installPalette } from './features/palette';
 import { installPeers } from './features/peers';
 import { installRooftop } from './features/rooftop';
 import { installSeating } from './features/seating';
 import { installSmoke } from './features/smoke';
+import { installStatusWall } from './features/status';
 import { installLamplight } from './features/lamplight';
 import { installTelescope } from './features/telescope';
 import { installTv } from './features/tv';
@@ -148,6 +153,10 @@ parts.waiting = installWaiting(ctx, core, parts);
 parts.needsYou = installNeedsYou(ctx, parts);
 installPalette(ctx, parts);
 parts.meeting = installMeeting(ctx, parts);
+const planning = installPlanning(ctx, parts);
+const opora = installOpora(ctx, parts, { showPlanning: planning.showPlanning, arcade: parts.arcade });
+installOporaScope(ctx);
+installOporaLive(ctx, { openFull: opora.openFull, showPlanning: planning.showPlanning });
 parts.bookshelf = installBookshelf(ctx);
 installHarness(ctx);
 installHerald(ctx, parts);
@@ -169,8 +178,9 @@ parts.cards = installCarrying(ctx, {
   officeIsFull: parts.actions.officeIsFull,
   showMeeting: parts.meeting.showMeeting,
 });
-parts.seating = installSeating(ctx, { shares: () => parts.talk.currentShares(), watchShare: () => parts.talk.watchShare(), arcade: parts.arcade, showBar: parts.bar.showBar, usable: () => parts.pointer.usable() });
+parts.seating = installSeating(ctx, { shares: () => parts.talk.currentShares(), watchShare: () => parts.talk.watchShare(), arcade: parts.arcade, opora: { connected: () => store.opora.connected, openFull: opora.openFull }, showBar: parts.bar.showBar, usable: () => parts.pointer.usable() });
 installGong(ctx, { burstOver: parts.views.burstOver, workerViews: parts.views.workerViews, court: () => parts.worlds.court(), idleAgents: () => parts.worlds.idleAgents() });
+installStatusWall(ctx);
 
 parts.hintbar = installHintBar(ctx, core, parts);
 parts.emotes = installEmotes(ctx, { personOf });

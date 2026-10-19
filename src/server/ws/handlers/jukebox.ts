@@ -1,7 +1,8 @@
 // The lounge jukebox on every floor.
 import type { Floor } from '../../floor.js';
-import { JUKEBOX_TUNES, STREAM } from '../../../shared/jukebox.js';
+import { JUKEBOX_TUNES, STREAM, UPLOAD_PATH } from '../../../shared/jukebox.js';
 import type { JukeboxClientMsg } from '../../../shared/protocol.js';
+import { songFile } from '../../jukebox-songs.js';
 import type { Ctx } from '../../office/context.js';
 import { here } from './common.js';
 import type { HandlerMap, ViewPieces } from './types.js';
@@ -14,7 +15,8 @@ export const jukeboxHandlers = {
     const who = c.peer.name;
     const floor = here(ctx, c);
     if (!floor) return;
-    const r = floor.jukebox.play({ track: msg.track, url: msg.url }, who);
+    if (msg.file !== undefined && !songFile(ctx.cfg.dataDir, msg.file)) return ctx.warn(c, "The office doesn't have that song any more. Upload it again");
+    const r = floor.jukebox.play({ track: msg.track, url: msg.file !== undefined ? UPLOAD_PATH + msg.file : msg.url }, who);
     if ('error' in r) return ctx.warn(c, r.error);
     if (!r.changed) return;
     jukeboxChanged(ctx, floor);

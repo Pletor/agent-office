@@ -16,6 +16,7 @@ import { requestHandler } from './http/router.js';
 import { routes } from './http/routes/index.js';
 import { startHookServer } from './hooks/server.js';
 import { acceptWebSockets } from './ws/upgrade.js';
+import { stopStatusWall } from './status/index.js';
 
 /** What a test can set about how the office starts: the client bundle it serves, instead of the built one. */
 export interface StartOptions {
@@ -57,6 +58,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     ctx.cancelFloorsChanged();
     ctx.arcade.flush();
     ctx.upgrader.stop();
+    stopStatusWall();
     services.stop();
     tailnet.stop();
     ctx.webhook.stop();
