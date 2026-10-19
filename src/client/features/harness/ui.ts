@@ -43,7 +43,8 @@ export function openHarness(floor: string) {
   const keys = libraryKeys(el, filter, list);
   active = openModal(el, { doing: '📚 at the Harness library', reading: true, onClose: () => { closed = true; abort.abort(); active = undefined; keys.release(); } });
   // A phone's keyboard shouldn't pop up over the library: there the window itself takes focus.
-  (matchMedia('(pointer: fine)').matches ? filter : el).focus({ preventScroll: true });
+  // A moment later, so the E that opened the shelf isn't typed into the box.
+  setTimeout(() => (matchMedia('(pointer: fine)').matches ? filter : el).focus({ preventScroll: true }), 30);
   /** On a phone the list and the reader take turns on the screen. */
   function showList() {
     el.dataset.pane = 'list';
