@@ -49,6 +49,18 @@ try {
   console.log('at board');
   await page.waitForFunction(() => !!document.pointerLockElement);
   await page.screenshot({ path: path.join(shots, 'boss-board.png') });
+  // Oblique room views must show only the opaque panel, never the window/frame behind it.
+  for (const [name, z, yaw] of [['north', 8.8, -2.05], ['south', 12.2, -1.09]]) {
+    await page.evaluate(({ z, yaw }) => {
+      const p = window.__office.player; p.pos.set(14.5, 3, z); p.camYaw = yaw; p.lookPitch = -0.03; p.vy = 0;
+    }, { z, yaw });
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: path.join(shots, `boss-board-${name}.png`) });
+  }
+  await page.evaluate(() => {
+    const p = window.__office.player; p.pos.set(15.5, 3, 10.5); p.camYaw = -Math.PI / 2; p.lookPitch = 0.12; p.vy = 0;
+  });
+  await page.waitForTimeout(250);
   await page.keyboard.press('KeyE');
   const dialog = page.getByRole('dialog', { name: 'Boss Office — Pro tebe', exact: true });
   await dialog.waitFor({ timeout: 10000 });

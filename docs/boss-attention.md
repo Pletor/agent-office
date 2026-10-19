@@ -1,6 +1,6 @@
 # Boss Office — Pro tebe
 
-The board above the Boss Office's red couch at the east window (up the stairs, facing into the room) is your inbox for decisions and answers. Stand in front of the couch, aim at the board and press **E**. The top-right **✕** or **Esc** closes it and returns to mouse-look without another click. The board fits above the couch backrest with window visible around its edges; the couch remains usable.
+The board above the Boss Office's red couch (up the stairs, facing into the room) is your inbox for decisions and answers. Its opaque wall-backed panel covers the entire east window, frame and sill, including from oblique room views. Stand in front of the couch, aim at the board and press **E**. The top-right **✕** or **Esc** closes it and returns to mouse-look without another click. The couch remains usable.
 
 ## What belongs to you
 
@@ -35,6 +35,8 @@ Run `npm run typecheck`, `npm test`, `npm run build`. Focused tests: `node --imp
 This feature does not repair the independent Harness orchestrator identity/lifecycle issues. Those remain separate work.
 
 ## Screenshots
+
+[North oblique view](shots/boss-attention/boss-board-north.png) and [south oblique view](shots/boss-attention/boss-board-south.png) show the opaque panel covering the window and sill, with the footer above the couch backrest.
 
 [Agent status tab](shots/boss-attention/boss-agent-state.png) shows blockers and responsibility without a human confirmation action. Focused guidance tests: `node --import tsx --import=#tests/css --test tests/boss*.test.ts tests/size.test.ts`.
 
