@@ -16,6 +16,10 @@ try {
   await page.keyboard.press('F8');
   await page.getByRole('dialog', { name: 'Harness library' }).waitFor();
   await page.getByRole('heading', { name: 'Start here', exact: true }).waitFor();
+  await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished)));
+  const box = await page.getByRole('dialog').boundingBox();
+  assert.deepEqual([box.x, box.y, Math.round(box.width), Math.round(box.height)], [0, 0, 1440, 900], 'the library covers the whole browser');
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Search harness resources', 'search has focus');
   await page.screenshot({ path: path.join(process.env.HARNESS_SHOTS ?? os.tmpdir(), 'harness-office.png') });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.waitForFunction(() => !!document.pointerLockElement);
@@ -24,5 +28,5 @@ try {
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => !!document.pointerLockElement);
   assert.equal(await page.getByRole('dialog').count(), 0);
-  console.log('PASS: production office, F8 library, real catalog, X and Escape restore mouse-look without another click.');
+  console.log('PASS: production office, F8 full-screen library with focus in search, real catalog, X and Escape restore mouse-look without another click.');
 } finally { await browser.close(); }
