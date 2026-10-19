@@ -74,16 +74,16 @@ DeepSeek Harness metrics come from ACP `usage_update`: tokens in context and the
 
 ## Windows Codex hook recovery
 
-Native Windows Codex (verified against 0.163.0) executes lifecycle commands in PowerShell. The office uses its call operator (`&`), literal single-quoted arguments with doubled apostrophes, and explicit native exit-code propagation. Unix launches keep POSIX quoting. Paths with spaces or shell metacharacters remain literal; bridge tokens stay in the worker environment, never in these commands.
+Native Windows Codex (verified against 0.163.0) executes lifecycle commands in PowerShell. The office uses its call operator (`&`), literal single-quoted arguments with doubled apostrophes, and explicit native exit-code propagation. That script is passed through `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand` as UTF-16LE Base64, so the outer npm `.cmd` shim cannot interpret `&` or path metacharacters while launching Codex. Encoding is only transport, not encryption or approval. Unix launches keep POSIX quoting. Paths remain literal; bridge tokens stay in the worker environment, never in these commands.
 
 If an older office repeatedly shows `Hook failed` / `hook exited with code 1`:
 
 1. Finish or preserve the active worker's work and session identity before updating the office. A broken status badge alone is not proof that a worker stopped.
 2. Run the updated office, then resume the preserved Codex worker. Commands are set at process launch; updating the helper file alone does not fix an already-running session. Do not restart a shared office while others are working.
-3. In the worker terminal, review the changed Office commands in `/hooks` and approve only commands you recognize. The Windows command should begin with `&` followed by the quoted Node executable and Office helper path. Never disable hooks or bypass trust to clear the warning.
+3. In the worker terminal, review the changed Office commands in `/hooks` and approve only commands you recognize. For Windows, decode the value after `-EncodedCommand` using `[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('PASTE_BASE64_VALUE'))` (this displays text; it does not execute it). The decoded script must contain only `&`, the quoted Node executable, Office helper path, one lifecycle event, and `; exit $LASTEXITCODE`. Never execute unknown decoded text, disable hooks, or bypass trust to clear the warning.
 4. Send a small task and verify the terminal has no new hook failures and the office follows its working/finished state. A separate permission denial still requires its normal approval; this fix does not grant tool permissions.
 
-The regression test executes all seven lifecycle commands through the native shell against an isolated authenticated fixture, including a path containing spaces, apostrophes and shell metacharacters. It does not invoke a model or modify user hook trust.
+Regression tests preserve all config arguments through a real Windows PTY and npm-style `.cmd` shim, then execute all seven lifecycle commands through the native shell against an isolated authenticated fixture, including a path containing spaces, apostrophes and shell metacharacters. They do not invoke a model or modify user hook trust.
 
 ## The office's prompts
 

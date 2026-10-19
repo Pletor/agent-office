@@ -96,8 +96,11 @@ export function codexHookArgs(hookPath: string, platform: NodeJS.Platform = proc
     // Native Windows Codex runs hooks in PowerShell: quoted programs need & and literal
     // apostrophes are doubled (POSIX '"'"' escaping is a PowerShell parse error).
     const values = [process.execPath, hookPath, event];
+    const script = `& ${values.map(value => `'${value.replaceAll("'", "''")}'`).join(' ')}; exit $LASTEXITCODE`;
+    // The npm .cmd shim parses CLI overrides before Codex sees them. Keep PowerShell's
+    // metacharacters out of that outer command line; encoding is not a trust bypass.
     const command = platform === 'win32'
-      ? `& ${values.map(value => `'${value.replaceAll("'", "''")}'`).join(' ')}; exit $LASTEXITCODE`
+      ? `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(script, 'utf16le').toString('base64')}`
       : values.map(shellQuote).join(' ');
     const config = `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},timeout=3}]}]`;
     args.push('-c', config);
