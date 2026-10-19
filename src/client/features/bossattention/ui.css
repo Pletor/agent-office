@@ -20,6 +20,16 @@
 .boss-attention-system .boss-attention-item { border-left-color: #637993; }
 .boss-attention-system .boss-attention-tag { color: #536477; }
 .boss-attention :focus-visible { outline: 3px solid #2467a3; outline-offset: 3px; }
+.boss-attention-tabs { display: flex; gap: 12px; padding: 12px 24px; border-bottom: 1px solid #d3dce8; flex-shrink: 0; }
+.boss-attention-tabs .btn { min-height: 44px; white-space: normal; }
+.boss-attention-tabs [aria-selected="true"] { background: #263347; color: #fff; }
+.boss-attention-guide h5 { font-size: 1rem; margin: 16px 0 8px; }
+.boss-attention-guide ol { padding-left: 24px; }
+.boss-attention-guide li, .boss-attention-blockers li { margin: 10px 0; line-height: 1.5; }
+.boss-attention-result { padding: 12px; background: #edf3fa; border-radius: 6px; }
+.boss-attention-blockers { padding: 12px; background: #fff3e3; border-radius: 6px; }
+.boss-attention-system { border-top: 0; padding-top: 0; margin-top: 0; }
+.boss-attention-system .btn { background: transparent; box-shadow: none; font-weight: normal; }
 @media (max-width: 600px) {
   .modal.boss-attention { position: fixed; inset: 0; margin: 0; width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
   .boss-attention-toolbar, .boss-attention-content { padding: 12px; }

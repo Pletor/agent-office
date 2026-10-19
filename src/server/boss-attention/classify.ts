@@ -5,7 +5,7 @@ export interface WorkRow {
   id: string;
   name: string;
   status: string;
-  waitingOnHuman: { id: string; ask: string }[];
+  waitingOnHuman: { id: string; ask: string; stage: boolean }[];
 }
 
 export function workRows(value: unknown): WorkRow[] {
@@ -18,7 +18,7 @@ export function workRows(value: unknown): WorkRow[] {
     const asks = row.waitingOnHuman.map((value, index) => {
       const ask = record(value);
       if (!ask || typeof ask.ask !== 'string') throw new Error('Opora vrátila neplatnou otázku pro člověka');
-      return { id: String(ask.blockId ?? ask.stageId ?? index), ask: ask.ask.trim() };
+      return { id: String(ask.blockId ?? ask.stageId ?? index), ask: ask.ask.trim(), stage: typeof ask.stageId === 'string' };
     }).filter((ask) => ask.ask);
     return { id: key, name: row.name, status: row.status, waitingOnHuman: asks };
   });

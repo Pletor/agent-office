@@ -9,6 +9,16 @@ export interface BossAttentionItem {
   action: string;
   url?: string;
   kind: 'question' | 'approval' | 'system';
+  /** Deterministic instructions, not generated promises of work or authorization to approve. */
+  guidance?: {
+    owner: string;
+    activity: string;
+    steps: string[];
+    expected: string;
+    blockers: string[];
+    linkLabel: string;
+    agentNext?: string;
+  };
 }
 
 export interface BossAttention {

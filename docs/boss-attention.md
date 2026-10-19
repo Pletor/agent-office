@@ -4,13 +4,19 @@ The board inside the Boss Office's north glass (up the stairs, facing into the r
 
 ## What belongs to you
 
+The default **Moje úkoly** tab contains only human actions. Cards explain responsibility, numbered steps, where to save and the expected outcome. Opening a link is not completion. **Stav agentů** is a separate information tab, retained during refresh; arrow keys, Home and End navigate the tabs.
+
 - **An explicit Opora question:** the original question, full parent path, next action, and **Otevřít v Opoře**. The link selects the exact task inside its parent layer, not the project root. Answer using the card's existing controls in Opora.
-- **A completion proposal:** only after the pipeline is complete. Inspect evidence in Opora before confirming; the board never approves on your behalf and Opora remains the authority for all gates.
+- **A completion proposal:** only after the pipeline, blocks, reported tests/review/merge evidence, prescribed checks and any gate scenario meet known conditions in a writable workspace. This is an advisory mirror, not independent verification. Inspect and try the result in Opora before using **Potvrdit**; check that **Uzavřeno** was saved. If it fails, leave it open and record reproducible feedback in **Zadání**. Opora rechecks its authoritative gates and may still reject confirmation.
 - **A worker waiting for input:** the current question/permission summary and **Otevřít terminál**, using existing terminal navigation. A finished/idle worker alone is not a human task.
 
 **K dořešení systémem / agentem** is separate. Bridge/run errors and premature completion proposals are not requests for your approval. The board explains the next repair step but does not start repair workers, change leases, dismiss errors, reset proposals, or resume autopilot.
 
 ## Scope and freshness
+
+System cards explicitly say **Tvoje akce nyní: žádná**, list missing conditions and describe the orchestrator's next step. An active run is reported only for a working worker on this card in this workspace without a run error; this does not prove it is repairing the issue. Otherwise no active run is established. Refresh never schedules a repair.
+
+For block questions, append the answer in the specified block's **Text bloku**, save by leaving the field and update its state appropriately. Do not mark the whole condition met just because you answered. Stage questions direct you to the pipeline and a recorded clarification; do not skip a failed stage. Clearing a request does not guarantee an agent has resumed.
 
 This is a shared boss inbox, not per-account assignment. It covers **the current floor's linked Opora project and selected workspace**, plus workers on that floor. It ignores switchboard focus so requests elsewhere in that workspace are not hidden. It does not aggregate other floors or workspaces.
 
@@ -29,5 +35,7 @@ Run `npm run typecheck`, `npm test`, `npm run build`. Focused tests: `node --imp
 This feature does not repair the independent Harness orchestrator identity/lifecycle issues. Those remain separate work.
 
 ## Screenshots
+
+[Agent status tab](shots/boss-attention/boss-agent-state.png) shows blockers and responsibility without a human confirmation action. Focused guidance tests: `node --import tsx --import=#tests/css --test tests/boss*.test.ts tests/size.test.ts`.
 
 [Physical board](shots/boss-attention/boss-board.png), [desktop](shots/boss-attention/boss-dialog-desktop.png), [mobile](shots/boss-attention/boss-dialog-mobile.png), [empty](shots/boss-attention/boss-empty.png), [unavailable](shots/boss-attention/boss-error.png) use explicitly labeled UI fixtures. [Live Harness workspace](shots/boss-attention/boss-live-harness.png) shows actual read-only Opora data: H05 is a premature proposal for agents to finish, not a request for the boss to approve.

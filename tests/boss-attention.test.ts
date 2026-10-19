@@ -21,6 +21,12 @@ const node = (id: string, parentId: string | null = 'sector'): CanvasNode => ({ 
 const parents: CanvasNode[] = [{ ...node('area', null), name: 'Area' }, { ...node('sector', 'area'), name: 'Sector' }];
 const row = (id: string, status = 'waiting', asks: unknown[] = []) => ({ id, name: id, status, waitingOnHuman: asks, blockedBy: [] });
 const brief = (statuses = ['passed', 'passed']) => ({
+  readOnly: false, node: { id: 'test', name: '[task] Ověřit funkci' },
+  evidence: {
+    tests: { status: 'passed', url: '', note: '' }, review: { status: 'passed', url: 'https://example.test/review', note: '' },
+    merge: { status: 'passed', url: 'https://example.test/merge', note: '' },
+    checksRun: [{ checkId: 'tests', command: 'npm test', exitCode: 0, logUrl: '', at: '2026-10-19T12:00:00Z' }],
+  },
   pipeline: { stages: statuses.map((status, i) => ({ id: `s${i}`, status })), current: statuses.includes('todo') ? { id: 'next' } : null, stuck: [] },
   loop: { done: { by: 'agent', confirmed: false }, openBlocks: 0, waitingOnHuman: [] },
 });
@@ -61,7 +67,7 @@ test('empty human requests and unknown statuses are partial system warnings, pre
   }
 });
 
-test('H05 proposed at 2/6 remains agent work, completed pipeline alone permits approval', async () => {
+test('H05 proposed at 2/6 remains agent work, completed pipeline AND evidence permit review', async () => {
   const result = await readBossAttention(state(), source([row('H05', 'proposed'), row('ready', 'proposed')], {
     brief: async (id) => id === 'H05' ? brief(['passed', 'passed', 'todo', 'todo', 'todo', 'todo']) : brief(),
   }));

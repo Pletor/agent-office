@@ -3,6 +3,8 @@ import type { OporaState } from '../../shared/protocol/opora.js';
 import { ancestry, pipelineState, taskUrl, workRows } from './classify.js';
 import { attentionSource, record, type AttentionSource } from './source.js';
 import { beforeDeadline, DEADLINE_MESSAGE, READ_DEADLINE_MS } from './deadline.js';
+import { completionBlockers } from './completion.js';
+import { approvalGuidance, questionGuidance, systemGuidance } from './guidance.js';
 
 export const BRIEF_CONCURRENCY = 4;
 export const MAX_BRIEFS = 64;
@@ -83,7 +85,7 @@ export async function readBossAttention(state: OporaState, source?: AttentionSou
       board.system.push(warning(`ancestry:${row.id}`, parents.error, item));
       board.status = 'partial';
     }
-    for (const ask of row.waitingOnHuman) board.items.push({ ...item, id: `${row.id}:question:${ask.id}`, kind: 'question', reason: ask.ask, action: 'Odpovězte na tuto otázku v Opoře' });
+    for (const ask of row.waitingOnHuman) board.items.push({ ...item, id: `${row.id}:question:${ask.id}`, kind: 'question', reason: ask.ask, action: 'Postupuj podle kroků níže; odpověď se ukládá v Opoře.', guidance: questionGuidance(ask.id, ask.stage) });
     if (row.status === 'proposed' && !row.waitingOnHuman.length) proposed.push({ row, item });
   }
   if (proposed.length > MAX_BRIEFS) {
@@ -107,18 +109,19 @@ export async function readBossAttention(state: OporaState, source?: AttentionSou
         const asks = Array.isArray(loop?.waitingOnHuman) ? loop.waitingOnHuman.map(record).filter((ask) => typeof ask?.ask === 'string' && ask.ask.trim()) : [];
         if (asks.length) {
           results.set(index, { human: asks.map((ask, i) => ({ ...item, id: `${row.id}:question:${String(ask!.blockId ?? ask!.stageId ?? i)}`,
-            kind: 'question', reason: (ask!.ask as string).trim(), action: 'Odpovězte na tuto otázku v Opoře' })) });
+            kind: 'question', reason: (ask!.ask as string).trim(), action: 'Postupuj podle kroků níže; odpověď se ukládá v Opoře.', guidance: questionGuidance(String(ask!.blockId ?? ask!.stageId ?? i), typeof ask!.stageId === 'string') })) });
           continue;
         }
         const pipeline = pipelineState(brief);
+        const blockers = completionBlockers(brief);
         if (pipeline === 'complete' && done?.by === 'agent' && done.confirmed === false &&
-          loop?.openBlocks === 0 && Array.isArray(loop.waitingOnHuman) && loop.waitingOnHuman.length === 0) {
-          results.set(index, { human: [{ ...item, kind: 'approval', reason: 'Agent navrhl dokončení a všechny etapy jsou hotové', action: 'Před potvrzením dokončení zkontrolujte výsledek v Opoře' }] });
+          loop?.openBlocks === 0 && Array.isArray(loop.waitingOnHuman) && loop.waitingOnHuman.length === 0 && !blockers.length && item.url) {
+          results.set(index, { human: [{ ...item, kind: 'approval', reason: 'Agent navrhl dokončení; dostupné podklady splňují kontrolované podmínky převzetí.', action: 'Zkontroluj výsledek krok za krokem. Konečné potvrzení ukládá a znovu ověřuje Opora.', guidance: approvalGuidance() }] });
         } else {
           const incomplete = pipeline === 'incomplete';
-          results.set(index, { partial: !incomplete, system: warning(`proposal:${row.id}`,
-            incomplete ? 'Dokončení bylo navrženo před koncem všech etap; zbývá práce agentů' : 'Připravenost k dokončení se nepodařilo ověřit; potvrzení se nenabízí',
-            { ...item, action: incomplete ? 'Agenti musí nejprve dokončit zbývající etapy' : 'Obnovte přehled, až budou v Opoře úplné údaje o etapách' }) });
+          results.set(index, { partial: pipeline === 'unknown', system: warning(`proposal:${row.id}`,
+            incomplete ? 'Dokončení bylo navrženo před koncem všech etap; zbývá práce agentů' : 'Podmínky převzetí nejsou kompletní; karta ještě není určena k tvému potvrzení.',
+            { ...item, action: 'Není potřeba tvůj zásah. Tuto kartu nyní nepotvrzuj.', guidance: systemGuidance(state, row.id, blockers) }) });
         }
       } catch (error) {
         results.set(index, { partial: true, system: warning(`brief:${row.id}`, error instanceof Error ? error.message : 'Nepodařilo se načíst zadání úkolu', item) });
@@ -136,6 +139,7 @@ export async function readBossAttention(state: OporaState, source?: AttentionSou
   }
   if (state.error) board.status = 'partial';
   if (board.status === 'partial') board.error = 'Část údajů pracovního prostoru se nepodařilo ověřit; seznam může být neúplný';
+  for (const item of board.system) item.guidance ??= systemGuidance(state, item.nodeId, [item.reason]);
   return board;
 }
 
