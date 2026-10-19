@@ -45,7 +45,9 @@ test('generates one stable CLI hook override per supported event', () => {
     assert.match(args[i * 2 + 1], new RegExp(`^hooks\\.${CODEX_HOOK_EVENTS[i]}=\\[\\{hooks=`));
     assert.match(args[i * 2 + 1], /type="command"/);
     assert.match(args[i * 2 + 1], /timeout=3/);
-    assert.match(args[i * 2 + 1], /agent-office-codex-hook\.cjs/);
+    const config = args[i * 2 + 1];
+    const encoded = config.match(/-EncodedCommand ([A-Za-z0-9+/=]+)/)?.[1];
+    assert.match(encoded ? Buffer.from(encoded, 'base64').toString('utf16le') : config, /agent-office-codex-hook\.cjs/);
   }
 });
 

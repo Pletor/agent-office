@@ -411,7 +411,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## More
 
 - [Features](docs/features.md): everything in the office, room by room
-- [Agents](docs/agents.md): Claude Code, Codex and OpenCode, models and effort, and the office's prompts. See [Windows Codex hook recovery](docs/agents.md#windows-codex-hook-recovery) if lifecycle hooks fail.
+- [Agents](docs/agents.md): Claude Code, Codex and OpenCode, models and effort, and the office's prompts. See [Windows Codex hook recovery](docs/agents.md#windows-codex-hook-recovery) for startup failures, lifecycle errors, and reviewing encoded Windows commands.
 - [Configuration](docs/configuration.md): every command-line option, and where the office keeps its data
 - [Maps](docs/maps.md): the castle, the space station, and making a map of your own
 - [Workers' servers on your own computer](docs/tunnel.md): `agent-office tunnel`, which opens every worker's web server on your computer by itself

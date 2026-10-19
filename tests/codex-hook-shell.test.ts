@@ -16,7 +16,9 @@ test('hook command quoting is explicit and preserves POSIX behavior', () => {
   };
   assert.equal(command('linux'), [process.execPath, file, 'SessionStart']
     .map(value => `'${value.replaceAll("'", "'\"'\"'")}'`).join(' '));
-  assert.equal(command('win32'), `& '${process.execPath.replaceAll("'", "''")}' '/tmp/office''s data/hook.cjs' 'SessionStart'; exit $LASTEXITCODE`);
+  assert.match(command('win32'), /^powershell\.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand [A-Za-z0-9+/=]+$/);
+  assert.equal(Buffer.from(command('win32').split(' ').at(-1)!, 'base64').toString('utf16le'),
+    `& '${process.execPath.replaceAll("'", "''")}' '/tmp/office''s data/hook.cjs' 'SessionStart'; exit $LASTEXITCODE`);
 });
 
 test('generated hook commands reach the bridge through the native shell', { timeout: 30000 }, async () => {
