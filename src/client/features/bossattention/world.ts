@@ -10,16 +10,18 @@ declare module '../../world/types' {
   }
 }
 
-// Inside the north glass, away from the telescope, stairs, desk and the Boss Office sign.
-export const BOSS_ATTENTION_BOARD = { x: 12.2, y: LOFT.y + 1.5, z: LOFT.minZ + 0.19, width: 3.5, height: 1.7 } as const;
+// Above the red couch at the east window, facing into the Boss Office.
+export const BOSS_ATTENTION_BOARD = { x: LOFT.maxX - 0.19, y: LOFT.y + 1.85, z: (LOFT.minZ + LOFT.maxZ) / 2, width: 2.2, height: 1.15 } as const;
 
 export const bossAttentionBoard: Fixture<'bossAttentionBoard'> = (site) => {
   const s = BOSS_ATTENTION_BOARD;
   const group = new THREE.Group();
   const frame = mesh(roundedBox(s.width + 0.16, s.height + 0.16, 0.08, 0.04), toon('#263347'), s.x, s.y, s.z, false);
+  frame.rotation.y = -Math.PI / 2;
   const face = new THREE.Mesh(new THREE.PlaneGeometry(s.width, s.height), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
-  face.position.set(s.x, s.y, s.z + 0.045);
-  const it: Interactable = { kind: 'bossattention', x: s.x, y: LOFT.y, z: s.z + 1, radius: 1.8 };
+  face.position.set(s.x - 0.045, s.y, s.z);
+  face.rotation.y = -Math.PI / 2;
+  const it: Interactable = { kind: 'bossattention', x: s.x - 1, y: LOFT.y, z: s.z, radius: 1.8 };
   face.userData.interact = it;
   frame.userData.interact = it;
   group.add(frame, face);

@@ -43,7 +43,7 @@ try {
   await page.waitForFunction(() => window.__office?.store.floor);
   await page.evaluate(() => {
     const p = window.__office.player;
-    p.setView('first'); p.pos.set(12.2, 3, 10.8); p.vy = 0; p.camYaw = 0; p.lookPitch = 0.04;
+    p.setView('first'); p.pos.set(15.5, 3, 10.5); p.vy = 0; p.camYaw = -Math.PI / 2; p.lookPitch = 0.12;
   });
   await page.waitForTimeout(800);
   console.log('at board');

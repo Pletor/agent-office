@@ -1,6 +1,6 @@
 # Boss Office — Pro tebe
 
-The board inside the Boss Office's north glass (up the stairs, facing into the room) is your inbox for decisions and answers. Aim at it and press **E**. The top-right **✕** or **Esc** closes it and returns to mouse-look without another click.
+The board above the Boss Office's red couch at the east window (up the stairs, facing into the room) is your inbox for decisions and answers. Stand in front of the couch, aim at the board and press **E**. The top-right **✕** or **Esc** closes it and returns to mouse-look without another click. The board fits above the couch backrest with window visible around its edges; the couch remains usable.
 
 ## What belongs to you
 
