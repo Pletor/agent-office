@@ -90,10 +90,15 @@ function shellQuote(value: string): string {
  * Build the CLI config overrides for all lifecycle hooks. The command is encoded as a TOML basic
  * string so paths containing spaces remain valid; the command itself is shell-quoted.
  */
-export function codexHookArgs(hookPath: string): string[] {
+export function codexHookArgs(hookPath: string, platform: NodeJS.Platform = process.platform): string[] {
   const args: string[] = [];
   for (const event of CODEX_HOOK_EVENTS) {
-    const command = [process.execPath, hookPath, event].map(shellQuote).join(' ');
+    // Native Windows Codex runs hooks in PowerShell: quoted programs need & and literal
+    // apostrophes are doubled (POSIX '"'"' escaping is a PowerShell parse error).
+    const values = [process.execPath, hookPath, event];
+    const command = platform === 'win32'
+      ? `& ${values.map(value => `'${value.replaceAll("'", "''")}'`).join(' ')}; exit $LASTEXITCODE`
+      : values.map(shellQuote).join(' ');
     const config = `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},timeout=3}]}]`;
     args.push('-c', config);
   }
