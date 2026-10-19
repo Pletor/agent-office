@@ -97,7 +97,8 @@ export function frontierCards(answer: unknown, isCard: (id: string) => boolean, 
       if (!id || seen.has(id) || !isCard(id)) continue;
       seen.add(id);
       const profile = typeof row.pipeline?.profile === 'string' ? row.pipeline.profile : undefined;
-      const stage = typeof row.pipeline?.current === 'string' ? row.pipeline.current : row.pipeline?.current && typeof row.pipeline.current === 'object' ? String((row.pipeline.current as { id?: unknown; label?: unknown }).label ?? (row.pipeline.current as { id?: unknown }).id ?? '') || undefined : undefined;
+      const current = row.pipeline?.current && typeof row.pipeline.current === 'object' ? (row.pipeline.current as { id?: unknown; kind?: unknown; label?: unknown; title?: unknown }) : undefined;
+      const stage = typeof row.pipeline?.current === 'string' ? row.pipeline.current : current ? String(current.label ?? current.title ?? current.id ?? '') || undefined : undefined;
       out.push({
         id,
         name: typeof row.name === 'string' && row.name.trim() ? row.name.trim().slice(0, 200) : 'Card',
@@ -105,16 +106,13 @@ export function frontierCards(answer: unknown, isCard: (id: string) => boolean, 
         status,
         ...(profile ? { profile } : {}),
         ...(stage ? { stage } : {}),
+        ...(typeof current?.id === 'string' && current.id ? { stageId: current.id } : {}),
+        ...(typeof current?.kind === 'string' && current.kind ? { stageKind: current.kind } : {}),
         group: cardGroup(profile),
       });
     }
   }
   return out;
-}
-
-/** An agent's name as Opora takes it (`[\w .:()-]`, no slash), for the card's worker. */
-export function oporaAgentName(floorId: string, cardId: string): string {
-  return `office-${floorId}-${cardId.slice(0, 8)}`.replace(/[^\w .:()-]/g, '-').slice(0, 80);
 }
 
 /** The browser tab Opora opens in from the office, by name, so opening it again goes back to the same tab. */

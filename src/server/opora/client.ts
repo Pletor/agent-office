@@ -18,6 +18,12 @@ export interface Lease {
   expiresAt?: string;
 }
 
+/** A lease's end as the office keeps it (ISO), from Opora's answer: seconds since the epoch (or an ISO string). */
+function leaseEnd(at: unknown): { expiresAt?: string } {
+  if (typeof at === 'string' && at) return { expiresAt: at };
+  return typeof at === 'number' && Number.isFinite(at) ? { expiresAt: new Date(at * 1000).toISOString() } : {};
+}
+
 const TIMEOUT_MS = 8000;
 
 /**
@@ -135,12 +141,12 @@ export class OporaClient {
   async claim(project: string, workspace: string, nodeId: string, owner: string, ttlSeconds: number): Promise<Lease> {
     const r = await this.post<{ token?: unknown; expiresAt?: unknown }>('/api/desktop-v3/lease', { project, workspace, nodeId, op: 'claim', owner, ttlSeconds });
     if (typeof r.token !== 'string' || !r.token) throw new OporaError(0, 'Opora gave no lease token');
-    return { token: r.token, ...(typeof r.expiresAt === 'string' ? { expiresAt: r.expiresAt } : {}) };
+    return { token: r.token, ...leaseEnd(r.expiresAt) };
   }
 
   async heartbeat(project: string, workspace: string, nodeId: string, token: string, ttlSeconds: number): Promise<Lease> {
     const r = await this.post<{ expiresAt?: unknown }>('/api/desktop-v3/lease', { project, workspace, nodeId, op: 'heartbeat', token, ttlSeconds });
-    return { token, ...(typeof r.expiresAt === 'string' ? { expiresAt: r.expiresAt } : {}) };
+    return { token, ...leaseEnd(r.expiresAt) };
   }
 
   async release(project: string, workspace: string, nodeId: string, token: string): Promise<void> {

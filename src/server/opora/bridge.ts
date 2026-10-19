@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaAgentName, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
+import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
 import { buildScope, cleanFocus, focusLine, inFocus, toggleFocus } from '../../shared/opora-scope.js';
 import { fillPrompt, type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
@@ -9,6 +9,7 @@ import { forgetForOpora, markForOpora, seatForOpora, withReaBrief } from '../rea
 import { OporaClient, OporaError } from './client.js';
 import { ActivityFeed } from './live.js';
 import { oporaProcess } from './process.js';
+import { dropLease, forgetSession, keepSession, pickSession, seatSession, sessionEnv } from './session.js';
 import { describeSketches, oporaCardViews, readSketches, sketchesLine } from './sketches.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
@@ -37,10 +38,15 @@ export interface BridgeEvents {
   prompt(id: PromptId): string;
 }
 
-/** The office's side of a card it took: what it needs to keep the lease and let it go. */
+/**
+ * The office's side of a card it took: what it needs to keep the lease and let it go. Each run is one
+ * session, for one stage of the card's pipeline, under a name of its own (`owner`, see session.ts).
+ */
 interface Held extends OporaRun {
   token?: string;
   owner?: string;
+  stageId?: string;
+  stageKind?: string;
 }
 
 const POLL_MS = 20_000;
@@ -81,6 +87,10 @@ export class OporaBridge {
   private live: ActivityFeed;
   /** The project whose folder is this floor's checkout, as of the last read. */
   private byFolder?: string;
+  /** Session names Opora refused a claim under (someone else held the card), never claimed with again. */
+  private refused: { owner: string }[] = [];
+  /** Whether the leases saved before the office started were renewed on the first read. */
+  private renewed = false;
   private client: OporaClient;
   private statePath: string;
   private pollTimer: NodeJS.Timeout;
@@ -107,7 +117,7 @@ export class OporaBridge {
 
   view(): OporaState {
     const focus = this.state.scope.length ? cleanFocus(this.state.scope, this.focus) : [...this.focus];
-    return { ...this.state, focus, activity: this.live.list(), handOutWaiting: [...this.handed.keys()], runs: this.runs.map(({ token: _t, owner: _o, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
+    return { ...this.state, focus, activity: this.live.list(), handOutWaiting: [...this.handed.keys()], runs: this.runs.map(({ token: _t, owner: _o, stageId: _s, stageKind: _k, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
   }
 
   /** Reads the canvas again: the floor's Opora project, its sectors and their cards. */
@@ -192,9 +202,15 @@ export class OporaBridge {
       for (const run of this.runs) {
         if (run.state === 'gone' || (run.workerId && here.has(run.workerId))) continue;
         run.state = 'gone';
+        if (run.workerId) forgetSession(run.workerId);
         void this.letGo(run);
       }
       await this.read();
+      // A lease saved while the office was down may be close to running out: renew it now, not in five minutes.
+      if (!this.renewed && this.state.project) {
+        this.renewed = true;
+        await this.heartbeat();
+      }
       if (this.state.handOut) await this.handOut();
       if (this.state.autopilot) await this.autopilot();
     } finally {
@@ -212,15 +228,24 @@ export class OporaBridge {
     if (lost) return lost;
     if (!inFocus(this.state.scope, this.focus, card.id)) return `“${card.name}” is outside what the cell works on: switch it on at the 🎚️ switchboard first`;
     if (card.status !== 'frontier') return `“${card.name}” isn’t free to take (${card.status})`;
-    if (this.runs.some((r) => r.cardId === cardId && r.state !== 'gone')) return `The office is already on “${card.name}”`;
+    if (this.onCard(cardId)) return `The office is already on “${card.name}”`;
     const desk = deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
     if (!desk) return 'Every desk is taken: send someone home, or build the back office out';
-    const agent = oporaAgentName(this.floor.id, card.id);
+    // A session of its own for the stage on turn, never the name of one that worked on the card before.
+    const stage = { ...(card.stageId ? { id: card.stageId } : {}), ...(card.stageKind ? { kind: card.stageKind } : {}) };
+    const session = pickSession(this.floor.id, card.id, stage, [...this.runs.filter((r) => r.cardId === card.id), ...this.refused]);
+    if ('error' in session) return session.error;
+    const agent = session.name;
     let lease;
     try {
       lease = await this.client.claim(project.id, workspace, card.id, agent, LEASE_TTL);
     } catch (err) {
-      return err instanceof OporaError && err.status === 409 ? `Someone else holds “${card.name}” on Opora` : (err as Error).message;
+      if (!(err instanceof OporaError && err.status === 409)) return (err as Error).message;
+      // Someone else holds it: the office doesn't take it over, and doesn't ask again under this name.
+      this.refused = [...this.refused.slice(-31), { owner: agent }];
+      card.status = 'claimed';
+      this.changed();
+      return `Someone else holds “${card.name}” on Opora: the office won’t take it over`;
     }
     // What the person sketched for the card (its drawing, its storyboard), and the Opora pages that show it.
     const sketches = await readSketches(this.client, project.id, workspace, card.id);
@@ -233,11 +258,13 @@ export class OporaBridge {
       sector: card.sectorName ?? '—',
       agent,
       token: lease.token,
+      stage: card.stage ? `“${card.stage}”${card.stageKind ? ` (${card.stageKind})` : ''}` : 'none (the card has no pipeline)',
       sketches: design ? '' : sketchesLine(sketches, views, project.id, workspace, card.id),
       design,
     });
     // 🔬 REA, when it's on: its MCP server for taking a reference app apart, and how to use it (see rea/).
-    const seated = seatForOpora(() => this.floor.seat(desk, by, withReaBrief(prompt, this.events.prompt), owner));
+    // Its worker, and only it, gets the session's name and lease token in its environment.
+    const seated = seatSession(sessionEnv(this.state.url, agent, lease.token), () => seatForOpora(() => this.floor.seat(desk, by, withReaBrief(prompt, this.events.prompt), owner)));
     if (typeof seated === 'string') {
       await this.client.release(project.id, workspace, card.id, lease.token).catch(() => undefined);
       return seated;
@@ -257,11 +284,21 @@ export class OporaBridge {
       workspace,
       token: lease.token,
       owner: agent,
+      ...(card.stageId ? { stageId: card.stageId } : {}),
+      ...(card.stageKind ? { stageKind: card.stageKind } : {}),
     });
     card.status = 'claimed';
     this.changed();
     this.events.toast(`🛰️ ${seated.name} took “${card.name}” from the Opora canvas${card.group === 'design' ? ' (design)' : ''}`, 'info');
     return undefined;
+  }
+
+  /**
+   * Whether a session of the office's is still on the card: its worker working, or the lease still
+   * held. One whose worker ended its turn and let the lease go leaves the next stage to a new session.
+   */
+  private onCard(cardId: string): boolean {
+    return this.runs.some((r) => r.cardId === cardId && (r.state === 'working' || (r.state === 'done' && !!r.token)));
   }
 
   setAutopilot(on: boolean, maxRuns: number | undefined, by: string, owner?: string) {
@@ -290,6 +327,8 @@ export class OporaBridge {
     const state = info.status === 'done' || info.status === 'exited' ? 'done' : 'working';
     if (run.state === state) return;
     run.state = state;
+    // Its session is over: it handed its stage in (and let the lease go, as its brief says) or it crashed.
+    if (state === 'done') void this.letGo(run);
     this.changed();
   }
 
@@ -298,6 +337,7 @@ export class OporaBridge {
     if (!run) return;
     run.state = 'gone';
     forgetForOpora(workerId);
+    forgetSession(workerId);
     void this.letGo(run);
     this.trim();
     this.changed();
@@ -387,7 +427,7 @@ export class OporaBridge {
   private async handOut() {
     for (const [id, who] of [...this.handed]) {
       const card = this.state.cards.find((c) => c.id === id);
-      if (!card || card.status !== 'frontier' || this.runs.some((r) => r.cardId === id && r.state !== 'gone')) {
+      if (!card || card.status !== 'frontier' || this.onCard(id)) {
         if (!card || card.status === 'claimed' || card.status === 'closed') this.handed.delete(id);
         continue;
       }
@@ -411,7 +451,7 @@ export class OporaBridge {
   private async autopilot() {
     if (this.focusLost()) return;
     const busy = () => this.runs.filter((r) => r.state !== 'gone').length;
-    const free = this.state.cards.filter((c) => c.status === 'frontier' && c.profile && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone'));
+    const free = this.state.cards.filter((c) => c.status === 'frontier' && c.profile && inFocus(this.state.scope, this.focus, c.id) && !this.onCard(c.id));
     for (const card of free) {
       if (busy() >= this.state.maxRuns) return;
       const err = await this.take(card.id, this.autopilotBy || 'Autopilot', this.autopilotOwner);
@@ -433,19 +473,32 @@ export class OporaBridge {
         run.leaseUntil = (await this.client.heartbeat(project.id, workspace, run.cardId, run.token, LEASE_TTL)).expiresAt ?? run.leaseUntil;
         run.error = undefined;
       } catch (err) {
-        run.error = (err as Error).message;
+        if (!(err instanceof OporaError && err.status === 409)) {
+          run.error = (err as Error).message;
+          continue;
+        }
+        // The worker let it go itself, it ran out, or someone else holds the card now: the office
+        // stops renewing it and never claims it back (the card's next stage is a new session's).
+        run.token = undefined;
+        if (run.workerId) dropLease(run.workerId);
+        run.error = run.state === 'working' ? `Opora no longer has this session’s lease (let go, run out or taken by someone else): the office stopped renewing it` : undefined;
       }
     }
     this.changed();
   }
 
-  /** Lets the card's lease go, if the worker didn't itself (an error then is the lease being gone already). */
+  /**
+   * Lets the session's lease go with its token, if the worker didn't itself (a 409 then is the lease
+   * being gone already; Opora not answering leaves it to run out by itself).
+   */
   private async letGo(run: Held) {
     const { project } = this.state;
     const workspace = run.workspace ?? this.state.workspace;
     if (!project || !workspace || !run.token) return;
-    await this.client.release(project.id, workspace, run.cardId, run.token).catch(() => undefined);
+    const token = run.token;
     run.token = undefined;
+    if (run.workerId) dropLease(run.workerId);
+    await this.client.release(project.id, workspace, run.cardId, token).catch(() => undefined);
     this.persist();
   }
 
@@ -473,6 +526,8 @@ export class OporaBridge {
       const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string; workspace?: string; focus?: unknown; handOut?: boolean };
       if (Array.isArray(saved.runs)) this.runs = saved.runs.filter((r) => r && typeof r.cardId === 'string');
       for (const r of this.runs) if (r.state !== 'gone' && r.workerId) markForOpora(r.workerId);
+      // A worker the office relaunches keeps its session's name, and its lease while the office holds it.
+      for (const r of this.runs) if (r.state !== 'gone' && r.workerId && r.owner) keepSession(r.workerId, sessionEnv(this.state.url, r.owner, r.token));
       this.state.autopilot = saved.autopilot === true;
       this.state.handOut = saved.handOut !== false;
       if (typeof saved.maxRuns === 'number') this.state.maxRuns = Math.max(1, Math.min(OPORA_LIMITS.maxRuns, saved.maxRuns));

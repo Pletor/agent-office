@@ -15,6 +15,9 @@ export interface OporaCard {
   /** Its pipeline's profile (code, design, goal…) and the stage on turn, once it's routed. */
   profile?: string;
   stage?: string;
+  /** The stage on turn's id and kind (work, test, review, fix, critic): each stage is a session of its own. */
+  stageId?: string;
+  stageKind?: string;
   group: OporaGroup;
 }
 
