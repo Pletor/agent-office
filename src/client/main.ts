@@ -60,6 +60,7 @@ import { installRooftop } from './features/rooftop';
 import { installSeating } from './features/seating';
 import { installSmoke } from './features/smoke';
 import { installStatusWall } from './features/status';
+import { installBossAttention } from './features/bossattention';
 import { installLamplight } from './features/lamplight';
 import { installTelescope } from './features/telescope';
 import { installTv } from './features/tv';
@@ -179,6 +180,7 @@ parts.cards = installCarrying(ctx, {
 parts.seating = installSeating(ctx, { shares: () => parts.talk.currentShares(), watchShare: () => parts.talk.watchShare(), arcade: parts.arcade, opora: { connected: () => store.opora.connected, openFull: opora.openFull }, showBar: parts.bar.showBar, usable: () => parts.pointer.usable() });
 installGong(ctx, { burstOver: parts.views.burstOver, workerViews: parts.views.workerViews, court: () => parts.worlds.court(), idleAgents: () => parts.worlds.idleAgents() });
 installStatusWall(ctx);
+installBossAttention(ctx, { answerWorker: parts.waiting.answerWorker });
 
 parts.hintbar = installHintBar(ctx, core, parts);
 parts.emotes = installEmotes(ctx, { personOf });
