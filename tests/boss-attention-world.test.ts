@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Vector3 } from 'three';
+import { LOFT, WINDOWS } from '../src/shared/layout.js';
+import { BOSS_ATTENTION_BOARD, bossAttentionBoard } from '../src/client/features/bossattention/world.js';
+import type { Site } from '../src/client/world/office/fixture.js';
+import type { Interactable } from '../src/client/world/types.js';
+
+test('boss board hides the entire east window including sill and faces the room', () => {
+  const interactables: Interactable[] = [];
+  const built = bossAttentionBoard({ interactables } as Site);
+  const board = built.handle!.bossAttentionBoard;
+  const s = BOSS_ATTENTION_BOARD;
+  assert.equal(s.z, (LOFT.minZ + LOFT.maxZ) / 2);
+  const window = WINDOWS.find(w => w.wall === 'east' && w.u === s.z)!;
+  assert.ok(s.y - s.height / 2 - 0.08 > LOFT.y + 0.55, 'panel clears the seat cushions');
+  assert.ok(s.y + s.height / 2 + 0.08 < LOFT.y + LOFT.height, 'frame clears ceiling');
+  assert.ok(s.width > window.width + 0.2, 'opaque face covers window and wider sill');
+  assert.ok(s.y - s.height / 2 < window.y0 - 0.06, 'face covers lower sill');
+  assert.ok(s.y + s.height / 2 > window.y1, 'face covers top frame');
+  assert.ok(s.x - s.depth / 2 < LOFT.maxX - 0.18, 'panel is in front of sill');
+  assert.ok(s.x + s.depth / 2 >= LOFT.maxX, 'solid backing reaches inner wall, no side gap');
+  assert.ok(board.position.x < s.x && s.x < LOFT.maxX, 'face is in front of east frame');
+  const normal = new Vector3(0, 0, 1).applyEuler(board.rotation);
+  assert.ok(normal.distanceTo(new Vector3(-1, 0, 0)) < 1e-8);
+  assert.equal(interactables.length, 1);
+  assert.equal(interactables[0].kind, 'bossattention');
+  assert.equal(interactables[0].y, LOFT.y);
+  assert.ok(interactables[0].x < LOFT.maxX - 1.15, 'interaction anchor is outside couch collider');
+  assert.equal(interactables[0].z, s.z);
+});

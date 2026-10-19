@@ -1,0 +1,37 @@
+.modal.boss-attention { width: min(1100px, 96vw); max-width: 96vw; height: min(850px, 94dvh); max-height: 94dvh; display: flex; flex-direction: column; overflow: hidden; }
+.boss-attention header { flex-shrink: 0; }
+.boss-attention header h2 { font-size: 1.35rem; }
+.boss-attention .close { min-width: 44px; min-height: 44px; }
+.boss-attention-toolbar { display: flex; align-items: center; gap: 16px; padding: 8px 24px; border-bottom: 1px solid #d8dfe7; }
+.boss-attention-status { flex: 1; font-size: .9rem; overflow-wrap: anywhere; }
+.boss-attention-content { padding: 16px 24px 28px; overflow: auto; min-height: 0; }
+.boss-attention-content h3 { margin: 8px 0; }
+.boss-attention-content .muted { font-size: .9rem; }
+.boss-attention-item { border: 1px solid #d3dce8; border-left: 4px solid #b97912; border-radius: 10px; background: #fff; padding: 18px; margin: 16px 0; overflow-wrap: anywhere; }
+.boss-attention-item h4 { font-size: 1.1rem; margin: 6px 0; }
+.boss-attention-item p { margin: 10px 0; white-space: pre-wrap; }
+.boss-attention-tag { color: #80500b; font-weight: 800; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+.boss-attention-path { color: #536477; font-size: .85rem; }
+.boss-attention-action { font-weight: 700; }
+.boss-attention-item .btn { display: inline-flex; align-items: center; min-height: 44px; text-decoration: none; white-space: normal; }
+.boss-attention-empty { padding: 24px; background: #edf5f0; border-radius: 10px; }
+.boss-attention-error { padding: 16px; border: 1px solid #b54732; color: #842a1c; background: #fff2ec; border-radius: 10px; overflow-wrap: anywhere; }
+.boss-attention-system { border-top: 1px solid #d3dce8; padding-top: 16px; margin-top: 28px; }
+.boss-attention-system .boss-attention-item { border-left-color: #637993; }
+.boss-attention-system .boss-attention-tag { color: #536477; }
+.boss-attention :focus-visible { outline: 3px solid #2467a3; outline-offset: 3px; }
+.boss-attention-tabs { display: flex; gap: 12px; padding: 12px 24px; border-bottom: 1px solid #d3dce8; flex-shrink: 0; }
+.boss-attention-tabs .btn { min-height: 44px; white-space: normal; }
+.boss-attention-tabs [aria-selected="true"] { background: #263347; color: #fff; }
+.boss-attention-guide h5 { font-size: 1rem; margin: 16px 0 8px; }
+.boss-attention-guide ol { padding-left: 24px; }
+.boss-attention-guide li, .boss-attention-blockers li { margin: 10px 0; line-height: 1.5; }
+.boss-attention-result { padding: 12px; background: #edf3fa; border-radius: 6px; }
+.boss-attention-blockers { padding: 12px; background: #fff3e3; border-radius: 6px; }
+.boss-attention-system { border-top: 0; padding-top: 0; margin-top: 0; }
+.boss-attention-system .btn { background: transparent; box-shadow: none; font-weight: normal; }
+@media (max-width: 600px) {
+  .modal.boss-attention { position: fixed; inset: 0; margin: 0; width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+  .boss-attention-toolbar, .boss-attention-content { padding: 12px; }
+  .boss-attention-item { padding: 14px; }
+}
