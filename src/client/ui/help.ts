@@ -4,7 +4,7 @@
 import { IS_MAC } from './termkeys';
 
 export const HELP_ROWS: readonly (readonly [string, string])[] = [
-  ['📚 Harness', 'E at the shelf opposite Docs across the balcony doors: browse instructions, skills, hooks, tools, MCP and memory references; copy or download a context pack for your model'],
+  ['📚 Harness', 'F8 anywhere, or E at the shelf opposite Docs: resources and Global → Repository → Task assignments; inspect the resolved handoff before dispatch'],
   ['W A S D', 'Walk (hold Shift to run)'],
   ['Space', 'Jump'],
   ['☕', 'Press E at the coffee machine in the kitchen for a minute of quicker walking and higher jumps. Three cups in a row gives you the jitters'],

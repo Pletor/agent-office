@@ -5,12 +5,31 @@ import type { AddressInfo } from 'node:net';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { OporaBridge, type BridgeFloor } from '../src/server/opora/bridge.js';
+import { OporaBridge, type BridgeFloor, type BridgeEvents } from '../src/server/opora/bridge.js';
+import { HarnessProfiles } from '../src/server/harness/profiles.js';
+import { harnessHandoff } from '../src/server/harness/handoff.js';
+import { oporaHarnessTask } from '../src/shared/harness-cascade.js';
 import { OPORA_ESCAPE_WINDOW_MS, browserOporaUrl, canEmbedOpora, cardGroup, deskFor, frontierCards, oporaCanvasUrl, oporaEmbedPolicy, oporaEscapeLeaves, sameDir, signGroup } from '../src/shared/opora.js';
 import { PROMPTS } from '../src/shared/prompts.js';
 import { oporaCardViews } from '../src/server/opora/sketches.js';
 import { configureRea, reaFor } from '../src/server/rea/index.js';
 import type { OporaState, WorkerInfo } from '../src/shared/protocol.js';
+
+test('Opora dispatch embeds effective harness and refuses a missing resource before claiming', async (t) => {
+  let root = '';
+  const f = await fixture(t, (project, workspace, card) => harnessHandoff(root, root, oporaHarnessTask(project, workspace, card), false));
+  root = f.dir;
+  const profiles = new HarnessProfiles(root);
+  profiles.save(root, '', 'global', { language: { value: 'en' } }, 0);
+  profiles.save(root, oporaHarnessTask('p1', 'draft', 'c2'), 'task', { language: { value: 'cs' } }, 1);
+  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
+  assert.match(f.workers[0].prompt!, /"value": "cs"/);
+  assert.match(f.workers[0].prompt!, /Snapshot SHA-256/);
+  profiles.save(root, '', 'repository', { missing: { resource: 'missing' } }, 2);
+  assert.match((await f.bridge.take('c1', 'Ana'))!, /unavailable/);
+  assert.equal(f.op.leases.has('c1'), false);
+  assert.equal(f.workers.length, 1);
+});
 
 test('a card on the design pipeline goes to the designers, the rest to the developers', () => {
   assert.equal(cardGroup('design'), 'design');
@@ -125,7 +144,7 @@ function fakeOpora(dir: string) {
   return { server, calls, leases, projects, page, workspaces };
 }
 
-async function fixture(t: { after(fn: () => void): void }) {
+async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeEvents['prepareTask']) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-opora-'));
   const op = fakeOpora(dir);
   await new Promise<void>((r) => op.server.listen(0, '127.0.0.1', r));
@@ -146,7 +165,7 @@ async function fixture(t: { after(fn: () => void): void }) {
     deskOccupied: (d) => workers.some((w) => w.deskId === d),
     labels: () => ({ 'desk-3': { text: 'Design', color: '#000', by: 'a', at: 0 } }),
   };
-  const bridge = new OporaBridge(floor, dir, { update: (s) => void (state = s), toast: (x) => void toasts.push(x), prompt: (id) => PROMPTS[id].text }, url);
+  const bridge = new OporaBridge(floor, dir, { prepareTask, update: (s) => void (state = s), toast: (x) => void toasts.push(x), prompt: (id) => PROMPTS[id].text }, url);
   t.after(() => {
     bridge.shutdown();
     op.server.close();

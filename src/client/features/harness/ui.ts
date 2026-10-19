@@ -1,6 +1,7 @@
 import './ui.css';
 import { HARNESS_CATEGORIES, harnessBundle, type HarnessCatalog, type HarnessText } from '../../../shared/harness';
 import { h, openModal, toast, type Modal } from '../../ui/dom';
+import { cascadePanel } from './cascade';
 
 let active: Modal | undefined;
 export function openHarness(floor: string) {
@@ -12,6 +13,8 @@ export function openHarness(floor: string) {
   let closed = false;
   let busy = false;
   const abort = new AbortController();
+  const cascade = cascadePanel(floor, abort.signal);
+  const assign = h('button.btn', { type: 'button', onclick: () => { if (current) cascade.assign(current); } }, 'Assign resource');
   const filter = h('input', { type: 'search', placeholder: 'Search resources…', 'aria-label': 'Search harness resources' });
   const category = h('select', { 'aria-label': 'Resource category' }, h('option', { value: '' }, 'All categories'), ...HARNESS_CATEGORIES.map((c) => h('option', { value: c }, c)));
   const source = h('select', { 'aria-label': 'Resource source' }, h('option', { value: '' }, 'All sources'));
@@ -31,7 +34,7 @@ export function openHarness(floor: string) {
     h('header', {}, h('h2', {}, '📚 Harness'), h('span.harness-tag', {}, 'Model context library')),
     h('p.harness-intro', {}, 'Instructions, skills, tools and memory references. Select what your model needs for this task.'),
     h('div.harness-toolbar', {}, filter, category, source, refresh),
-    h('div.body.harness-body', {}, h('aside', {}, status, list, sources), h('section.harness-reader', {}, title, origin, add, text)),
+    h('div.body.harness-body', {}, cascade.el, h('aside', {}, status, list, sources), h('section.harness-reader', {}, title, origin, h('div', {}, add, assign), text)),
     h('footer', {}, count, clear, download, copy),
   );
   active = openModal(el, { doing: '📚 at the Harness library', reading: true, onClose: () => { closed = true; abort.abort(); active = undefined; } });

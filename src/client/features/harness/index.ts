@@ -10,9 +10,11 @@ declare module '../../world/types' {
   }
 }
 export function installHarness(ctx: Ctx) {
+  const show = () => { if (store.floor) openHarness(store.floor); else toast('Take the elevator to a floor first'); };
+  ctx.keys.bind({ code: 'F8', repeat: false, preventDefault: true, run: show });
   ctx.interactions.define('harness', {
     reach: 4,
     hint: () => ({ k: 'harness', parts: [hintTitle('📚 Harness'), aside('Instructions · tools · memory'), key('E', 'Open library')] }),
-    use: onE(() => store.floor ? openHarness(store.floor) : toast('Take the elevator to a floor first')),
+    use: onE(show),
   });
 }

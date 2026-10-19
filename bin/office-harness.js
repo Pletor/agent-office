@@ -2,7 +2,11 @@
 // Read-only access to the same library from any model's local shell.
 import { HarnessLibrary, harnessSources } from '../dist/server/server/harness/catalog.js';
 import { harnessBundle } from '../dist/server/shared/harness.js';
+import { remoteHarness } from './harness-remote.js';
 const args = process.argv.slice(2);
+if (process.env.AGENT_OFFICE_HOOK_URL) {
+  await remoteHarness(args);
+} else {
 let project = process.cwd();
 if (args[0] === '--project') {
   args.shift();
@@ -19,4 +23,5 @@ else {
   const entries = await Promise.all(args.map((id) => library.read(id)));
   if (entries.some((e) => !e)) throw new Error('An entry is unavailable; list the catalog again.');
   console.log(action === '--read' ? entries[0].text : harnessBundle(entries));
+}
 }
