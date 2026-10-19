@@ -72,6 +72,19 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 
 DeepSeek Harness metrics come from ACP `usage_update`: tokens in context and the window's size, shown per worker and for the current desks, plus a session cost only when the harness reports one. The daily budget and historical ledger remain Claude-only.
 
+## Windows Codex hook recovery
+
+Native Windows Codex (verified against 0.163.0) executes lifecycle commands in PowerShell. The office uses its call operator (`&`), literal single-quoted arguments with doubled apostrophes, and explicit native exit-code propagation. Unix launches keep POSIX quoting. Paths with spaces or shell metacharacters remain literal; bridge tokens stay in the worker environment, never in these commands.
+
+If an older office repeatedly shows `Hook failed` / `hook exited with code 1`:
+
+1. Finish or preserve the active worker's work and session identity before updating the office. A broken status badge alone is not proof that a worker stopped.
+2. Run the updated office, then resume the preserved Codex worker. Commands are set at process launch; updating the helper file alone does not fix an already-running session. Do not restart a shared office while others are working.
+3. In the worker terminal, review the changed Office commands in `/hooks` and approve only commands you recognize. The Windows command should begin with `&` followed by the quoted Node executable and Office helper path. Never disable hooks or bypass trust to clear the warning.
+4. Send a small task and verify the terminal has no new hook failures and the office follows its working/finished state. A separate permission denial still requires its normal approval; this fix does not grant tool permissions.
+
+The regression test executes all seven lifecycle commands through the native shell against an isolated authenticated fixture, including a path containing spaces, apostrophes and shell metacharacters. It does not invoke a model or modify user hook trust.
+
 ## The office's prompts
 
 Everything the office tells a worker by itself can be rewritten in ⚙️ Settings → **🤖 Workers** → **📝 Edit the prompts…**: what **🤖 Hand to a worker**, **🔍 Review**, **Fix up & merge**, **Fix conflicts & merge** and **✍️ Ask a worker** send from the boards, what a meeting about an issue or a review panel starts with, the note the queue adds to a worktree task, the three board agents' briefs, every part the meeting room hands out, what the planning room asks its planner (for a plan file, onto the Opora canvas, or as its router) and gives each task it queues, what a worker on an Opora card is told (and, on top of it, the designer's brief for a card on the design pipeline, with the Opora pages showing the card's drawing and storyboard, and, while [REA](configuration.md#reverse-engineering-with-rea) is on, how to reverse-engineer a reference app with it), and the instructions for the model that writes the signs over workers' heads. Each one lists its `{{placeholders}}` (the issue number, the PR's branch, the file a meeting waits for…), which the office fills in when it sends it, and warns when one the office counts on is missing. **↺ Default** puts the office's own wording back. Admins edit them; they're the same on every floor and kept in `.agent-office/prompts.json` with the Default worker.
