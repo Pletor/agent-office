@@ -146,14 +146,22 @@ async function twoPlaces(t: { after(fn: () => void): void }) {
     labels: () => ({}),
     orchestrator: () => undefined,
   };
-  const bridge = new OporaBridge(floor, dir, { update: () => undefined, toast: () => undefined, prompt: (id) => PROMPTS[id].text }, `http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+  const open = () => new OporaBridge(floor, dir, { update: () => undefined, toast: () => undefined, prompt: (id) => PROMPTS[id].text }, `http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+  const bridges = [open()];
   t.after(() => {
-    bridge.shutdown();
+    for (const b of bridges) b.shutdown();
     server.close();
     rmSync(dir, { recursive: true, force: true });
   });
-  await bridge.poll();
-  return { bridge, workers };
+  await bridges[0].poll();
+  /** The office restarted: a new bridge on the same folder, from what the last one saved. */
+  const restart = async () => {
+    bridges.at(-1)!.shutdown();
+    bridges.push(open());
+    await bridges.at(-1)!.poll();
+    return bridges.at(-1)!;
+  };
+  return { bridge: bridges[0], workers, restart };
 }
 
 test('a focus switched on in one workspace takes nothing in another with the same node ids', async (t) => {
@@ -173,5 +181,37 @@ test('a focus switched on in one workspace takes nothing in another with the sam
   assert.deepEqual(bridge.view().focus.sort(), ['env:Produkce', 'library', 'office']);
   assert.match((await bridge.take('d1', 'Ana'))!, /outside what the cell works on/);
   assert.equal(await bridge.take('h01', 'Ana'), undefined);
+  assert.equal(workers.length, 1);
+});
+
+test('a focus switched on in one project is dropped when the floor is linked to another with the same node ids', async (t) => {
+  const { bridge, workers } = await twoPlaces(t);
+  assert.equal(bridge.view().project?.id, 'p1');
+  assert.equal(bridge.switchFocus('layer5', true, true, 'Ana'), undefined);
+  assert.match((await bridge.take('h01', 'Ana'))!, /outside what the cell works on/);
+  // Another project: its h01 is another card, so p1's focus neither applies there nor blocks it.
+  assert.equal(bridge.link('p2'), undefined);
+  await bridge.poll();
+  assert.equal(bridge.view().project?.id, 'p2');
+  assert.deepEqual(bridge.view().focus, []);
+  assert.equal(bridge.view().error, undefined);
+  assert.equal(await bridge.take('h01', 'Ana'), undefined);
+  assert.equal(workers.length, 1);
+  // Linked back to p1, the old focus isn't revived either: the cell starts on the whole project.
+  assert.match(bridge.link('p1')!, /The office is on 1 card/, 'a held card keeps the floor on its project');
+});
+
+test('where a focus was switched on survives a restart, so it is still refused in another workspace', async (t) => {
+  const { bridge, workers, restart } = await twoPlaces(t);
+  assert.equal(bridge.switchFocus('library', true, true, 'Ana'), undefined);
+  assert.equal(bridge.useWorkspace('draft'), undefined);
+  const again = await restart();
+  assert.equal(again.view().workspace, 'draft');
+  assert.match((await again.take('h01', 'Ana'))!, /switched on in another workspace/);
+  assert.equal(workers.length, 0);
+  // Back on the workspace it was switched on in, the same focus takes H01 again after the restart.
+  assert.equal(again.useWorkspace('main'), undefined);
+  await again.poll();
+  assert.equal(await again.take('h01', 'Ana'), undefined);
   assert.equal(workers.length, 1);
 });
