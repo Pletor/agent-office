@@ -32,8 +32,9 @@ export class AttentionScreen {
     const titles = [...workerNames.map((n) => `${n} — čeká na odpověď`), ...(d?.items.map((i) => i.title) ?? [])];
     titles.slice(0, 3).forEach((title, i) => line(`• ${title}`, 300 + i * 68, 32));
     if (!titles.length) line(view.error || d?.error || 'Žádné ruční hledání karet v projektu.', 316, 30, '#acbed3');
-    line(`Systém / agenti: ${d?.system.length ?? '—'}   ·   celý propojený pracovní prostor`, 558, 26, '#acbed3');
-    line('E  Otevřít tabuli a přejít přímo k problému', 626, 33, '#f6bd60');
+    // Keep the footer above the couch backrest; the opaque panel extends behind it.
+    line(`Systém / agenti: ${d?.system.length ?? '—'}   ·   celý propojený pracovní prostor`, 500, 26, '#acbed3');
+    line('E  Otevřít tabuli a přejít přímo k problému', 560, 33, '#f6bd60');
     this.texture.needsUpdate = true;
   }
 }
