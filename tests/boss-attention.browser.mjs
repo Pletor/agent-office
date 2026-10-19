@@ -15,10 +15,16 @@ const fixture = { ...empty, items: [{ id: 'ask', nodeId: 'task', kind: 'question
   path: ['Ukázka — Harness', 'Pracovní prostor', 'Knihovna Harness', 'Vrstva 06', 'Pilotní ověření', 'Srovnání režimů'],
   reason: 'Má pilot běžet také na projektu Ample, nebo zatím pouze na agent-office?',
   action: 'Otevři kartu, doplň výběr projektu a odpověz na otázku.',
+  guidance: { owner: 'Ty — rozhodnutí', activity: 'Čeká na tvoji odpověď', blockers: [],
+    steps: ['Otevři kartu a rozklikni blok pilotního ověření.', 'Do Text bloku doplň vybraný projekt a ulož odpověď.', 'Po uložení se vrať a obnov seznam.'],
+    expected: 'Položka zmizí až po vyřešení požadavku v Opoře.', linkLabel: 'Otevřít kartu a odpovědět v Opoře' },
   url: 'http://127.0.0.1:8740/?project=demo&workspace=work&screen=canvas&environment=editor&mode=structure&layer=pilot&node=task' }],
   system: [{ id: 'premature', nodeId: 'h05', kind: 'system', title: 'H05 — Celoobrazovková knihovna',
     path: ['Ukázka — Harness', 'Vrstva 02', 'Navigace a kontext'], reason: 'Návrh dokončení je předčasný: pipeline má hotové 2 ze 6 etap.',
-    action: 'Nejde o tvé schválení. Agent musí dokončit kritiky a testovací etapu.' }] };
+    action: 'Nejde o tvé schválení. Agent musí dokončit kritiky a testovací etapu.',
+    guidance: { owner: 'Orchestrátor / agenti', activity: 'Není doložen aktivní běh na této kartě. Tabule opravu nezadala.',
+      steps: [], blockers: ['Nedokončené etapy: tři kritici a testy.', 'Review: chybí doklad.', 'Merge: chybí doklad.'],
+      expected: 'Převzetí se nabídne až po doplnění podmínek.', linkLabel: 'Zobrazit stav karty (jen informace)' } }] };
 try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   assert.equal((await context.request.post(base + '/api/login', { data: { password: process.env.BOSS_PASSWORD ?? 'boss-preview' } })).status(), 200);
@@ -47,7 +53,9 @@ try {
   const dialog = page.getByRole('dialog', { name: 'Boss Office — Pro tebe', exact: true });
   await dialog.waitFor({ timeout: 10000 });
   await page.getByRole('heading', { name: 'Potvrdit rozsah pilotního ověření' }).waitFor();
-  const link = page.getByRole('link', { name: 'Otevřít v Opoře ↗' });
+  assert.equal(await page.getByRole('heading', { name: /H05/ }).count(), 0, 'agent information is not in My tasks');
+  assert.equal(await page.locator('.boss-attention-guide ol li').count(), 3, 'actionable ordered steps');
+  const link = page.getByRole('link', { name: 'Otevřít kartu a odpovědět v Opoře' });
   const url = new URL(await link.getAttribute('href'));
   assert.equal(url.searchParams.get('node'), 'task');
   assert.equal(url.searchParams.get('layer'), 'pilot');
@@ -57,6 +65,15 @@ try {
     assert.equal(await page.evaluate(() => !!document.activeElement.closest('.boss-attention')), true);
   }
   await page.screenshot({ path: path.join(shots, 'boss-dialog-desktop.png') });
+  await page.getByRole('tab', { name: 'Stav agentů (1)' }).click();
+  await page.getByRole('heading', { name: /H05/ }).waitFor();
+  assert.equal(await page.getByText('Tvoje akce nyní: žádná. Tuto položku nepotvrzuj.', { exact: true }).count(), 1);
+  assert.equal(await page.locator('.boss-attention-guide').count(), 0, 'system state is not a human checklist');
+  await page.screenshot({ path: path.join(shots, 'boss-agent-state.png') });
+  await page.getByRole('button', { name: '↻ Obnovit' }).click();
+  await page.getByRole('heading', { name: /H05/ }).waitFor();
+  assert.equal(await page.getByRole('tab', { name: 'Stav agentů (1)' }).getAttribute('aria-selected'), 'true', 'refresh preserves selected view');
+  await page.getByRole('tab', { name: 'Moje úkoly (1)' }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(200);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
