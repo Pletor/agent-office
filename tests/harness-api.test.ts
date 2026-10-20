@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Ctx } from '../src/server/office/context.js';
@@ -25,7 +25,12 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   ];
   /** Set to move Card 1 to Sector 2 after the next canvas read: a move between a client's read and its save. */
   let moveAfterRead = false;
+  /** Set to N to move Card 1 to the other sector on the Nth canvas read from now: a move while a save waits for the store's lock (the third read of a POST is the one under the lock). */
+  let moveOnRead = 0, reads = 0;
+  const moveCard1 = () => { nodes = nodes.map((n) => (n.id === 'c1' ? { ...n, parentId: n.parentId === 'sector' ? 'sector2' : 'sector' } : n)); };
   const canvasNodes = () => {
+    reads++;
+    if (moveOnRead && reads === moveOnRead) { moveOnRead = 0; moveCard1(); }
     const now = nodes;
     if (moveAfterRead) { moveAfterRead = false; nodes = nodes.map((n) => (n.id === 'c1' ? { ...n, parentId: 'sector2' } : n)); }
     return now;
@@ -40,6 +45,10 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   // Another floor, another checkout, on the same office: its worker must see nothing of the first floor's saves.
   const dirB = mkdtempSync(path.join(tmpdir(), 'harness-api-b-'));
   const floorB = { ...floor, id: 'floor-b', dir: dirB, opora: { view: () => ({ connected: true, project: { id: 'pb', name: 'PB' }, workspace: 'w', cards: [] }), canvasNodes: () => [] }, planning: { state: () => ({ current: undefined }) } };
+  const file = path.join(dir, 'harness-profiles.json');
+  /** Set to N to make the store unreadable on the Nth read of the floor's checkout from now: in a POST the second one comes right after the commit. */
+  let breakOnDirRead = 0, dirReads = 0, preserved = '';
+  Object.defineProperty(floor, 'dir', { get() { if (breakOnDirRead && ++dirReads === breakOnDirRead) { breakOnDirRead = 0; preserved = readFileSync(file, 'utf8'); writeFileSync(file, 'broken'); } return dir; } });
   const ctx = {
     cfg: { dataDir: dir, port: 0 }, floors: new Map([['floor', floor], ['floor-b', floorB]]),
     accounts: { get: (id: string) => ({ role: id === 'admin' ? 'admin' : 'member' }) },
@@ -181,4 +190,57 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   const refused = await call(api, 'admin', { ...data, scope: 'repository', layer: { rule: { resource: review.id } }, revision: 12 });
   assert.equal(refused.status, 400);
   assert.match(((await refused.json()) as { error: string }).error, /missing since .*rules\/review\.md/);
+  const node = (id: string) => api + '&node=' + encodeURIComponent(k(id));
+  const sectorOf = (view: { path: { level: string; node: string }[] }) => view.path.find((p) => p.level === 'sector')!.node;
+  // A save queued behind another office's lock is checked again under the lock, against the canvas as it is then: a card moved meanwhile is refused and nothing is written.
+  const before = await (await call(node('c1'), 'admin')).json();
+  const lock = file + '.lock';
+  writeFileSync(lock, JSON.stringify({ token: 'other-office', pid: 0, acquiredAt: Date.now(), renewedAt: Date.now() }));
+  reads = 0; moveOnRead = 2;
+  const queued = call(node('c1'), 'admin', { scope: 'sector', layer: { tone: { value: 'late' } }, revision: before.revision, at: sectorOf(before) });
+  await new Promise((r) => setTimeout(r, 300));
+  unlinkSync(lock);
+  const moved = await queued;
+  assert.equal(moved.status, 409);
+  assert.match((await moved.json()).error, /moved this node while the save waited/);
+  assert.equal(moveOnRead, 0, 'the card was moved on the read under the lock');
+  const afterMove = await (await call(node('c1'), 'admin')).json();
+  assert.equal(afterMove.revision, before.revision, 'nothing was written');
+  assert.notEqual(sectorOf(afterMove), sectorOf(before));
+  assert.equal(afterMove.layers.sector.tone, undefined);
+  // A save that committed is answered 200 with what was saved, even when the store can't be read again for the rest of the response.
+  dirReads = 0; breakOnDirRead = 3;
+  const committed = await call(node('c1'), 'admin', { scope: 'sector', layer: { tone: { value: 'kept' } }, revision: afterMove.revision, at: sectorOf(afterMove) });
+  assert.equal(committed.status, 200);
+  const kept = await committed.json();
+  assert.equal(kept.revision, afterMove.revision + 1, 'the response carries the committed revision');
+  assert.deepEqual(kept.layers.sector, { tone: { value: 'kept' } });
+  assert.match(kept.warning, /Saved as revision \d+, but the rest of this response could not be built/);
+  assert.deepEqual(kept.audit, []);
+  assert.equal(breakOnDirRead, 0);
+  assert.equal(readFileSync(file, 'utf8'), 'broken', 'the store really was unreadable after the commit');
+  assert.equal((await call(node('c1'), 'admin')).status, 503, 'and the next read says so');
+  writeFileSync(file, preserved);
+  assert.equal((await (await call(node('c1'), 'admin')).json()).revision, kept.revision, 'the committed write is in the file');
+  // Members read any floor's published profiles and audit (there is no member-to-floor check; this is the existing behaviour, not an access list) and still can't write.
+  const memberRead = await call('/api/harness/profile?floor=floor-b', 'member');
+  assert.equal(memberRead.status, 200);
+  const memberView = await memberRead.json();
+  assert.equal(memberView.writable, false);
+  assert.ok(memberView.audit.length > 0, 'a member sees the floor\'s audit');
+  assert.equal((await call('/api/harness/profile?floor=floor-b', 'member', { scope: 'repository', layer: {}, revision: memberView.revision })).status, 403);
+  // A worker's `node` or `at` never reaches another project's nodes or another floor: a foreign key is refused, a wrong `at` is a 409, and nothing is written.
+  const current = (await (await call(node('c2'), 'admin')).json()).revision;
+  assert.equal((await call('/office/harness?worker=planner&node=' + encodeURIComponent(oporaKey({ project: 'other', workspace: 'w' }, 'c1')), '', { scope: 'task', layer: { tone: { value: 'x' } }, revision: current, at: oporaKey({ project: 'other', workspace: 'w' }, 'c1') }, base, 'Bearer test-token')).status, 403, 'a key of another project');
+  assert.equal((await call('/office/harness?worker=worker-b&node=' + encodeURIComponent(k('c1')), '', undefined, base, 'Bearer test-token')).status, 400, 'floor B\'s worker cannot address floor A\'s project by its key');
+  const wrongAt = await call('/office/harness?worker=planner&node=' + encodeURIComponent(k('c2')), '', { scope: 'sector', layer: { tone: { value: 'x' } }, revision: current, at: k('sector2') }, base, 'Bearer test-token');
+  assert.equal(wrongAt.status, 409, 'Card 2 is in Sector, not Sector 2');
+  assert.equal((await (await call(node('c2'), 'admin')).json()).revision, current, 'nothing was written');
+  // Audit entries from before the repository was recorded (no `repo`) are the administrator's to see, never a worker's.
+  const stored = JSON.parse(readFileSync(file, 'utf8'));
+  stored.audit.push({ at: '2026-01-01T00:00:00.000Z', revision: 0, level: 'task', node: 'old-task', by: 'account:old', slots: ['legacy'] });
+  writeFileSync(file, JSON.stringify(stored));
+  const oldEntry = (a: { by: string }) => a.by === 'account:old';
+  assert.ok((await (await call(api, 'admin')).json()).audit.some(oldEntry), 'the administrator sees the old entry');
+  assert.ok(!(await (await call('/office/harness?worker=planner', '', undefined, base, 'Bearer test-token')).json()).audit.some(oldEntry), 'the worker does not');
 });

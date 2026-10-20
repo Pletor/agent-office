@@ -24,7 +24,7 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
   const reload = h('button.btn', { type: 'button' }, 'Load task / reload');
   const status = h('p', { role: 'status' });
   const effective = h('table.harness-effective-table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Slot'), h('th', {}, 'Value'), h('th', {}, 'Level'), h('th', {}, 'Node'))), h('tbody'));
-  const noArea = h('p.harness-notice', { role: 'note', hidden: '' }, 'No area level: this canvas has no area membership (memberOf).');
+  const noArea = h('p.harness-notice', { role: 'note', hidden: '' }, 'No area level: this target has no area on its path.');
   const preview = h('pre.harness-effective');
   const audit = h('pre.harness-effective');
   const where = h('p', { role: 'status' });
@@ -46,7 +46,9 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
     editor.disabled = save.disabled = !canSave();
     where.textContent = view.path.length ? 'Path: ' + view.path.map((p) => `${p.level} ${p.name ?? p.node}`).join(' › ') : 'Path: project only (load a task or node to edit the levels below).';
     const names = new Map(view.path.map((p) => [p.node, p.name ?? '']));
-    const rows = Object.entries(view.effective).map(([slot, e]) => h('tr', {}, h('td', {}, slot), h('td', {}, e.binding === null ? 'null (disabled)' : 'resource' in e.binding ? 'resource ' + e.binding.resource : JSON.stringify(e.binding.value)), h('td', {}, e.scope), h('td', { title: e.node ?? '' }, e.node ? (e.nodeName ?? names.get(e.node) ?? e.node) : '—')));
+    /** The node's name, or its key when the canvas gave it no name (a custom task has only its id): never a blank cell. */
+    const named = (node: string, name?: string) => name || names.get(node) || node;
+    const rows = Object.entries(view.effective).map(([slot, e]) => h('tr', {}, h('td', {}, slot), h('td', {}, e.binding === null ? 'null (disabled)' : 'resource' in e.binding ? 'resource ' + e.binding.resource : JSON.stringify(e.binding.value)), h('td', {}, e.scope), h('td', { title: e.node ?? '' }, e.node ? named(e.node, e.nodeName) : '—')));
     effective.querySelector('tbody')!.replaceChildren(...(rows.length ? rows : [h('tr', {}, h('td', { colspan: '4' }, 'No slots are set at any level.'))]));
     noArea.hidden = !view.path.length || view.path.some((p) => p.level === 'area');
     audit.textContent = view.audit.map((a) => `${a.at} r${a.revision} ${a.level}${a.node ? ' ' + (names.get(a.node) || a.node) : ''} by ${a.by || '—'}: ${a.slots.length ? a.slots.join(', ') : 'removed'}`).join('\n') || 'No saves yet.';
