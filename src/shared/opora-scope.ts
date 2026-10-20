@@ -11,6 +11,8 @@ export interface CanvasNode {
   kind: string;
   name: string;
   parentId: string | null;
+  /** The area Opora says the node belongs to (never guessed from where it's drawn): see shared/opora-identity.ts. */
+  memberOf?: string;
   env?: string;
   host?: string;
 }
@@ -23,16 +25,18 @@ export const SCOPE_LEVEL_NAME: Record<OporaScopeLevel, string> = { env: 'Prostř
 const MAX_SCOPE = 400;
 
 /**
- * The cascade from the canvas's nodes: each sector under an `env:` node for its site's environment
- * (none when no sector names one), its cards as pages, and theirs as subpages (however deep).
- * A card whose sector or parent isn't on the canvas is left out.
+ * The cascade from the canvas's nodes: each root sector (one without a parent) under an `env:` node
+ * for its site's environment (none when no root sector names one), its cards as pages, and theirs as
+ * subpages (however deep). A sector nested under a card keeps that card as its parent, so a page's
+ * layers, sectors and tasks stay under the page. A node whose parent isn't on the canvas, is an area
+ * (never a parent) or loops back to it is left out, never lifted to a root.
  */
 export function buildScope(nodes: readonly CanvasNode[]): OporaScopeNode[] {
   const out: OporaScopeNode[] = [];
-  const sectors = nodes.filter((n) => n.kind === 'sector');
-  const withEnv = sectors.some((s) => s.env);
+  const roots = nodes.filter((n) => n.kind === 'sector' && !n.parentId);
+  const withEnv = roots.some((s) => s.env);
   const envs = new Set<string>();
-  for (const s of sectors) {
+  for (const s of roots) {
     const env = withEnv ? (s.env || 'Other') : undefined;
     if (env && !envs.has(env)) {
       envs.add(env);
@@ -40,10 +44,11 @@ export function buildScope(nodes: readonly CanvasNode[]): OporaScopeNode[] {
     }
     out.push({ id: s.id, name: s.name, level: 'domain', parentId: env ? envId(env) : null, ...(s.host ? { host: s.host } : {}) });
   }
-  // Cards in canvas order, each once its parent is in: a few passes take any order.
+  // Every other card and sector in canvas order, each once its parent is in: passes take any order,
+  // and stop once one adds nothing (what's left has no way up to a root).
   const byLevel = new Map(out.map((n) => [n.id, n.level]));
-  let left = nodes.filter((n) => n.kind === 'node' && n.parentId);
-  for (let pass = 0; pass < 8 && left.length; pass++) {
+  let left = nodes.filter((n) => (n.kind === 'node' || n.kind === 'sector') && n.parentId);
+  while (left.length) {
     const next: CanvasNode[] = [];
     for (const n of left) {
       const parent = n.parentId ? byLevel.get(n.parentId) : undefined;
@@ -52,7 +57,7 @@ export function buildScope(nodes: readonly CanvasNode[]): OporaScopeNode[] {
         continue;
       }
       const level: OporaScopeLevel = parent === 'domain' ? 'page' : 'subpage';
-      out.push({ id: n.id, name: n.name, level, parentId: n.parentId });
+      out.push({ id: n.id, name: n.name, level, parentId: n.parentId, ...(n.host ? { host: n.host } : {}) });
       byLevel.set(n.id, level);
     }
     if (next.length === left.length) break;

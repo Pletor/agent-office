@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaAgentName, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
 import { buildScope, cleanFocus, focusLine, inFocus, toggleFocus } from '../../shared/opora-scope.js';
+import { focusIntact, samePlace, type OporaPlace } from '../../shared/opora-identity.js';
 import { fillPrompt, type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
 import type { OporaCard, OporaRun, OporaState, WorkerInfo } from '../../shared/protocol.js';
@@ -74,6 +75,8 @@ export class OporaBridge {
   private chosenWorkspace?: string;
   /** What the cell works on, as switched at the 🎚️ switchboard (see shared/opora-scope.ts). */
   private focus: string[] = [];
+  /** The project and workspace the focus was switched on in: node ids mean nothing in another (docs/opora-identity.md). */
+  private focusPlace?: OporaPlace;
   /** The cards that were ready at the last read, of the project and workspace in `readyOf`, to see which turn ready next. */
   private ready?: Set<string>;
   private readyOf = '';
@@ -165,21 +168,34 @@ export class OporaBridge {
     const scope = this.state.scope;
     if (!scope.length) return this.state.error ?? 'The project’s architecture isn’t read yet';
     if (id !== null && !scope.some((n) => n.id === id)) return 'That isn’t in the project’s architecture any more: look again';
-    this.focus = id === null ? [] : toggleFocus(scope, only ? [] : this.focus, id, on || only);
+    // A focus from another workspace isn't added to: its ids are other cards there.
+    const kept = only || (this.focusPlace && !samePlace(this.focusPlace, this.place())) ? [] : this.focus;
+    this.focus = id === null ? [] : toggleFocus(scope, kept, id, on || only);
+    this.focusPlace = this.place();
     this.changed();
     const line = focusLine(this.state.scope, this.focus);
     this.events.toast(line ? `🎚️ ${by} set the cell to work on ${line}` : `🎚️ ${by} set the cell to work on the whole project`, 'info');
     return undefined;
   }
 
+  /** The linked project and workspace, once read. */
+  private place(): OporaPlace | undefined {
+    const { project, workspace } = this.state;
+    return project && workspace ? { project: project.id, workspace } : undefined;
+  }
+
   /**
-   * Why the cell takes nothing while it has a focus none of which is in the architecture any more
-   * (the cards were removed or the canvas laid out anew), instead of falling back to the whole project.
+   * Why the cell takes nothing while its focus doesn't mean what it meant when it was switched on: a
+   * node of it left the architecture or moved (the cards were removed or the canvas laid out anew),
+   * or it was switched on in another workspace, whose same node ids are other cards. The cell
+   * refuses instead of falling back to the whole project or to what's left of the focus.
    */
   private focusLost(): string | undefined {
     const scope = this.state.scope;
-    if (!this.focus.length || !scope.length || cleanFocus(scope, this.focus).length) return undefined;
-    return 'What the cell works on isn’t in the project’s architecture any more: switch it again at the 🎚️ switchboard';
+    if (!this.focus.length || !scope.length) return undefined;
+    if (this.focusPlace && !samePlace(this.focusPlace, this.place())) return 'What the cell works on was switched on in another workspace: switch it again at the 🎚️ switchboard';
+    if (focusIntact(scope, this.focus)) return undefined;
+    return 'What the cell works on isn’t in the project’s architecture any more, or not where it was: switch it again at the 🎚️ switchboard';
   }
 
   /** The focus in words for a brief, or '' for the whole project. */
@@ -365,7 +381,10 @@ export class OporaBridge {
         }
       }
       this.noteReady(`${project.id}/${workspace}`, cards);
-      Object.assign(s, { connected: true, error: [lost, gone, this.focusLost()].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
+      Object.assign(s, { connected: true, error: [lost, gone].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
+      // Judged on the architecture and workspace just read, not the ones before.
+      const focusLost = this.focusLost();
+      if (focusLost) s.error = [s.error, focusLost].filter(Boolean).join(' · ');
     } catch (err) {
       Object.assign(s, { connected: true, error: (err as Error).message, checkedAt: Date.now() });
     }
@@ -466,7 +485,7 @@ export class OporaBridge {
 
   private persist() {
     try {
-      writeFileSync(this.statePath, JSON.stringify({ runs: this.runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner, linkedTo: this.chosen, workspace: this.chosenWorkspace, focus: this.focus, handOut: this.state.handOut }, null, 2), { mode: 0o600 });
+      writeFileSync(this.statePath, JSON.stringify({ runs: this.runs, autopilot: this.state.autopilot, maxRuns: this.state.maxRuns, autopilotBy: this.autopilotBy, autopilotOwner: this.autopilotOwner, linkedTo: this.chosen, workspace: this.chosenWorkspace, focus: this.focus, focusPlace: this.focusPlace, handOut: this.state.handOut }, null, 2), { mode: 0o600 });
     } catch {
       // a full disk loses the bridge's state, not the office
     }
@@ -475,7 +494,7 @@ export class OporaBridge {
   private restore() {
     try {
       if (!existsSync(this.statePath)) return;
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string; workspace?: string; focus?: unknown; handOut?: boolean };
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string; workspace?: string; focus?: unknown; focusPlace?: Partial<OporaPlace>; handOut?: boolean };
       if (Array.isArray(saved.runs)) this.runs = saved.runs.filter((r) => r && typeof r.cardId === 'string');
       for (const r of this.runs) if (r.state !== 'gone' && r.workerId) markForOpora(r.workerId);
       this.state.autopilot = saved.autopilot === true;
@@ -486,6 +505,8 @@ export class OporaBridge {
       this.chosen = typeof saved.linkedTo === 'string' && saved.linkedTo ? saved.linkedTo : undefined;
       this.chosenWorkspace = typeof saved.workspace === 'string' && saved.workspace ? saved.workspace : undefined;
       this.focus = Array.isArray(saved.focus) ? saved.focus.filter((x): x is string => typeof x === 'string') : [];
+      const at = saved.focusPlace;
+      this.focusPlace = at && typeof at.project === 'string' && typeof at.workspace === 'string' ? { project: at.project, workspace: at.workspace } : undefined;
     } catch {
       // a broken file starts the bridge afresh
     }
