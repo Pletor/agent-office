@@ -33,7 +33,12 @@ export interface BridgeFloor {
 }
 
 /** Task context for a card's worker, and the run snapshot it was pinned to (harness/run.ts), when there is one. */
-export interface PreparedTask { context: string; snapshot?: RunRef }
+export interface PreparedTask {
+  context: string;
+  snapshot?: RunRef;
+  /** Drops what was prepared when the card is not taken after all (the claim or the seat failed). */
+  discard?(): void;
+}
 /** A run snapshot's id and digest (docs/harness.md "Run snapshot and lazy reads"). */
 export interface RunRef { runId: string; digest: string }
 
@@ -254,16 +259,17 @@ export class OporaBridge {
     const desk = deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
     if (!desk) return 'Every desk is taken: send someone home, or build the back office out';
     const agent = oporaAgentName(this.floor.id, card.id);
-    let context = '', snapshot: RunRef | undefined;
+    let context = '', snapshot: RunRef | undefined, discard: (() => void) | undefined;
     try {
       const prepared = await this.events.prepareTask?.(project.id, workspace, card.id, owner, this.canvas) ?? '';
       if (typeof prepared === 'string') context = prepared;
-      else ({ context, snapshot } = prepared);
+      else ({ context, snapshot, discard } = prepared);
     } catch (err) { return 'Task context: ' + (err as Error).message; }
     let lease;
     try {
       lease = await this.client.claim(project.id, workspace, card.id, agent, LEASE_TTL);
     } catch (err) {
+      discard?.();
       return err instanceof OporaError && err.status === 409 ? `Someone else holds “${card.name}” on Opora` : (err as Error).message;
     }
     // What the person sketched for the card (its drawing, its storyboard), and the Opora pages that show it.
@@ -284,6 +290,7 @@ export class OporaBridge {
     const seated = seatForOpora(() => this.floor.seat(desk, by, withReaBrief(prompt + context, this.events.prompt), owner));
     if (typeof seated === 'string') {
       await this.client.release(project.id, workspace, card.id, lease.token).catch(() => undefined);
+      discard?.();
       return seated;
     }
     this.runs.unshift({

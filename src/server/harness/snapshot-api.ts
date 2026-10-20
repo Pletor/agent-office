@@ -9,7 +9,7 @@ import { send } from '../http/util.js';
 import { HarnessError } from './profiles.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { HarnessRegistry } from './registry.js';
-import { loadSnapshot, readFromSnapshot, type SnapshotRead } from './snapshot.js';
+import { loadSnapshot, readFromSnapshot, touchSnapshot, type SnapshotRead } from './snapshot.js';
 import type { RunRef } from '../opora/bridge.js';
 
 /**
@@ -24,6 +24,7 @@ export async function snapshotRead(dataDir: string, floorDir: string, own: RunRe
   if (run && run !== own.runId) throw new HarnessError(`Run ${run} is not this worker's run; a worker reads only the snapshot it was seated with (${own.runId}).`, 403);
   const snapshot = loadSnapshot(dataDir, own.runId);
   if (snapshot.digest !== own.digest) throw new HarnessError(`Run snapshot ${own.runId} does not match the digest recorded when the worker was seated; it is refused, not served.`, 409);
+  touchSnapshot(dataDir, own.runId);
   if (!snapshot.elements.some((e) => e.id === id)) return readFromSnapshot(snapshot, id);
   let current: { version: number; digest: string } | undefined;
   try {

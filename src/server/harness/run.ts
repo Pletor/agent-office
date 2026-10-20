@@ -5,14 +5,14 @@
 import { HarnessError } from './profiles.js';
 import { HANDOFF_CAVEAT, cardBinding, handoffManifest, resolveHandoff } from './handoff.js';
 import { HARNESS_GUIDES } from './guides.js';
-import { EAGER_CATEGORIES, buildSnapshot, persistSnapshot, SNAPSHOT_LIMITS, SNAPSHOT_SCHEMA, type StoredSnapshot } from './snapshot.js';
+import { EAGER_CATEGORIES, buildSnapshot, discardSnapshot, persistSnapshot, SNAPSHOT_LIMITS, SNAPSHOT_SCHEMA, type StoredSnapshot } from './snapshot.js';
 import { harnessBundle } from '../../shared/harness.js';
 import { HARNESS_LEVELS } from '../../shared/harness-cascade.js';
 import { harnessPath, type HierarchyNode } from '../../shared/harness-hierarchy.js';
 import type { OporaPlace } from '../../shared/opora-identity.js';
 
 /** What the bridge seats a card's worker with: the prompt section, and the run it was pinned to. */
-export interface HarnessRun { context: string; snapshot: { runId: string; digest: string } }
+export interface HarnessRun { context: string; snapshot: { runId: string; digest: string }; discard(): void }
 
 /**
  * The run for an Opora card: the floor's binding checked (bindings.ts), the profile down the card's way
@@ -28,7 +28,7 @@ export async function harnessCardRun(dataDir: string, repo: string, place: Opora
   const context = runContract(snapshot);
   if (Buffer.byteLength(context) > SNAPSHOT_LIMITS.eagerBytes + 32 * 1024) throw new HarnessError(`The worker's harness contract exceeds ${(SNAPSHOT_LIMITS.eagerBytes + 32 * 1024) / 1024} KiB; choose smaller resources.`);
   persistSnapshot(dataDir, snapshot);
-  return { context, snapshot: { runId: snapshot.runId, digest: snapshot.digest } };
+  return { context, snapshot: { runId: snapshot.runId, digest: snapshot.digest }, discard: () => discardSnapshot(dataDir, snapshot.runId) };
 }
 
 /**

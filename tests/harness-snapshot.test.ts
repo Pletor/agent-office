@@ -14,7 +14,7 @@ import { HarnessRegistry } from '../src/server/harness/registry.js';
 import { HarnessProfiles } from '../src/server/harness/profiles.js';
 import { resolveHandoff, type ResolvedHandoff } from '../src/server/harness/handoff.js';
 import { HARNESS_GUIDES } from '../src/server/harness/guides.js';
-import { buildSnapshot, canonicalJson, loadSnapshot, persistSnapshot, pruneSnapshots, readFromSnapshot, snapshotDigest, snapshotDir, SNAPSHOT_LIMITS, type StoredSnapshot } from '../src/server/harness/snapshot.js';
+import { buildSnapshot, canonicalJson, discardSnapshot, loadSnapshot, touchSnapshot, persistSnapshot, pruneSnapshots, readFromSnapshot, snapshotDigest, snapshotDir, SNAPSHOT_LIMITS, type StoredSnapshot } from '../src/server/harness/snapshot.js';
 import { harnessCardRun, runContract } from '../src/server/harness/run.js';
 import { snapshotRead } from '../src/server/harness/snapshot-api.js';
 import { officeHarness } from '../src/server/harness/api.js';
@@ -107,6 +107,18 @@ test('each secret pattern is redacted and only its kind is recorded, never the v
   assert.match(runContract(snap), /Redacted: aws-access-key ×1/);
 });
 
+test('the redaction scan stays linear on hostile 128 KiB texts', () => {
+  const size = SNAPSHOT_LIMITS.elementBytes;
+  for (const hostile of ['a.'.repeat(size / 2), 'sk-' + 'a-'.repeat(size / 2), '-----BEGIN PRIVATE KEY-----\n'.repeat(size / 28), 'Bearer ' + ' '.repeat(size), 'x'.repeat(size) + 'token=']) {
+    const started = Date.now();
+    redactSecrets(hostile);
+    assert.ok(Date.now() - started < 1500, `scan of ${JSON.stringify(hostile.slice(0, 12))}… took ${Date.now() - started} ms`);
+  }
+  const two = redactSecrets('-----BEGIN EC PRIVATE KEY-----\nAAA\n-----END EC PRIVATE KEY-----\nkeep me\n-----BEGIN OPENSSH PRIVATE KEY-----\nBBB\n-----END OPENSSH PRIVATE KEY-----');
+  assert.equal(two.text, '[redacted:private-key]\nkeep me\n[redacted:private-key]');
+  assert.equal(two.found['private-key'], 2);
+});
+
 test('fail closed: credential-like name, digest mismatch, over a size limit, too many resources', () => {
   const build = (entries: HarnessText[]) => buildSnapshot({ card: CARD, binding: null, resolved: resolved(entries.map((entry, i) => ({ entry, slot: 's' + i }))) });
   assert.throws(() => build([text('el:project:dddddddddddddddddddd', 'rules', 'x', { path: 'rules/.env.md' })]), /credential-like file name/);
@@ -140,10 +152,40 @@ test('a snapshot is written once, never overwritten, refused when altered, and o
   const old = path.join(snapshotDir(dir), 'run-44444444.json');
   const past = new Date(Date.now() - (SNAPSHOT_LIMITS.maxAgeDays + 1) * 24 * 3600 * 1000);
   await utimes(old, past, past);
+  const staleTemp = path.join(snapshotDir(dir), 'run-55555555.json.x.tmp'), freshTemp = path.join(snapshotDir(dir), 'run-66666666.json.y.tmp');
+  await writeFile(staleTemp, '{');
+  await writeFile(freshTemp, '{');
+  await utimes(staleTemp, past, past);
+  // A run in use is touched by its reads, so its age starts again.
+  await utimes(path.join(snapshotDir(dir), 'run-33333333.json'), past, past);
+  touchSnapshot(dir, 'run-33333333');
   pruneSnapshots(dir, 'run-11111111');
   assert.equal(existsSync(old), false);
   assert.equal(existsSync(file), true);
-  assert.equal(existsSync(path.join(snapshotDir(dir), 'run-33333333.json')), true, 'a recent snapshot stays');
+  assert.equal(existsSync(path.join(snapshotDir(dir), 'run-33333333.json')), true, 'a recently read snapshot stays');
+  assert.equal(existsSync(staleTemp), false, 'a temporary file a crash left behind goes after a day');
+  assert.equal(existsSync(freshTemp), true);
+  discardSnapshot(dir, 'run-33333333');
+  assert.equal(existsSync(path.join(snapshotDir(dir), 'run-33333333.json')), false, 'a run that never started is discarded');
+});
+
+test('more credential shapes are redacted, while code that names where a secret comes from stays', () => {
+  const cases: [string, string, string][] = [
+    ['postgres://admin:hunter2secret@db/x', 'url-credential', 'postgres://admin:[redacted:url-credential]@db/x'],
+    ['Authorization: Basic dXNlcjpwYXNzd29yZA==', 'basic-auth', 'Authorization: Basic [redacted:basic-auth]'],
+    ['slack xoxb-1234567890-abcdefghij', 'slack-token', 'slack [redacted:slack-token]'],
+    ['jwt eyJhbGciOiJI.eyJzdWIiOiIx.c2lnbmF0dXJl', 'jwt', 'jwt [redacted:jwt]'],
+    ['g AIzaSyA1234567890abcdefghijklmnopqrstuv', 'google-api-key', 'g [redacted:google-api-key]'],
+    ['DB_PASS=supersecret123', 'credential-assignment', 'DB_PASS=[redacted:credential-assignment]'],
+  ];
+  for (const [sample, kind, expected] of cases) {
+    const r = redactSecrets(sample);
+    assert.equal(r.text, expected, kind);
+    assert.equal(r.found[kind], 1, kind);
+  }
+  for (const code of ['token = getToken()', 'apiKey: config.apiKey', 'password=process.env.DB_PASSWORD', 'token = os.environ["GITHUB_TOKEN"]']) assert.equal(redactSecrets(code).text, code, code);
+  // A rule that only mentions a key header keeps the instructions after it.
+  assert.equal(redactSecrets('Never commit -----BEGIN PRIVATE KEY----- blocks.\n\nRun the tests.').text, 'Never commit [redacted:private-key]\n\nRun the tests.');
 });
 
 test('a run pins exactly the bound versions: global, element and registry changes mid-run never reach it', async (t) => {

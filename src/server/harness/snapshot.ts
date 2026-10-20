@@ -6,7 +6,7 @@
 // written snapshot: a second write of the same run is refused, and a file that no longer matches its
 // digest is refused rather than served.
 import { createHash, randomUUID } from 'node:crypto';
-import { linkSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { HarnessError } from './profiles.js';
 import { credentialLike, elementNamespace } from './catalog.js';
@@ -161,7 +161,7 @@ export function buildSnapshot(input: SnapshotInput): StoredSnapshot {
   const slots = redactSlots(resolved.profile.effective, slotFound);
   for (const [kind, count] of Object.entries(slotFound)) redactions.push({ element: 'slots', kind, count });
   elements.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  redactions.sort((a, b) => (a.element + '\0' + a.kind < b.element + '\0' + b.kind ? -1 : 1));
+  redactions.sort((a, b) => (a.element < b.element ? -1 : a.element > b.element ? 1 : a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
   const eager = elements.filter((e) => e.mode === 'eager');
   const eagerBytes = eager.reduce((n, e) => n + e.bytes, 0);
   if (eagerBytes > SNAPSHOT_LIMITS.eagerBytes) throw new HarnessError(`The essential harness instructions exceed ${SNAPSHOT_LIMITS.eagerBytes / 1024} KiB (${Math.ceil(eagerBytes / 1024)} KiB); choose smaller resources.`);
@@ -189,7 +189,9 @@ function snapshotFile(dataDir: string, runId: string): string {
 
 /**
  * Writes a snapshot once. The file is written under a temporary name and hard-linked to its final name,
- * which fails when that name exists: a run's snapshot is never overwritten, not even by a race. Older
+ * which fails when that name exists: a run's snapshot is never overwritten, not even by a race. On a
+ * filesystem without hard links (FAT, exFAT, some network shares) it is written directly with an
+ * exclusive create instead, still never over an existing file (a torn write fails its digest). Older
  * snapshots past the retention bound are removed afterwards (best effort). Throws when it can't write.
  */
 export function persistSnapshot(dataDir: string, snapshot: StoredSnapshot): string {
@@ -197,8 +199,12 @@ export function persistSnapshot(dataDir: string, snapshot: StoredSnapshot): stri
   const temp = file + '.' + randomUUID() + '.tmp';
   try {
     mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(temp, JSON.stringify(snapshot), { mode: 0o600, flag: 'wx' });
-    linkSync(temp, file);
+    const data = JSON.stringify(snapshot);
+    writeFileSync(temp, data, { mode: 0o600, flag: 'wx' });
+    try { linkSync(temp, file); } catch (err) {
+      if (!['EPERM', 'ENOTSUP', 'ENOSYS', 'EXDEV', 'EOPNOTSUPP'].includes((err as NodeJS.ErrnoException).code ?? '')) throw err;
+      writeFileSync(file, data, { mode: 0o600, flag: 'wx' });
+    }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     throw new HarnessError(code === 'EEXIST' ? `Run snapshot ${snapshot.runId} already exists and is never overwritten.` : `The run snapshot could not be written (${(err as Error).message}); the card was not taken.`, code === 'EEXIST' ? 409 : 500);
@@ -209,18 +215,35 @@ export function persistSnapshot(dataDir: string, snapshot: StoredSnapshot): stri
   return file;
 }
 
-/** Removes snapshots older than the age bound, and past the count bound the oldest that are over a day old; `keep` is never removed. */
+/**
+ * Removes snapshots older than the age bound, and past the count bound the oldest that are over a week
+ * old; `keep` is never removed, and neither is a temporary file younger than a day. Age is the file's
+ * modification time, which a worker's lazy read refreshes (touchSnapshot), so a run in use stays.
+ */
 export function pruneSnapshots(dataDir: string, keep: string, now = Date.now()): void {
   try {
     const dir = snapshotDir(dataDir);
-    const files = readdirSync(dir).filter((f) => f.endsWith('.json') && f !== keep + '.json').map((f) => {
+    const names = readdirSync(dir);
+    // A temporary file a crash left behind between the write and the link.
+    for (const f of names.filter((n) => n.endsWith('.tmp'))) try { if (now - statSync(path.join(dir, f)).mtimeMs > DAY) unlinkSync(path.join(dir, f)); } catch { /* gone */ }
+    const files = names.filter((f) => f.endsWith('.json') && f !== keep + '.json').map((f) => {
       try { return { f, at: statSync(path.join(dir, f)).mtimeMs }; } catch { return undefined; }
     }).filter((x): x is { f: string; at: number } => !!x).sort((a, b) => b.at - a.at);
     const room = SNAPSHOT_LIMITS.keep - 1;
     files.forEach(({ f, at }, i) => {
-      if (now - at > SNAPSHOT_LIMITS.maxAgeDays * DAY || (i >= room && now - at > DAY)) try { unlinkSync(path.join(dir, f)); } catch { /* still in use, or gone */ }
+      if (now - at > SNAPSHOT_LIMITS.maxAgeDays * DAY || (i >= room && now - at > 7 * DAY)) try { unlinkSync(path.join(dir, f)); } catch { /* still in use, or gone */ }
     });
   } catch { /* nothing to prune */ }
+}
+
+/** Removes a snapshot that was written for a run that never started (the claim or the seat failed); best effort. */
+export function discardSnapshot(dataDir: string, runId: string): void {
+  try { unlinkSync(snapshotFile(dataDir, runId)); } catch { /* never written, or gone */ }
+}
+
+/** Marks a snapshot as in use (its modification time, which retention goes by); its content is untouched. Best effort. */
+export function touchSnapshot(dataDir: string, runId: string, now = new Date()): void {
+  try { utimesSync(snapshotFile(dataDir, runId), now, now); } catch { /* read-only data dir: retention may age it out sooner */ }
 }
 
 /**
