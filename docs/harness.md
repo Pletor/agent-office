@@ -79,7 +79,7 @@ A pack is a snapshot assembled from selected files at export time. Re-export aft
 
 Build with `npm run build`, then run `node bin/agent-office.js . --port 4617 --password harness-preview --no-open` from a separate test checkout. Open http://localhost:4617, sign in, enter the office, and press **F8**. Alternatively, use **E** at the Harness shelf left of the balcony doors. **✕** and **Esc** both return immediately to mouse-look. The example password is for a loopback-only disposable preview, not a network deployment.
 
-Open **Inheritance: Global → Repository → Task**. Each layer is a JSON object of named slots:
+Open **Inheritance: Global → Project → Page → Layer → Area → Sector → Task**. Each level has a layer, a JSON object of named slots:
 
 ```json
 {
@@ -89,16 +89,43 @@ Open **Inheritance: Global → Repository → Task**. Each layer is a JSON objec
 }
 ```
 
-- **Global** applies to all repository floors in this office instance. Separate running offices do not share this store.
-- **Repository** overrides matching global slots for this floor's checkout; other slots inherit.
-- **Task** overrides matching slots for the selected task in that repository. Task IDs from Opora include project, workspace and card, so the same short ID elsewhere cannot collide.
+The levels are the ones of the [Opora identity contract](opora-identity.md): every level below global is a real Opora node, named by its key `opora:PROJECT:WORKSPACE:NODE`, never by a name or a position on the canvas.
+
+- **Global** applies to all floors in this office instance. Separate running offices do not share this store.
+- **Project** is the repository Opora plans: this floor's checkout. The 3-level store, the CLI and the HTTP API still accept `repository` as its name. A root sector of the canvas (a domain of the switchboard) is the project's, not a level of its own.
+- **Page**, **Layer**, **Area**, **Sector** are the nodes on the way down from the project to a card, read from the canvas's real parents: the deepest sector above the card is the sector, the area that sector is a `memberOf` (`areaOf`) is the area, the cards above the sector are the page (outermost) and the layer (innermost). Area membership, parents and kinds are the contract; which card is a "layer" is Opora's convention of nesting one card under the page (`[vrstva NN]`), so a card right under a page has no layer and a canvas without `memberOf` has no area, and those levels are simply empty. A card between the page and the layer has no level and sets nothing.
+- **Task** is the card itself. A card with nothing under it is a task; a card with children is a page or a layer. Task IDs from Opora include project, workspace and card, so the same short ID elsewhere cannot collide; a custom task ID that isn't an Opora key has nothing above it but the project.
 - A missing key inherits. `null` explicitly disables an inherited assignment. Delete the override to inherit again. A binding replaces the whole binding at that key; there is no deep merge or instruction concatenation for the same slot.
+- Each level sets only its own slots (its **own view**, `layers.<level>`); the **effective** result (`effective`) says for each slot which level it came from (`scope`) and, below the project, which node (`node`). Siblings are isolated: a sibling sector, page or task sees only what is above both, never what the other set.
+- One **revision** covers every level. A save sends the revision it loaded; if anyone saved anything at any level since, it is refused (HTTP 409) and the editor must reload. Every save goes into an **audit** trail (when, revision, level, node, who, which slots the layer names now; `[]` when the layer was removed), shown under **Latest saves**.
 
-Try `{"settings.color":{"value":"red"}}` globally, `blue` for the repository, and `green` for a task. Save each layer and inspect **Effective slots and their origins**. Removing the task override should reveal `blue`, then removing the repository override reveals `red`. Load a task before saving it. Switching scope or reloading discards unsaved edits. A revision conflict requires reloading; stale editors cannot overwrite another user's changes.
+Try `{"settings.color":{"value":"red"}}` globally, `blue` for the project, `teal` for a card's sector and `green` for the card. Save each layer and inspect **Effective slots and their origins**. Removing the task override should reveal `teal`, then `blue`, then `red`; a sibling card in the same sector shows `teal`. Load a task or node (type its key, or pick a card) before saving at a level below the project: the **Path** line shows the way down the loaded node, and the levels it doesn't go through can't be edited. Switching scope or reloading discards unsaved edits.
 
-For resources, choose a semantic slot and scope in the inheritance editor, collapse it, select a book, click **Assign resource**, and **Save layer**. The first opening loads profiles automatically; the default slot is `rules.quality` at repository scope. Assignment edits and ad-hoc **Add to pack** selections are intentionally separate. Saving a layer persists assignments; exporting a pack does not.
+For resources, choose a semantic slot and scope in the inheritance editor, collapse it, select a book, click **Assign resource**, and **Save layer**. The first opening loads profiles automatically; the default slot is `rules.quality` at project scope. Assignment edits and ad-hoc **Add to pack** selections are intentionally separate. Saving a layer persists assignments; exporting a pack does not.
 
-**Resolved handoff preview** shows the exact saved configuration/content to be supplied to a worker, with scope provenance and SHA-256 snapshot digest. Missing or inaccessible resources show a blocking warning. Profiles survive restarts in `<office dataDir>/harness-profiles.json`. Repository identity is the absolute checkout path (case-insensitive on Windows); moving a checkout requires reassigning its repository/task profiles. Resource IDs are local installation IDs, not portable package names.
+**Resolved handoff preview** shows the exact saved configuration/content to be supplied to a worker, with the path, each slot's provenance and SHA-256 snapshot digest. Missing or inaccessible resources show a blocking warning. Repository identity is the absolute checkout path (case-insensitive on Windows); moving a checkout requires reassigning its profiles. Resource IDs are local installation IDs, not portable package names.
+
+## Store format and rollback
+
+Profiles survive restarts in `<office dataDir>/harness-profiles.json`. The hierarchy store is **version 2** of the file the 3-level store (version 1) wrote, and it is a superset of it:
+
+```json
+{
+  "version": 2,
+  "revision": 7,
+  "layers": {
+    "global": { "settings.color": { "value": "red" } },
+    "repo:<sha256 of the checkout path>": { "settings.color": { "value": "blue" } },
+    "node:<repo>:opora:PROJECT:WORKSPACE:SECTOR": { "settings.color": { "value": "teal" } },
+    "task:<repo>:opora:PROJECT:WORKSPACE:CARD": { "settings.color": { "value": "green" } }
+  },
+  "audit": [{ "at": "2026-10-20T10:00:00.000Z", "revision": 7, "level": "task", "node": "opora:…", "by": "account:ana", "slots": ["settings.color"] }]
+}
+```
+
+- `global`, `repo:` and `task:` keys are exactly what version 1 wrote; a version 1 file (no `version`, no `audit`) loads as it is, with the same effective result, and nothing is rewritten until someone saves.
+- Page, layer, area and sector layers are new `node:` keys; the first save writes `version: 2` and starts the `audit` (the latest 200 saves). A file with a version this office doesn't know fails closed, like invalid JSON: it is reported, never overwritten.
+- **Rollback** to a 3-level office is a deploy of the older version and nothing else: it reads `revision` and `layers`, knows the `global`, `repo:` and `task:` keys and ignores `version`, `audit` and the `node:` keys, which stay in the file, dormant, through its saves, and resolve again on the next upgrade. To drop the hierarchy for good, stop the office and delete the `node:` keys, `version` and `audit` from the file. `tests/harness-cascade.test.ts` ("a 3-level store loads unchanged…") runs this round trip.
 
 ## Orchestrator handoff
 
@@ -108,22 +135,24 @@ The Opora planner/router receives these instructions automatically and has `offi
 office-harness --catalog
 office-harness --effective
 office-harness --effective --task 'opora:PROJECT:WORKSPACE:CARD'
+office-harness --effective --node 'opora:PROJECT:WORKSPACE:SECTOR'
 office-harness --assign repository assignments.json
+office-harness --assign sector assignments.json --node 'opora:PROJECT:WORKSPACE:SECTOR'
 office-harness --assign task assignments.json --task 'opora:PROJECT:WORKSPACE:CARD'
 ```
 
-Use the actual namespaced task IDs returned by `--effective` (components are URL-encoded). `assignments.json` contains `{"revision":N,"layer":{...}}`, with the latest revision and the **complete replacement layer**. Include unchanged slots you want to retain. Configure task requirements before making a card runnable; automatic handout may dispatch ready cards as soon as the orchestrator finishes a turn.
+`--assign` takes a level: `repository` (or `project`), `page`, `layer`, `area`, `sector` or `task`; `--task` and `--node` are the same thing, the key of the node addressed, and the level must be on that node's way down (a sector assigned through one of its cards, or through the sector itself). Use the actual namespaced IDs returned by `--effective` (components are URL-encoded); a key of another project or workspace is refused. `assignments.json` contains `{"revision":N,"layer":{...}}`, with the latest revision and the **complete replacement layer**. Include unchanged slots you want to retain. Configure task requirements before making a card runnable; automatic handout may dispatch ready cards as soon as the orchestrator finishes a turn.
 
-Browser writes require an administrator/shared-password session and same-origin requests. The worker endpoint uses the worker's hook token and derives its repository from that worker, not caller input. Only the active Opora planner/router belonging to an administrator (or shared-password session) may change repository/task layers. Global writes are administrator UI-only. Ordinary workers can inspect their project-scoped effective context but cannot edit profiles or discover administrator machine resources.
+Browser writes require an administrator/shared-password session and same-origin requests. The worker endpoint uses the worker's hook token and derives its repository from that worker, not caller input. Only the active Opora planner/router belonging to an administrator (or shared-password session) may change the layers below global. Global writes are administrator UI-only. Ordinary workers can inspect their project-scoped effective context but cannot edit profiles or discover administrator machine resources.
 
-Every `OporaBridge.take` path (manual take, autopilot, orchestrator handout) resolves profiles before claiming the card. It reads the selected resources, embeds the manifest and contents in the worker's initial prompt, and fails before claiming if something is unavailable or exceeds the budget. Later profile edits do not change an already seated worker's prompt. Limits: 64 slots per layer, 24 distinct effective resources, 96 KiB resolved handoff, 2 MiB persisted profiles. Invalid saved JSON fails closed and is not overwritten.
+Every `OporaBridge.take` path (manual take, autopilot, orchestrator handout) resolves profiles before claiming the card, down the card's way through the canvas as last read. It reads the selected resources, embeds the manifest (task, path, revision, slots with provenance) and contents in the worker's initial prompt, and fails before claiming if something is unavailable or exceeds the budget. Later profile edits at any level, global included, do not change an already seated worker's prompt. Limits: 64 slots per layer, 24 distinct effective resources, 96 KiB resolved handoff, 2 MiB persisted profiles. Invalid saved JSON fails closed and is not overwritten.
 
 This first integration applies to **Opora card dispatch**, not arbitrary direct hires or the unrelated file-planning queue. Scalar settings are **context requirements**, not runtime provider flags: `settings.model` does not change the actual model selection. Resources do not install hooks, execute scripts, connect MCP, start OpenViking, grant tool permissions or override native runner/user instructions. Confirm those capabilities in the selected runner before relying on them.
 
 ## Verification
 
-Run `npm run typecheck`, `npm test`, and `npm run build`. Focused coverage: `node --import tsx --import=#tests/css --test tests/harness*.test.ts tests/opora.test.ts tests/size.test.ts`.
+Run `npm run typecheck`, `npm test`, and `npm run build`. Focused coverage: `node --import tsx --import=#tests/css --test tests/harness*.test.ts tests/opora*.test.ts tests/size.test.ts` (the cascade's table-driven tests of all seven levels, sibling isolation, null/reset, concurrent edits, restart and the version 1 round trip are in `tests/harness-cascade.test.ts` and `tests/harness-hierarchy.test.ts`).
 
-With the isolated office running on 4617, `node tests/harness-office.browser.mjs` tests the **production bundle**, real session/catalog and F8/✕/Esc mouse-look behavior. For the editable visual lab, run Vite on 5187 and `node tests/harness-live.browser.mjs`: this forwards requests to the real authenticated office API, exercises all three layers and restores test settings unless a concurrent edit intervenes. It does not launch paid agents. `HARNESS_OFFICE_URL`, `HARNESS_PASSWORD`, `HARNESS_FLOOR`, `HARNESS_LAB_URL` and `HARNESS_SHOTS` customize these tests. Screenshots default to the OS temporary directory.
+With the isolated office running on 4617, `node tests/harness-office.browser.mjs` tests the **production bundle**, real session/catalog and F8/✕/Esc mouse-look behavior. For the editable visual lab, run Vite on 5187 and `node tests/harness-live.browser.mjs`: this forwards requests to the real authenticated office API, exercises the global, project and task layers and restores test settings unless a concurrent edit intervenes. It does not launch paid agents. `HARNESS_OFFICE_URL`, `HARNESS_PASSWORD`, `HARNESS_FLOOR`, `HARNESS_LAB_URL` and `HARNESS_SHOTS` customize these tests. Screenshots default to the OS temporary directory.
 
 ![Persisted inheritance editor and scope provenance](images/harness-cascade.png)

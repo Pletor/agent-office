@@ -53,7 +53,7 @@ There's a lot more (a rooftop bar, an office dog, an arcade, a jukebox that keep
 
 ## Requirements
 
-**Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP and memory references. Press **F8** anywhere (or **E** at the shelf). Save **Global → Repository → Task** assignments, inspect inherited values and export context packs. The Opora orchestrator can assign repository/task profiles with `office-harness`; each Opora card handoff includes the resolved, content-bearing snapshot. Assignments do not install tools or activate MCP/memory servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md).
+**Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP and memory references. Press **F8** anywhere (or **E** at the shelf). Save assignments at any level of Opora's hierarchy, **Global → Project → Page → Layer → Area → Sector → Task** (each level below global is a real Opora node), inspect the effective result with where each slot came from, and export context packs. The Opora orchestrator can assign profiles at any level below global with `office-harness`; each Opora card handoff includes the resolved, content-bearing snapshot. Assignments do not install tools or activate MCP/memory servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md).
 
 On the machine that runs the office:
 
