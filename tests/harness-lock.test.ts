@@ -127,3 +127,17 @@ test('EPERM on a delete-pending lock and a lock that vanishes under a reader are
   await assert.rejects(withFileLock(lock, { waitMs: 50 }, async () => 'never'), (err: FileLockError) => err instanceof FileLockError && err.code === 'timeout');
   unlinkSync(lock);
 });
+
+test('a lock renewed after a waiter saw it stale is put back, and a release that finds a foreign lock leaves it alone', async (t) => {
+  const { dir, lock } = fixture(t);
+  // The waiter observed token T renewed at 0; before it renames, the holder (stalled, then alive) renews it.
+  writeFileSync(lock, JSON.stringify(record('T', 0)));
+  await assert.rejects(withFileLock(lock, { waitMs: 30, hooks: { observed: () => writeFileSync(lock, JSON.stringify(record('T', Date.now()))) } }, async () => 'never'), (err: FileLockError) => err.code === 'timeout');
+  assert.equal(tokenOf(lock), 'T', 'the renewed lock is back in place, not removed');
+  assert.deepEqual(leftovers(dir), ['harness-profiles.json.lock']);
+  unlinkSync(lock);
+  // A holder whose lock was replaced and who never called verify: its release must not touch the successor's lock.
+  await withFileLock(lock, {}, async () => { unlinkSync(lock); writeFileSync(lock, JSON.stringify(record('successor', Date.now()))); });
+  assert.equal(tokenOf(lock), 'successor');
+  assert.deepEqual(leftovers(dir), ['harness-profiles.json.lock']);
+});

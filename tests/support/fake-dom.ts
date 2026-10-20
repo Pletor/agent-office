@@ -2,7 +2,7 @@
 // to render under node: elements with attributes, children, text and the few queries the panels make.
 // It is not a browser: layout, events on real input and CSS are what the *.browser.mjs scripts check.
 // A test installs it with `installFakeDom()` before importing a client module (dynamic import), and
-// reads the rendered tree back through `textOf`, `attr` and `find`.
+// reads the rendered tree back through `rows`, `byText` and `querySelector`.
 
 export class FakeNode {
   children: FakeNode[] = [];

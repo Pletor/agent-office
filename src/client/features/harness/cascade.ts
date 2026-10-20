@@ -24,7 +24,7 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
   const reload = h('button.btn', { type: 'button' }, 'Load task / reload');
   const status = h('p', { role: 'status' });
   const effective = h('table.harness-effective-table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Slot'), h('th', {}, 'Value'), h('th', {}, 'Level'), h('th', {}, 'Node'))), h('tbody'));
-  const noArea = h('p.harness-notice', { role: 'note', hidden: '' }, 'No area level: this target has no area on its path (no sector above it is a memberOf an area).');
+  const noArea = h('p.harness-notice', { role: 'note', hidden: '' }, 'No area level: this target has no area on its path.');
   const preview = h('pre.harness-effective');
   const audit = h('pre.harness-effective');
   const where = h('p', { role: 'status' });

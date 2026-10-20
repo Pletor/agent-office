@@ -19,6 +19,8 @@
 //   moment while someone still has it open; a lock can vanish between a stat and a read): retried within
 //   the bounded wait. Running out of wait is a `FileLockError` with `code: 'timeout'`.
 //
+// What this cannot do: the check in `verify()` and the write after it are two steps, and file renames can't make them one. A holder suspended for longer than the stale age between them (a paused VM, a blocked loop) can still commit over a successor. The stale age is far above a save's milliseconds, and callers place `verify()` as late as they can.
+//
 // Time, sleeping and the file system calls are injectable, so tests can interleave two waiters
 // deterministically and fail single calls, without patching the module.
 import { closeSync, linkSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync, ftruncateSync } from 'node:fs';
@@ -86,25 +88,28 @@ export class Lease {
     if (this.lost) return false;
     let fd: number | undefined;
     try {
-      const current = parse(this.fs.read(this.path));
-      if (current?.token !== this.token) { this.lost = true; return false; }
-      // Opened for writing only (no create): a lock renamed away in between is ENOENT, never a new file at the path.
+      // Opened for writing only (no create), and the token is read through that very descriptor: what is
+      // written to is the file that was checked, never a foreign lock created at the path in between.
       fd = this.fs.openExisting(this.path);
+      const current = parse(readFileSync(fd, 'utf8'));
+      if (current?.token !== this.token) { this.lost = true; return false; }
       const text = JSON.stringify({ ...current, renewedAt: this.now() } satisfies LockRecord);
       ftruncateSync(fd, 0);
       writeSync(fd, text, 0);
       return true;
     } catch (err) {
-      if (code(err) === 'ENOENT') this.lost = true;
+      if (code(err) === 'ENOENT') this.lost = true; // a transient EPERM/EBUSY is only a missed renewal
       return false;
     } finally { if (fd !== undefined) closeSync(fd); }
   }
-  /** Whether the lock still carries our token; false once it was taken over. */
+  /** Whether the lock still carries our token; false once it was taken over, or while it can't be read after a few tries. */
   held(): boolean {
     if (this.lost) return false;
-    try { if (parse(this.fs.read(this.path))?.token === this.token) return true; } catch { /* gone */ }
-    this.lost = true;
-    return false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try { if (parse(this.fs.read(this.path))?.token === this.token) return true; this.lost = true; return false; }
+      catch (err) { if (code(err) === 'ENOENT') { this.lost = true; return false; } }
+    }
+    return false; // unreadable for now: not provably ours, so the write is refused, but the lease is not given up
   }
   /** Throws unless the lock is still ours: call it right before the write the lock protects. */
   verify(): void {
@@ -117,12 +122,13 @@ export class Lease {
   /** Removes our lock, and only ours: renamed away first, read back, then unlinked when it carries our token. */
   release() {
     if (this.timer) clearInterval(this.timer);
-    if (this.lost) return;
-    let raw: string;
-    try { raw = this.fs.read(this.path); } catch { return; }
-    if (parse(raw)?.token !== this.token) return;
+    let raw: string | undefined;
+    for (let attempt = 0; attempt < 5 && raw === undefined; attempt++) { try { raw = this.fs.read(this.path); } catch (err) { if (code(err) === 'ENOENT') return; } }
+    if (raw === undefined || parse(raw)?.token !== this.token) return; // gone, or someone else's: never ours to remove
     const mine = this.path + '.release.' + this.token;
-    try { this.fs.rename(this.path, mine); } catch { return; }
+    let moved = false;
+    for (let attempt = 0; attempt < 5 && !moved; attempt++) { try { this.fs.rename(this.path, mine); moved = true; } catch (err) { if (code(err) === 'ENOENT') return; } }
+    if (!moved) return;
     try {
       if (parse(this.fs.read(mine))?.token === this.token) { this.fs.unlink(mine); return; }
       // Someone else's lock came in between: put it back, or leave it for its holder's fencing when the path is taken.
@@ -144,20 +150,22 @@ export async function withFileLock<T>(path: string, options: LockOptions, work: 
   const hooks = options.hooks ?? {};
   const token = randomUUID();
   const until = now() + waitMs;
+  let last: string | undefined;
   for (;;) {
     let fd: number | undefined;
     try { fd = fs.openExclusive(path); }
     catch (err) {
       if (!CONTENTION.has(code(err) ?? '')) throw err;
-      if (code(err) === 'EEXIST') await takeOverIfStale(path, fs, now, staleMs, hooks);
-      if (now() > until) throw new FileLockError('Another process holds the lock. Try again in a moment.', 'timeout');
+      if (code(err) === 'EEXIST') await takeOverIfStale(path, fs, now, staleMs, hooks); else last = code(err);
+      if (now() > until) throw new FileLockError('Another process holds the lock' + (last ? ` (last error ${last})` : '') + '. Try again in a moment.', 'timeout');
       await pause(5 + Math.random() * 20);
       continue;
     }
     const at = now();
     const lease = new Lease(path, token, fs, now);
     try { writeFileSync(fd, JSON.stringify({ token, pid: process.pid, acquiredAt: at, renewedAt: at } satisfies LockRecord)); }
-    finally { closeSync(fd); }
+    catch (err) { try { closeSync(fd); fd = undefined; fs.unlink(path); } catch { /* left to go stale */ } throw err; }
+    finally { if (fd !== undefined) closeSync(fd); }
     lease.start(renewMs);
     try { return await work(lease); }
     finally { lease.release(); }
@@ -177,11 +185,17 @@ async function takeOverIfStale(path: string, fs: LockFs, now: () => number, stal
   try { fs.rename(path, gone); } catch { return; } // someone else took it over, or created a fresh one
   await hooks.renamed?.();
   let renamed: string;
-  try { renamed = fs.read(gone); } catch { return; }
-  const same = record ? parse(renamed)?.token === record.token : renamed === raw;
+  let same = false;
+  try {
+    renamed = fs.read(gone);
+    // The very lock we observed: the same token and not renewed since (a holder that stalled and then renewed is alive).
+    const now = parse(renamed);
+    same = record ? now?.token === record.token && now.renewedAt === record.renewedAt : renamed === raw;
+  } catch { /* unreadable: not proven to be the stale one, so it goes back */ }
   if (same) { try { fs.unlink(gone); } catch { /* already gone */ } return; }
-  // Not the lock we observed: a fresh holder's. Put it back without replacing anything; when the path is taken again, its holder's fencing refuses its write.
-  try { fs.link(gone, path); } catch { /* taken */ }
-  try { fs.unlink(gone); } catch { /* already gone */ }
+  // Not the lock we observed: a fresh or renewed holder's. Put it back without replacing anything; when the path is taken again, its holder's fencing refuses its write.
+  let restored = false;
+  try { fs.link(gone, path); restored = true; } catch (err) { restored = code(err) === 'EEXIST'; }
+  if (restored) { try { fs.unlink(gone); } catch { /* already gone */ } }
   await hooks.restored?.();
 }
