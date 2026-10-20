@@ -1,6 +1,7 @@
 import type { Route } from '../router.js';
 import { send, sameOrigin } from '../util.js';
 import { harnessProfileRequest } from '../../harness/api.js';
+import { harnessBindingRequest } from '../../harness/binding-api.js';
 import { floorParam } from './files.js';
 import { HarnessLibrary, harnessSources } from '../../harness/catalog.js';
 import { HarnessRegistry } from '../../harness/registry.js';
@@ -31,5 +32,17 @@ export const harnessProfileRoute: Route = {
     if (req.method === 'POST' && !sameOrigin(req, ctx.cfg)) return send(res, 403, { error: 'Same-origin request required' });
     const admin = !session.account || session.account.role === 'admin';
     return harnessProfileRequest(ctx, floor, req, res, url, admin, admin, admin, session.account ? 'account:' + session.account.id : 'shared-password');
+  },
+};
+
+/** The floor's binding to an Opora project (harness/bindings.ts): read by any session of the office, bound by an administrator or the shared-password session. */
+export const harnessBindingRoute: Route = {
+  path: '/api/harness/binding', auth: 'session',
+  async handle(ctx, { req, res, url, session }) {
+    const floor = floorParam(ctx, url);
+    if (!floor) return send(res, 404, { error: 'No such floor' });
+    if (req.method === 'POST' && !sameOrigin(req, ctx.cfg)) return send(res, 403, { error: 'Same-origin request required' });
+    const admin = !session.account || session.account.role === 'admin';
+    return harnessBindingRequest(ctx, floor, req, res, admin, session.account ? 'account:' + session.account.id : 'shared-password');
   },
 };
