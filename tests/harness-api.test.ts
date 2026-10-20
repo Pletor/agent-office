@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Ctx } from '../src/server/office/context.js';
 import { requestHandler } from '../src/server/http/router.js';
-import { harnessProfileRoute } from '../src/server/http/routes/harness.js';
+import { harnessBindingRoute, harnessProfileRoute, harnessRoute } from '../src/server/http/routes/harness.js';
 import { officeHarness } from '../src/server/harness/api.js';
+import { officeHarnessBinding } from '../src/server/harness/binding-api.js';
 import { oporaKey } from '../src/shared/opora-identity.js';
 import { remoteHarness } from '../bin/harness-remote.js';
 
@@ -24,6 +25,9 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   ];
   /** Set to move Card 1 to Sector 2 after the next canvas read: a move between a client's read and its save. */
   let moveAfterRead = false;
+  /** Set to move Card 1 to the other sector on the next fresh canvas read: a move while a save waits for the store's lock (the read under the lock is the fresh one). */
+  let moveOnFresh = false, freshReads = 0;
+  const moveCard1 = () => { nodes = nodes.map((n) => (n.id === 'c1' ? { ...n, parentId: n.parentId === 'sector' ? 'sector2' : 'sector' } : n)); };
   const canvasNodes = () => {
     const now = nodes;
     if (moveAfterRead) { moveAfterRead = false; nodes = nodes.map((n) => (n.id === 'c1' ? { ...n, parentId: 'sector2' } : n)); }
@@ -32,13 +36,13 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   const place = { project: 'p', workspace: 'w' };
   const k = (id: string) => oporaKey(place, id);
   const floor = {
-    dir, opora: { view: () => ({ project: { id: 'p', name: 'P' }, workspace: 'w', cards: [{ id: 'c1', name: 'Card 1' }] }), canvasNodes, freshCanvasNodes: async () => nodes },
+    id: 'floor', dir, opora: { view: () => ({ connected: true, project: { id: 'p', name: 'P' }, workspace: 'w', cards: [{ id: 'c1', name: 'Card 1' }] }), canvasNodes, freshCanvasNodes: async () => { freshReads++; if (moveOnFresh) { moveOnFresh = false; moveCard1(); } return nodes; } },
     workers: { authenticate: (id: string, token: string) => token === 'test-token' ? { id } : undefined },
     planning: { state: () => ({ current: { workerId: 'planner', mode: 'opora', owner: 'admin' } }) },
   };
   // Another floor, another checkout, on the same office: its worker must see nothing of the first floor's saves.
   const dirB = mkdtempSync(path.join(tmpdir(), 'harness-api-b-'));
-  const floorB = { ...floor, dir: dirB, opora: { view: () => ({ project: { id: 'pb', name: 'PB' }, workspace: 'w', cards: [] }), canvasNodes: () => [] }, planning: { state: () => ({ current: undefined }) } };
+  const floorB = { ...floor, id: 'floor-b', dir: dirB, opora: { view: () => ({ connected: true, project: { id: 'pb', name: 'PB' }, workspace: 'w', cards: [] }), canvasNodes: () => [] }, planning: { state: () => ({ current: undefined }) } };
   const file = path.join(dir, 'harness-profiles.json');
   /** Set to N to make the store unreadable on the Nth read of the floor's checkout from now: in a POST the second one comes right after the commit. */
   let breakOnDirRead = 0, dirReads = 0, preserved = '';
@@ -49,8 +53,8 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
     auth: { fromRequest: (req: http.IncomingMessage) => req.headers['x-test-session'] === 'admin' ? { account: { id: 'admin', role: 'admin' } } : req.headers['x-test-session'] === 'member' ? { account: { role: 'member' } } : undefined },
     workerFloor: (id: string) => (id === 'worker-b' ? floorB : floor),
   } as unknown as Ctx;
-  const handler = requestHandler(ctx, [harnessProfileRoute]);
-  const server = http.createServer((req, res) => req.url?.startsWith('/office/') ? void officeHarness(ctx, req, res, new URL(req.url, 'http://x')) : void handler(req, res));
+  const handler = requestHandler(ctx, [harnessProfileRoute, harnessBindingRoute, harnessRoute]);
+  const server = http.createServer((req, res) => req.url?.startsWith('/office/harness/binding') ? void officeHarnessBinding(ctx, req, res, new URL(req.url, 'http://x')) : req.url?.startsWith('/office/') ? void officeHarness(ctx, req, res, new URL(req.url, 'http://x')) : void handler(req, res));
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   ctx.cfg.port = (server.address() as { port: number }).port;
   t.after(() => { server.close(); server.closeAllConnections(); rmSync(dir, { recursive: true, force: true }); rmSync(dirB, { recursive: true, force: true }); });
@@ -66,7 +70,12 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   assert.equal((await call(api, 'member', data)).status, 403);
   assert.equal((await call(api, 'admin', data, 'https://evil.example')).status, 403);
   assert.equal((await call(api, 'admin', data)).status, 200);
-  assert.equal((await call(api, 'admin', data)).status, 409);
+  // The same payload at the same revision again is a retry: the stored result comes back, nothing is written twice; another payload at the stale revision is the conflict (CAS).
+  const again = await call(api, 'admin', data);
+  assert.equal(again.status, 200);
+  assert.equal(again.headers.get('x-harness-replay'), '1');
+  assert.equal((await again.json()).revision, 1);
+  assert.equal((await call(api, 'admin', { ...data, layer: { language: { value: 'en' } } })).status, 409);
   assert.equal((await call('/api/harness/profile?floor=other', 'admin')).status, 404);
   assert.equal((await call('/office/harness?worker=planner')).status, 401);
   assert.equal((await call('/office/harness?worker=ordinary', '', { ...data, scope: 'repository', revision: 1 }, base, 'Bearer test-token')).status, 403);
@@ -75,6 +84,11 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   assert.equal(saved.status, 200);
   assert.equal((await saved.json()).effective.language.scope, 'task');
   assert.equal((await call(api, 'admin', { ...data, layer: { rule: { resource: 'missing' } }, revision: 2 })).status, 400);
+  // Profiles at Opora nodes need the floor bound to its project and workspace first (tests/harness-bindings.test.ts has the matrix).
+  const unbound = await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'sector', layer: { tone: { value: 'terse' } }, revision: 2, at: k('sector') });
+  assert.equal(unbound.status, 409);
+  assert.match((await unbound.json()).error, /not bound to an Opora project/);
+  assert.equal((await call('/api/harness/binding?floor=floor', 'admin', { project: 'p', workspace: 'w' })).status, 200);
   // Down the hierarchy: a card's key is placed on the canvas, its sector's layer reaches it and its sibling, with provenance and audit.
   const card = await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin');
   assert.equal(card.status, 200);
@@ -82,6 +96,8 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   assert.deepEqual(view.path.map((p: { level: string }) => p.level), ['page', 'layer', 'area', 'sector', 'task']);
   assert.deepEqual(view.levels, ['global', 'project', 'page', 'layer', 'area', 'sector', 'task']);
   assert.deepEqual(view.tasks, [{ id: k('c1'), title: 'Card 1' }]);
+  assert.deepEqual(Object.keys(view.binding).sort(), ['floorId', 'project', 'repoHash', 'workspace']);
+  assert.equal(view.binding.project, 'p');
   // A save below the project at a node of the canvas must say which node it is for (`at`).
   const noAt = await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'sector', layer: { tone: { value: 'terse' } }, revision: 2 });
   assert.equal(noAt.status, 400);
@@ -157,12 +173,39 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
     assert.equal(spelled.status, 400);
     assert.match((await spelled.json()).error, /no task's path goes through it/);
   } finally { console.log = log; for (const key of Object.keys(env)) delete process.env[key]; Object.assign(process.env, previous); }
+  // A resource that was listed and then removed is refused as missing (tombstone), not as unknown, and is never remapped.
+  mkdirSync(path.join(dir, '.harness', 'rules'), { recursive: true });
+  writeFileSync(path.join(dir, '.harness', 'rules', 'review.md'), 'review');
+  const listed = await (await call('/api/harness?floor=floor', 'admin')).json() as { entries: { id: string; path: string; version: number }[] };
+  const review = listed.entries.find((e) => e.path === 'rules/review.md')!;
+  assert.equal(review.version, 1);
+  // A project element names a different file in every other project, so the global layer refuses it; the repository layer takes it.
+  const global = await call(api, 'admin', { ...data, layer: { rule: { resource: review.id } }, revision: 11 });
+  assert.equal(global.status, 400);
+  assert.match(((await global.json()) as { error: string }).error, /Project-scoped element in global layer/);
+  assert.equal((await call(api, 'admin', { ...data, scope: 'repository', layer: { rule: { resource: review.id } }, revision: 11 })).status, 200);
+  rmSync(path.join(dir, '.harness', 'rules', 'review.md'));
+  const refused = await call(api, 'admin', { ...data, scope: 'repository', layer: { rule: { resource: review.id } }, revision: 12 });
+  assert.equal(refused.status, 400);
+  assert.match(((await refused.json()) as { error: string }).error, /missing since .*rules\/review\.md/);
   const node = (id: string) => api + '&node=' + encodeURIComponent(k(id));
   const sectorOf = (view: { path: { level: string; node: string }[] }) => view.path.find((p) => p.level === 'sector')!.node;
-  // A save under the lock re-reads the canvas from Opora (tests/harness-fresh-canvas.test.ts moves a card on a fake Opora while the save waits).
+  // A save queued behind another office's lock is checked again under the lock, against the canvas as it is then: a card moved meanwhile is refused and nothing is written.
+  const before = await (await call(node('c1'), 'admin')).json();
+  const lock = file + '.lock';
+  writeFileSync(lock, JSON.stringify({ token: 'other-office', pid: 0, acquiredAt: Date.now(), renewedAt: Date.now() }));
+  freshReads = 0; moveOnFresh = true;
+  const queued = call(node('c1'), 'admin', { scope: 'sector', layer: { tone: { value: 'late' } }, revision: before.revision, at: sectorOf(before) });
+  await new Promise((r) => setTimeout(r, 300));
+  unlinkSync(lock);
+  const moved = await queued;
+  assert.equal(moved.status, 409);
+  assert.match((await moved.json()).error, /moved this node while the save waited/);
+  assert.equal(moveOnFresh, false, 'the card was moved on the fresh read under the lock');
+  assert.equal(freshReads, 1);
   const afterMove = await (await call(node('c1'), 'admin')).json();
   // A save that committed is answered 200 with what was saved, even when the store can't be read again for the rest of the response.
-  dirReads = 0; breakOnDirRead = 2;
+  dirReads = 0; breakOnDirRead = 3;
   const committed = await call(node('c1'), 'admin', { scope: 'sector', layer: { tone: { value: 'kept' } }, revision: afterMove.revision, at: sectorOf(afterMove) });
   assert.equal(committed.status, 200);
   const kept = await committed.json();
@@ -184,7 +227,7 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   assert.equal((await call('/api/harness/profile?floor=floor-b', 'member', { scope: 'repository', layer: {}, revision: memberView.revision })).status, 403);
   // A worker's `node` or `at` never reaches another project's nodes or another floor: a foreign key is refused, a wrong `at` is a 409, and nothing is written.
   const current = (await (await call(node('c2'), 'admin')).json()).revision;
-  assert.equal((await call('/office/harness?worker=planner&node=' + encodeURIComponent(oporaKey({ project: 'other', workspace: 'w' }, 'c1')), '', { scope: 'task', layer: { tone: { value: 'x' } }, revision: current, at: oporaKey({ project: 'other', workspace: 'w' }, 'c1') }, base, 'Bearer test-token')).status, 400, 'a key of another project');
+  assert.equal((await call('/office/harness?worker=planner&node=' + encodeURIComponent(oporaKey({ project: 'other', workspace: 'w' }, 'c1')), '', { scope: 'task', layer: { tone: { value: 'x' } }, revision: current, at: oporaKey({ project: 'other', workspace: 'w' }, 'c1') }, base, 'Bearer test-token')).status, 403, 'a key of another project');
   assert.equal((await call('/office/harness?worker=worker-b&node=' + encodeURIComponent(k('c1')), '', undefined, base, 'Bearer test-token')).status, 400, 'floor B\'s worker cannot address floor A\'s project by its key');
   const wrongAt = await call('/office/harness?worker=planner&node=' + encodeURIComponent(k('c2')), '', { scope: 'sector', layer: { tone: { value: 'x' } }, revision: current, at: k('sector2') }, base, 'Bearer test-token');
   assert.equal(wrongAt.status, 409, 'Card 2 is in Sector, not Sector 2');
