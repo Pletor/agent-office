@@ -47,6 +47,8 @@ interface Held extends OporaRun {
 }
 
 const POLL_MS = 20_000;
+/** How long a fresh read of the canvas (freshCanvasNodes) may take before it counts as Opora not answering. */
+const FRESH_MS = 2500;
 const HEARTBEAT_MS = 5 * 60_000;
 const LEASE_TTL = 900;
 /** How many finished runs stay in the list. */
@@ -203,6 +205,16 @@ export class OporaBridge {
   /** The canvas's nodes as last read (docs/opora-identity.md): what places a node in the hierarchy. */
   canvasNodes(): readonly CanvasNode[] {
     return this.canvas;
+  }
+
+  /**
+   * The canvas of `place` read from Opora now, not the last poll (up to POLL_MS old): for a check that must
+   * see a move made since, such as a harness save's place re-checked under the store's lock. Bounded by
+   * FRESH_MS; throws an OporaError when Opora doesn't answer in time. It leaves the poll's state alone.
+   */
+  freshCanvasNodes(place: OporaPlace): Promise<readonly CanvasNode[]> {
+    if (this.stopped) return Promise.reject(new OporaError(0, 'The Opora link of this floor is stopped'));
+    return this.client.nodes(place.project, place.workspace, FRESH_MS);
   }
 
   /** The focus in words for a brief, or '' for the whole project. */

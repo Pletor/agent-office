@@ -78,8 +78,8 @@ export class OporaClient {
   }
 
   /** The canvas: every area, sector and card, with what each sits in, and a sector's site's environment and host. */
-  async nodes(project: string, workspace: string): Promise<CanvasNode[]> {
-    const v = await this.get<{ graph?: { nodes?: unknown } }>('/api/view', { project, workspace });
+  async nodes(project: string, workspace: string, timeoutMs = TIMEOUT_MS): Promise<CanvasNode[]> {
+    const v = await this.get<{ graph?: { nodes?: unknown } }>('/api/view', { project, workspace }, timeoutMs);
     const nodes = Array.isArray(v.graph?.nodes) ? (v.graph!.nodes as Record<string, unknown>[]) : [];
     return nodes
       .map((n) => {
@@ -148,20 +148,20 @@ export class OporaClient {
     await this.post('/api/desktop-v3/lease', { project, workspace, nodeId, op: 'release', token });
   }
 
-  private get<T>(path: string, query: Record<string, string> = {}): Promise<T> {
+  private get<T>(path: string, query: Record<string, string> = {}, timeoutMs = TIMEOUT_MS): Promise<T> {
     const url = new URL(path, this.base);
     for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
-    return this.call<T>(url, { method: 'GET' });
+    return this.call<T>(url, { method: 'GET' }, timeoutMs);
   }
 
   private post<T>(path: string, body: unknown): Promise<T> {
     return this.call<T>(new URL(path, this.base), { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', Origin: this.origin } });
   }
 
-  private async call<T>(url: URL, init: { method: string; body?: string; headers?: Record<string, string> }): Promise<T> {
+  private async call<T>(url: URL, init: { method: string; body?: string; headers?: Record<string, string> }, timeoutMs = TIMEOUT_MS): Promise<T> {
     let res: Response;
     try {
-      res = await fetch(url, { ...init, headers: { Accept: 'application/json', 'X-Opora-Actor': `agent; name=${this.agent}`, ...init.headers }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      res = await fetch(url, { ...init, headers: { Accept: 'application/json', 'X-Opora-Actor': `agent; name=${this.agent}`, ...init.headers }, signal: AbortSignal.timeout(timeoutMs) });
     } catch (err) {
       throw new OporaError(0, `Opora isn't answering at ${this.base} (${(err as Error).message})`);
     }
