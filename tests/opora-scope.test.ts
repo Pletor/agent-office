@@ -103,14 +103,22 @@ async function fakeOpora(t: { after(fn: () => void): void }) {
   const view = NODES.map((n) => ({ id: n.id, kind: n.kind, name: n.name, parentId: n.parentId, ...(n.env ? { site: { environments: [{ name: n.env, host: n.host }] } } : {}) }));
   const cards: { id: string; name: string; pipeline: { profile: string } }[] = NODES.filter((n) => n.kind === 'node').map((n) => ({ id: n.id, name: n.name, pipeline: { profile: 'code' } }));
   let orchestrator: { by: string; owner?: string } | undefined;
+  const executions = new Map<string, Record<string, unknown>>();
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
     const send = (data: unknown) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(data));
     };
-    req.resume();
+    let raw = ''; req.on('data', chunk => { raw += chunk; });
     req.on('end', () => {
+      const body = raw ? JSON.parse(raw) : {};
+      if (url.pathname === '/api/oporahub/executions/context') return send({ available: true, acceptedHead: 'a'.repeat(40), contextVersion: 'ctx' });
+      if (url.pathname === '/api/oporahub/executions/claim') {
+        const lease = { ...body, executionId: 'ex-' + body.nodeId, token: 'tok', epoch: 1, acceptedRevision: 'a'.repeat(40), assignmentDigest: 'b'.repeat(64), assignment: { contextVersion: 'ctx', documents: {} }, state: 'running', serverNow: Date.now() / 1000, expiresAt: Date.now() / 1000 + 900 };
+        executions.set(lease.executionId, lease); return send(lease);
+      }
+      if (url.pathname.startsWith('/api/oporahub/executions/ex-')) return send(executions.get(url.pathname.split('/')[4]));
       if (url.pathname === '/') return send({});
       if (url.pathname === '/api/bootstrap') return send({ projects: [{ id: 'p1', name: 'Tajemství opory', sourcePath: dir }] });
       if (url.pathname === '/api/project-workspaces') return send({ workspaces: [{ id: 'main', label: 'main' }] });
@@ -128,6 +136,7 @@ async function fakeOpora(t: { after(fn: () => void): void }) {
     id: 'cell',
     dir,
     list: () => workers,
+    stop: async id => { const worker = workers.find(w => w.id === id); if (worker) worker.status = 'exited'; },
     seat(deskId, by, prompt) {
       const w = { id: `w${workers.length}`, deskId, kind: 'agent', prompt, name: `Worker ${workers.length}`, status: 'working', createdBy: by } as WorkerInfo;
       workers.push(w);
@@ -170,7 +179,7 @@ test('the cell takes only cards in its focus, by hand and on the autopilot, and 
   bridge.setAutopilot(true, 3, 'Ana');
   await new Promise((r) => setTimeout(r, 50));
   await bridge.poll();
-  assert.deepEqual(f.workers.map((w) => w.prompt?.match(/"([^"]+)" in the sector/)?.[1]), ['Na míru']);
+  assert.deepEqual(f.workers.map((w) => w.prompt?.match(/; card: ([^.]+)\./)?.[1]), ['namiru']);
   assert.equal(bridge.focusLine(), 'Vývoj › Aplikace (app.tajemstviopory.dev) › Oracle › Na míru');
   bridge.shutdown();
   const again = await f.open();
@@ -205,7 +214,7 @@ test('cards the orchestrator lays out go to their department at once, and cards 
   // It lays out two cards under Oracle: both are handed out, on Ana's plan.
   f.cards.push({ id: 'anim', name: 'Fix the Na míru animation', pipeline: { profile: 'design' } }, { id: 'api', name: 'Stream the answer', pipeline: { profile: 'code' } });
   await bridge.poll();
-  assert.deepEqual(f.workers.map((w) => [w.prompt?.match(/"([^"]+)" in the sector/)?.[1], w.createdBy]), [['Fix the Na míru animation', 'Ana'], ['Stream the answer', 'Ana']]);
+  assert.deepEqual(f.workers.map((w) => [w.prompt?.match(/; card: ([^.]+)\./)?.[1], w.createdBy]), [['anim', 'Ana'], ['api', 'Ana']]);
   assert.deepEqual(f.state().handOutWaiting, []);
   // With the orchestrator gone, a new card waits for a person (or the autopilot).
   f.orchestrate(undefined);

@@ -65,6 +65,8 @@ agent-office tunnel [office@address | url] [--port <n>] [--office-port <n>] [--n
 
 ## Opora Canvas
 
+**Execution compatibility:** Taking cards now requires Canvas OporaHub execution endpoints and an accepted plan matching the relevant live context. See [execution authority and restart recovery](opora-execution.md). Old lease-only Canvas versions cannot run new card workers.
+
 The planning room links each floor to [Opora Canvas](features.md#opora-canvas), the app where the work is planned, through Opora's HTTP API, from the office's server. Two environment variables set it up, and neither is needed when Opora runs on its default address on the same machine:
 
 | Variable | What it does |

@@ -324,6 +324,7 @@ export class Floor {
         id: def.id,
         dir: def.dir,
         list: () => this.workers.list(),
+        stop: (id) => this.workers.kill(id, 'keep'),
         // It fetches its card from the planning room's board on the way to its desk (via 'opora').
         seat: (deskId, by, prompt, owner) => this.workers.spawn(deskId, by, prompt, !!this.project.branch, 'agent', undefined, undefined, undefined, undefined, owner, [], 'opora'),
         desks: () => builtDesks(this.plan.wing).map((d) => d.id),
@@ -376,6 +377,7 @@ export class Floor {
     this.decor = new Decor(dataDir);
     this.jukebox = new Jukebox(dataDir);
     this.whiteboard = new Whiteboard(dataDir);
+    this.workers.launchGuards.add(this.opora.executions.guard);
     this.ready = this.workers.start();
 
     void this.github.refresh();
