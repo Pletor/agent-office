@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { HARNESS_CATEGORIES, type HarnessCategory, type HarnessCatalog, type HarnessEntry, type HarnessText, type HarnessResolution } from '../../shared/harness.js';
 import { HARNESS_GUIDES } from './guides.js';
 import { HarnessRegistry, sourceInstance, type Observed } from './registry.js';
+import { DigestCache } from './digests.js';
 
 /**
  * A published folder. `ns` and `prefix` give its elements their identity: an element's ID is derived
@@ -17,7 +18,13 @@ const MAX_FILES = 1200;
 const MAX_VISITS = 6000;
 const MAX_BYTES = 128 * 1024;
 const SKIP = /^(?:node_modules|\.git|\.worktrees|worktrees|dist|build|\.venv|__pycache__|logs|sessions|credentials|secrets)$/i;
-const SECRET = /(?:^|[./_-])(?:secrets?|credentials?|tokens?|auth|ovcli\.conf|ov\.conf)(?:[./_-]|$)|\.env(?:\.|$)|\.(?:pem|key|p12)$/i;
+/**
+ * Credential-like names, tested on the slash form of the source-relative path (so a folder on the
+ * path counts too). Word-bounded names (`auth.json`, `my-secrets/`) keep `authors.md` and
+ * `authentication.md` listed; `token`, `password`, `apikey`/`api-key` are excluded wherever they
+ * appear; key files, env files, service-account JSON and kubeconfigs by name. Not a secret scanner.
+ */
+const SECRET = /(?:^|[./_-])(?:secrets?|credentials?|auth|ovcli\.conf|ov\.conf)(?:[./_-]|$)|(?:^|\/)(?:id_rsa|id_ed25519|kubeconfig|service-account[^/]*\.json)|tokens?|password|api[_-]?key|\.env(?:\.|$)|\.(?:pem|key|p12)$/i;
 const TEXT = /\.(?:md|markdown|txt|ts|js|mjs|cjs|py|sh|ps1|yaml|yml|json|toml)$/i;
 const inside = (root: string, file: string) => { const rel = path.relative(root, file); return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel); };
 const CASELESS = process.platform === 'win32' || process.platform === 'darwin';
@@ -28,17 +35,22 @@ const READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
 const sameFile = (a: BigIntStats, b: BigIntStats) => a.ino === b.ino && (a.dev === b.dev || !a.dev || !b.dev);
 const sha256 = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 const posix = (p: string) => p.replaceAll('\\', '/');
-/** Verified content digests keyed by path, reused while the file (by ID, size and mtime) is unchanged, so a listing re-reads only edited files. */
-const digests = new Map<string, { key: string; digest: string }>();
-const MAX_DIGESTS = 4000;
 const fileKey = (s: BigIntStats) => [s.dev, s.ino, s.size, s.mtimeNs].join(':');
+/** The namespaces whose elements may be bound in the global layer; a project element would resolve to a different file in every other project. */
+const GLOBAL_NAMESPACES = new Set(['handbook', 'machine', 'published', 'openviking']);
+/** The namespace an ID names, without a lookup: `guide:` → handbook, `el:<ns>:` → ns; a legacy alias names none. */
+export const elementNamespace = (id: string): string | undefined => id.startsWith('guide:') ? 'handbook' : /^el:([a-z]+):/.exec(id)?.[1];
+export const globalNamespace = (ns: string | undefined) => !!ns && GLOBAL_NAMESPACES.has(ns);
 
 const SINGULAR: Record<string, HarnessCategory> = { instruction: 'instructions', skill: 'skills', hook: 'hooks', rule: 'rules', command: 'commands', script: 'scripts', tool: 'tools', plugin: 'plugins', permission: 'permissions', test: 'testing', tests: 'testing', ops: 'operations', runbook: 'operations', runbooks: 'operations' };
+/** The first category name on the path wins (`runbooks/hooks.md` is a runbook), whichever form it takes; a SKILL.md is always a skill. */
 export function sourceCategory(file: string, fallback: HarnessCategory = 'instructions'): HarnessCategory {
   if (/SKILL\.md$/i.test(file)) return 'skills';
   const parts = file.toLowerCase().split(/[\\/._-]/);
-  for (const c of HARNESS_CATEGORIES) if (parts.includes(c)) return c;
-  for (const p of parts) if (SINGULAR[p]) return SINGULAR[p];
+  for (const p of parts) {
+    if ((HARNESS_CATEGORIES as readonly string[]).includes(p)) return p as HarnessCategory;
+    if (SINGULAR[p]) return SINGULAR[p];
+  }
   if (/(?:memory|memories)/i.test(file)) return 'memory';
   if (/mcp/i.test(file)) return 'mcp';
   return fallback;
@@ -88,11 +100,19 @@ const legacyId = (file: string) => sha256(path.resolve(file)).slice(0, 24);
 
 /** Where list() found a file: its path relative to the source, and the real root/boundary it was verified against. */
 interface Located { source: HarnessSource; file: string; rel: string; root: string; boundary?: string; entry: HarnessEntry }
+/** Why a listed path yielded no content: a property of the content (binary, too large) or a read that could not be completed now. */
+interface Skipped { skip: 'binary' | 'size' | 'unreadable' }
 export class HarnessLibrary {
   private locations = new Map<string, Located>();
   private aliases = new Map<string, string>();
   private versions = new Map<string, number>();
-  constructor(private sources: HarnessSource[], readonly registry?: HarnessRegistry) {}
+  private digests: DigestCache;
+  /** The namespaces this library publishes: what resolve() may describe. Legacy `source` namespace covers ad-hoc sources (tests). */
+  private visible: Set<string>;
+  constructor(private sources: HarnessSource[], readonly registry?: HarnessRegistry) {
+    this.digests = registry?.digests ?? DigestCache.memory();
+    this.visible = new Set(['handbook', ...sources.map((s) => s.ns ?? 'source')]);
+  }
   async list(): Promise<HarnessCatalog> {
     this.locations.clear();
     this.aliases.clear();
@@ -100,6 +120,7 @@ export class HarnessLibrary {
     const observed: Observed[] = HARNESS_GUIDES.map((g) => ({ id: g.id, ns: 'handbook', key: g.path, root: 'handbook', title: g.title, path: g.path, source: g.source, category: g.category, digest: g.digest }));
     const sources: HarnessCatalog['sources'] = [];
     const complete = new Set<string>([sourceInstance('Harness handbook', 'handbook')]);
+    const roots: Record<string, string> = {};
     let visits = 0;
     let limited = false;
     for (const source of this.sources) {
@@ -112,6 +133,7 @@ export class HarnessLibrary {
       sources.push({ name: source.name, available: !!root });
       if (!root) continue;
       const verified = root, instance = sha256(CASELESS ? root.toLowerCase() : root).slice(0, 16);
+      roots[instance] = root;
       let whole = true;
       const walk = async (rel: string, depth: number): Promise<void> => {
         if (++visits > MAX_VISITS || entries.length >= MAX_FILES || depth > 10) { limited = true; whole = false; return; }
@@ -136,7 +158,9 @@ export class HarnessLibrary {
           const entry: HarnessEntry = { id, title: this.title(rel), category, group: sourceGroup(rel, category, source.name), source: source.name, path: posix(rel), version: 0, digest: '', aliases: [alias] };
           const located: Located = { source, file, rel, root: verified, boundary, entry };
           const digest = await this.digest(located, stat);
-          if (!digest) return; // binary, grown past the limit, swapped meanwhile or no longer within the boundary: not an element
+          // Binary content or content past the limit is not an element. Anything else (a denied or busy
+          // read, a path swapped meanwhile) leaves the walk incomplete, so the element is not declared missing.
+          if (typeof digest !== 'string') { if (digest.skip === 'unreadable') whole = false; return; }
           entry.digest = digest;
           this.locations.set(id, located);
           this.aliases.set(alias, id);
@@ -148,42 +172,46 @@ export class HarnessLibrary {
       else await walk('', 0);
       if (whole) complete.add(sourceInstance(source.name, instance));
     }
-    this.versions = this.registry?.observe(observed, complete) ?? new Map();
+    this.digests.flush();
+    this.versions = await this.registry?.observe(observed, complete, roots) ?? new Map();
     for (const entry of entries) entry.version = this.versions.get(entry.id) ?? 0;
     return { entries, sources, limited };
   }
   /** SHA-256 of a listed file, read with the same verification as read(); the cache is keyed by the file ID, size and mtime the walk saw. */
-  private async digest(located: Located, seen: BigIntStats): Promise<string | undefined> {
-    const key = fileKey(seen), cached = digests.get(located.file);
-    if (cached?.key === key) { digests.delete(located.file); digests.set(located.file, cached); return cached.digest; }
+  private async digest(located: Located, seen: BigIntStats): Promise<string | Skipped> {
+    const key = fileKey(seen), cached = this.digests.get(located.file, key);
+    if (cached) return cached;
     const content = await this.content(located);
-    if (!content || !sameFile(content.stat, seen)) return undefined;
-    if (digests.size >= MAX_DIGESTS) digests.delete(digests.keys().next().value!);
+    if ('skip' in content) return content;
+    if (!sameFile(content.stat, seen)) return { skip: 'unreadable' };
     const digest = sha256(content.bytes);
-    digests.set(located.file, { key, digest });
+    this.digests.set(located.file, key, digest);
     return digest;
   }
   /**
-   * The bytes of a located file, or nothing. The path is verified against the boundary before the
-   * open, the opened handle must be the file just verified (not whatever a swapped path now points
-   * at), and the path is verified again after reading, so a path swapped out and back around the
-   * open is caught too. Binary content and content past the size limit are refused.
+   * The bytes of a located file, or why there are none. The path is verified against the boundary
+   * before the open, the opened handle must be the file just verified (not whatever a swapped path
+   * now points at), and the path is verified again after reading, so a path swapped out and back
+   * around the open is caught too. Binary content and content past the size limit are refused for
+   * what they are; a failed verification or a refused read (EACCES, EPERM, EBUSY) is `unreadable`.
    */
-  private async content(located: Located): Promise<{ bytes: Buffer; stat: BigIntStats } | undefined> {
+  private async content(located: Located): Promise<{ bytes: Buffer; stat: BigIntStats } | Skipped> {
     const before = await this.verify(located);
-    if (!before) return undefined;
+    if (!before) return { skip: 'unreadable' };
     let handle: FileHandle;
-    try { handle = await open(before.real, READ_FLAGS); } catch { return undefined; }
+    try { handle = await open(before.real, READ_FLAGS); } catch { return { skip: 'unreadable' }; }
     try {
       const stat = await handle.stat({ bigint: true });
-      if (!stat.isFile() || !sameFile(stat, before.stat) || stat.size > MAX_BYTES) return undefined;
+      if (!stat.isFile() || !sameFile(stat, before.stat)) return { skip: 'unreadable' };
+      if (stat.size > MAX_BYTES) return { skip: 'size' };
       const buffer = Buffer.alloc(MAX_BYTES + 1);
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-      if (bytesRead > MAX_BYTES || buffer.subarray(0, bytesRead).includes(0)) return undefined;
+      if (bytesRead > MAX_BYTES) return { skip: 'size' };
+      if (buffer.subarray(0, bytesRead).includes(0)) return { skip: 'binary' };
       const after = await this.verify(located);
-      if (!after || !sameFile(stat, after.stat)) return undefined;
+      if (!after || !sameFile(stat, after.stat)) return { skip: 'unreadable' };
       return { bytes: buffer.subarray(0, bytesRead), stat };
-    } catch { return undefined; } finally { await handle.close(); }
+    } catch { return { skip: 'unreadable' }; } finally { await handle.close(); }
   }
   private title(file: string): string {
     return /^SKILL\.md$/i.test(path.basename(file)) ? path.basename(path.dirname(file)) + ' / SKILL.md' : path.basename(file);
@@ -196,8 +224,9 @@ export class HarnessLibrary {
     const found = this.locations.get(canonical);
     if (found) return { status: 'available', entry: found.entry };
     // Known to this installation but not listed here: gone from where it lived (missingSince set), or published in another project only.
+    // A namespace this library does not publish (machine folders for a non-admin) is not described at all.
     const known = this.registry?.lookup(canonical);
-    if (known) return { status: 'missing', id: canonical, ...known, version: known.revision };
+    if (known && this.visible.has(known.ns)) { const { ns: _ns, ...rest } = known; return { status: 'missing', id: canonical, ...rest, version: known.revision }; }
     return { status: 'unknown', id };
   }
   async read(id: string): Promise<HarnessText | undefined> {
@@ -207,7 +236,7 @@ export class HarnessLibrary {
     const found = this.locations.get(id);
     if (!found) return undefined;
     const content = await this.content(found);
-    if (!content) return undefined;
+    if ('skip' in content) return undefined;
     // The digest is of the bytes just read; the version stays the one listed (a new revision is assigned by the next listing).
     return { ...found.entry, digest: sha256(content.bytes), text: content.bytes.toString('utf8') };
   }

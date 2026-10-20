@@ -191,21 +191,27 @@ test('the same relative path in two projects shares one ID but keeps its own con
   assert.ok(everywhere.status === 'missing' && everywhere.missingSince, 'gone from every place it was listed');
 });
 
-test('registry writes never break a listing: a held lock skips recording, a stale lock is taken over, an unwritable file is left alone', async (t) => {
+test('registry writes never break a listing: a held lock skips recording without blocking, a stale lock is taken over, a folder in place of the registry is left alone', async (t) => {
   const { at, put, data } = await fixture(t);
   await put('p/.harness/rules/x.md', 'x');
   const lock = path.join(data, 'harness-registry.json.lock');
-  await put('data/harness-registry.json.lock', '');
+  await put('data/harness-registry.json.lock', 'someone-else');
   const lib = new HarnessLibrary(harnessSources(at('p'), false), new HarnessRegistry(data));
+  // The bounded wait for the lock is asynchronous: timers keep firing while the listing waits (Atomics.wait would freeze them).
+  let ticks = 0;
+  const ticker = setInterval(() => ticks++, 10);
   const held = (await lib.list()).entries.find((e) => e.path === 'rules/x.md')!;
+  clearInterval(ticker);
+  assert.ok(ticks >= 20, 'the event loop kept running while waiting for the lock: ' + ticks + ' ticks');
   assert.equal(held.version, 0, 'another writer holds the lock: listed, unversioned');
   assert.equal(held.digest.length, 64);
   await assert.rejects(stat(path.join(data, 'harness-registry.json')), 'nothing written while locked');
+  assert.equal(await readFile(lock, 'utf8'), 'someone-else', 'a young lock of another writer is never deleted');
   const old = new Date(Date.now() - 60_000);
   await utimes(lock, old, old);
   assert.equal((await lib.list()).entries.find((e) => e.path === 'rules/x.md')!.version, 1, 'a stale lock is taken over');
   await assert.rejects(stat(lock), 'the lock is released');
-  // The registry path occupied by a folder: unreadable, so nothing is versioned and nothing is replaced.
+  // The registry path occupied by a folder: unreadable, so nothing is versioned and nothing is replaced (a refused write is tested in harness-registry-robustness).
   const { at: at2, put: put2, data: data2 } = await fixture(t);
   await put2('p/.harness/rules/y.md', 'y');
   await mkdir(path.join(data2, 'harness-registry.json'), { recursive: true });
