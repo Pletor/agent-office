@@ -5,6 +5,7 @@ import path from 'node:path';
 import { HarnessLibrary, harnessSources } from '../dist/server/server/harness/catalog.js';
 import { HarnessRegistry } from '../dist/server/server/harness/registry.js';
 import { harnessBundle } from '../dist/server/shared/harness.js';
+import { loadSnapshot, readFromSnapshot } from '../dist/server/server/harness/snapshot.js';
 import { remoteHarness } from './harness-remote.js';
 const args = process.argv.slice(2);
 // A clear line instead of a stack trace, for a model reading the output.
@@ -23,7 +24,22 @@ while (args[0] === '--project' || args[0] === '--data-dir') {
   if (option === '--project') project = value; else dataDir = value;
 }
 if (!dataDir && existsSync(path.join(project, '.agent-office', 'config.json'))) dataDir = path.join(project, '.agent-office');
+const runAt = args.indexOf('--run');
+let run = '';
+if (runAt >= 0) {
+  run = args[runAt + 1] ?? '';
+  if (!run || run.startsWith('--')) throw new Error('--run requires the run id of a snapshot');
+  args.splice(runAt, 2);
+}
 let action = args.shift();
+if (run) {
+  // A run snapshot read outside a worker: the administrator's view of what a run was seated with (docs/harness.md "Run snapshot and lazy reads").
+  if (action !== '--read' || args.length !== 1) throw new Error('--run goes with --read ID: office-harness [--data-dir folder] --read ID --run RUN');
+  if (!dataDir) throw new Error('--run needs the office data dir (--data-dir or AGENT_OFFICE_DATA_DIR)');
+  const read = readFromSnapshot(loadSnapshot(dataDir, run), args[0], undefined);
+  console.log(`# ${read.title}\nElement: ${read.id} · revision ${read.version} · sha256:${read.digest} · run ${read.run} (snapshot sha256:${read.snapshot})\n\n${read.text}`);
+  process.exit(0);
+}
 if (action === '--catalog') action = undefined;
 if (action && !['--read', '--bundle', '--resolve'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--data-dir folder] [--catalog | --read id | --bundle id ... | --resolve id ...]');
 const library = new HarnessLibrary(harnessSources(project, true), dataDir ? new HarnessRegistry(dataDir) : undefined);

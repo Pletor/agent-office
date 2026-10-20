@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 /** The levels a worker may assign, outermost first; `repository` is another name for `project` (docs/harness.md). */
 const LEVELS = ['repository', 'project', 'page', 'layer', 'area', 'sector', 'task'];
 
-const USAGE = 'Usage: office-harness --catalog | --effective [--task ID | --node ID] | --assign ' + LEVELS.join('|') + ' file.json [--task ID | --node ID] [--at NODE_KEY] [--request-id ID] | --binding | --bind PROJECT WORKSPACE [--rebind] [--request-id ID]';
+const USAGE = 'Usage: office-harness --catalog | --read ID [--run RUN] | --effective [--task ID | --node ID] | --assign ' + LEVELS.join('|') + ' file.json [--task ID | --node ID] [--at NODE_KEY] [--request-id ID] | --binding | --bind PROJECT WORKSPACE [--rebind] [--request-id ID]';
 
 /** The value after `flag`, taken out of `args`; '' when the flag isn't there. */
 function option(args, flag, what) {
@@ -33,6 +33,7 @@ export async function remoteHarness(argv, fetchImpl = fetch) {
   const task = option(args, '--task', 'the namespaced ID from --effective (opora:PROJECT:WORKSPACE:NODE)') || option(args, '--node', 'the namespaced ID from --effective (opora:PROJECT:WORKSPACE:NODE)');
   let at = option(args, '--at', 'the key of the node the level is saved at, from the path --effective returned');
   const requestId = option(args, '--request-id', 'an id of your choosing for this write, the same on every retry of it');
+  const run = option(args, '--run', 'the run id from your harness contract');
   const rebind = args.includes('--rebind');
   if (rebind) args.splice(args.indexOf('--rebind'), 1);
   const action = args.shift() ?? '--effective';
@@ -54,6 +55,16 @@ export async function remoteHarness(argv, fetchImpl = fetch) {
   if (binding && (task || at)) throw new Error(action + ' is about the floor, not a node: drop --task, --node and --at');
   if (rebind && action !== '--bind') throw new Error('--rebind goes with --bind PROJECT WORKSPACE');
   if (requestId && action !== '--assign' && action !== '--bind') throw new Error('--request-id goes with --assign or --bind: the writes it makes safe to retry');
+  if (run && action !== '--read') throw new Error('--run goes with --read ID: the run whose snapshot is read');
+  if (action === '--read') {
+    // A lazy read comes from the worker's own run snapshot, never from the library as it is now (docs/harness.md "Run snapshot and lazy reads").
+    if (args.length !== 1 || args[0].startsWith('--') || task || at || requestId) throw new Error('--read takes one element id from your run contract: office-harness --read ID [--run RUN]');
+    url.searchParams.set('read', args[0]);
+    if (run) url.searchParams.set('run', run);
+    const read = await call();
+    console.log(`# ${read.title}\nElement: ${read.id} · revision ${read.version} · sha256:${read.digest} · run ${read.run} (snapshot sha256:${read.snapshot})\nStatus: ${read.status}. ${read.note}\n\n${read.text}`);
+    return;
+  }
   if (action === '--catalog' && !args.length) url.searchParams.set('catalog', '1');
   else if (action === '--binding' && !args.length) { /* a read */ }
   else if (action === '--bind') {

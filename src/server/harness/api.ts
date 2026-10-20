@@ -8,6 +8,7 @@ import { HarnessLibrary, harnessSources } from './catalog.js';
 import { HarnessRegistry } from './registry.js';
 import { HarnessBindings, assertBoundWrite, bindingView } from './bindings.js';
 import { HarnessRequests } from './requests.js';
+import { officeSnapshotRead } from './snapshot-api.js';
 import { HARNESS_LEVELS, harnessLevel, oporaHarnessTask, pathNode, type HarnessProfile } from '../../shared/harness-cascade.js';
 import { harnessDeadEnd, harnessTarget, type HierarchyNode } from '../../shared/harness-hierarchy.js';
 import { oporaKey, parseOporaKey, samePlace } from '../../shared/opora-identity.js';
@@ -136,6 +137,7 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   const access = workerAccess(ctx, req, url);
   if (!access) return send(res, 401, { error: 'Use your worker ID and hook bearer token.' });
   const { id, floor, admin } = access;
+  if (req.method === 'GET' && url.searchParams.has('read')) return officeSnapshotRead(ctx, floor, id, res, url);
   if (req.method === 'GET' && url.searchParams.has('catalog')) {
     return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin), new HarnessRegistry(ctx.cfg.dataDir)).list());
   }
