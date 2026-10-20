@@ -13,7 +13,7 @@ import type http from 'node:http';
 import type { Ctx } from '../office/context.js';
 import type { Floor } from '../floor.js';
 import { send } from '../http/util.js';
-import { HarnessError } from './profiles.js';
+import { HarnessError, harnessRepoKey } from './profiles.js';
 import { HarnessBindings } from './bindings.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { samePlace } from '../../shared/opora-identity.js';
@@ -23,6 +23,8 @@ import { harnessTree, type HarnessTreeNode, type HarnessTreeStatus } from '../..
 export interface HarnessProjectView {
   floor: string;
   name: string;
+  /** The key the profile store and its audit file the floor's checkout under (profiles.ts harnessRepoKey), so the editor shows this project's saves only. */
+  repo: string;
   binding: { project: string; workspace: string; projectName: string } | null;
   status: HarnessTreeStatus | 'error';
   notice: string;
@@ -37,17 +39,18 @@ export function globalNamespaces(floor: Pick<Floor, 'dir'>, local: boolean): str
 /** The floor's binding, the Opora project's name and why there's no tree (if there is none). */
 function describe(ctx: Ctx, floor: Floor): HarnessProjectView {
   const name = floor.info?.().name ?? floor.id;
+  const repo = harnessRepoKey(floor.dir);
   let bound;
   try { bound = new HarnessBindings(ctx.cfg.dataDir).forFloor(floor.id); }
-  catch (err) { return { floor: floor.id, name, binding: null, status: 'error', notice: (err as Error).message }; }
+  catch (err) { return { floor: floor.id, name, repo, binding: null, status: 'error', notice: (err as Error).message }; }
   const view = floor.opora.view();
-  if (!bound) return { floor: floor.id, name, binding: null, status: 'unbound', notice: 'Not linked to an Opora project: only the project level can be edited here. An administrator binds the floor (office-harness --bind PROJECT WORKSPACE, or POST /api/harness/binding).' };
+  if (!bound) return { floor: floor.id, name, repo, binding: null, status: 'unbound', notice: 'Not linked to an Opora project: only the project level can be edited here. An administrator binds the floor (office-harness --bind PROJECT WORKSPACE, or POST /api/harness/binding).' };
   const projectName = view.projects?.find((p) => p.id === bound.project)?.name || (view.project?.id === bound.project ? view.project.name : '');
   const binding = { project: bound.project, workspace: bound.workspace, projectName: projectName || bound.project };
-  if (!view.connected) return { floor: floor.id, name, binding, status: 'unreachable', notice: `Opora isn't answering${view.error ? ' (' + view.error + ')' : ''}: specializations need its canvas, so only the project level can be edited now.` };
+  if (!view.connected) return { floor: floor.id, name, repo, binding, status: 'unreachable', notice: `Opora isn't answering${view.error ? ' (' + view.error + ')' : ''}: specializations need its canvas, so only the project level can be edited now.` };
   const linked = view.project && view.workspace ? { project: view.project.id, workspace: view.workspace } : undefined;
-  if (!samePlace(bound, linked)) return { floor: floor.id, name, binding, status: 'elsewhere', notice: 'The floor\'s Opora window reads another project or workspace than its binding: link the window back to the bound project to choose specializations.' };
-  return { floor: floor.id, name, binding, status: 'ready', notice: '' };
+  if (!samePlace(bound, linked)) return { floor: floor.id, name, repo, binding, status: 'elsewhere', notice: 'The floor\'s Opora window reads another project or workspace than its binding: link the window back to the bound project to choose specializations.' };
+  return { floor: floor.id, name, repo, binding, status: 'ready', notice: '' };
 }
 
 /** GET /api/harness/projects: every floor of the office with its binding and status, and the namespaces of the Global view's elements. */

@@ -35,13 +35,33 @@
 .harness-sources { margin-top: 18px; font-size: 12px; overflow-wrap: anywhere; }
 .harness-window footer { display: flex; gap: 10px; align-items: center; padding: 14px 20px; flex-wrap: wrap; }
 .harness-window footer span { margin-right: auto; }
-.harness-window .body.harness-body { grid-template-rows: auto minmax(0, 1fr); }
-.harness-cascade { grid-column: 1 / -1; margin: 0 12px 12px; padding: 12px; border: 1px solid #32a89a; border-radius: 9px; font-size: 14px; }
-.harness-body:has(> .harness-cascade[open]) { display: block !important; overflow: auto !important; }
-.harness-body:has(> .harness-cascade[open]) > aside, .harness-body:has(> .harness-cascade[open]) > .harness-reader { display: none; }
+.harness-window .body.harness-body { grid-template-rows: auto auto minmax(0, 1fr); }
+.harness-cascade, .harness-receives { grid-column: 1 / -1; margin: 0 12px 12px; padding: 12px; border: 1px solid #32a89a; border-radius: 9px; font-size: 14px; min-width: 0; }
+/* The preview of the result is not the editor: its own frame, dashed, in another colour. */
+.harness-receives { border: 2px dashed var(--info); }
+.harness-receives summary, .harness-receives h3, .harness-cascade h3 { margin: 10px 0 4px; font-size: 15px; overflow-wrap: anywhere; }
+.harness-receives-about, .harness-digest, .harness-where { margin: 4px 0 8px; font-size: 13px; overflow-wrap: anywhere; }
+.harness-digest { font-family: ui-monospace, monospace; }
+.harness-body:has(> .harness-cascade[open]), .harness-body:has(> .harness-receives[open]) { display: block !important; overflow: auto !important; }
+.harness-body:has(> .harness-cascade[open]) > aside, .harness-body:has(> .harness-cascade[open]) > .harness-reader, .harness-body:has(> .harness-receives[open]) > aside, .harness-body:has(> .harness-receives[open]) > .harness-reader { display: none; }
+/* The context bar: Global | Project, the project, and the specialization breadcrumb (context-bar.ts). */
+.harness-context { display: grid; gap: 6px; padding: 10px 20px; border-bottom: 1px solid #8884; min-width: 0; }
+.harness-context-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; min-width: 0; }
+.harness-segmented { display: inline-flex; border: 2px solid #32a89a; border-radius: 10px; overflow: hidden; flex: none; }
+.harness-segmented .btn { border: 0; border-radius: 0; box-shadow: none; min-height: 40px; min-width: 84px; background: transparent; color: inherit; }
+.harness-segmented .btn[aria-pressed=true] { background: #32a89a; color: #fff; }
+.harness-context .harness-field { display: grid; gap: 4px; margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); min-width: 0; }
+.harness-field select { padding: 8px; border-radius: 8px; max-width: 100%; min-width: 0; font-weight: 400; }
+.harness-field select:disabled { opacity: .6; }
+.harness-spec-field { flex: 1 1 100%; }
+.harness-spec { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.harness-spec select { flex: 0 1 220px; }
+.harness-trail { margin: 0; font-weight: 800; overflow-wrap: anywhere; }
+.harness-guard { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; border: 2px solid var(--warn); border-radius: 9px; font-weight: 700; }
+.harness-guard[hidden], .harness-context-notice[hidden] { display: none; }
+.harness-guard span { flex: 1 1 220px; }
 .harness-profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .harness-profile-grid > section { min-width: 0; }
-.harness-cascade summary { cursor: pointer; font-weight: 600; }
 .harness-cascade textarea, .harness-cascade input, .harness-cascade select { width: 100%; box-sizing: border-box; padding: 8px; }
 .harness-cascade textarea { min-height: 150px; font: 12px/1.5 monospace; }
 .harness-cascade .harness-toolbar { padding: 0; }
@@ -53,10 +73,16 @@
 .harness-notice { margin: 4px 0 8px; font-size: 13px; opacity: 0.85; }
 @media (max-width: 700px) {
   .harness-profile-grid { grid-template-columns: 1fr; }
-  .harness-window .body.harness-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .harness-window .body.harness-body { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); }
+  .harness-context { padding: 8px 16px; }
+  .harness-context-row > label.harness-field { flex: 1 1 160px; }
+  .harness-spec select { flex: 1 1 100%; padding: 6px 8px; }
+  .harness-spec .harness-step-sep { display: none; }
+  .harness-context { max-height: 45vh; overflow-y: auto; }
+  .harness-segmented .btn { min-width: 0; padding-inline: 14px; }
   .harness-tag, .harness-intro { display: none; }
   .harness-toolbar { padding: 12px 16px; display: grid; grid-template-columns: 1fr 1fr auto; }
-  .harness-window[data-pane=reader] .harness-toolbar, .harness-window[data-pane=reader] .harness-body > .harness-cascade { display: none; }
+  .harness-window[data-pane=reader] .harness-toolbar, .harness-window[data-pane=reader] .harness-context, .harness-window[data-pane=reader] .harness-body > .harness-cascade, .harness-window[data-pane=reader] .harness-body > .harness-receives { display: none; }
   .harness-toolbar input { grid-column: 1 / -1; min-width: 0; }
   .harness-toolbar select { min-width: 0; }
   .harness-body aside { border-right: 0; padding: 0 16px 16px; }

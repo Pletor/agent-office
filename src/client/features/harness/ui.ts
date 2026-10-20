@@ -3,10 +3,19 @@ import { HARNESS_CATEGORIES, HARNESS_CATEGORY_PURPOSE, harnessBundle, type Harne
 import { h, openModal, toast, type Modal } from '../../ui/dom';
 import { cascadePanel } from './cascade';
 import { libraryKeys } from './keyboard';
+import { contextBar } from './context-bar';
+import { receivesPanel } from './receives';
+import { contextFloor, elementInContext, normalizeContext, rememberedContext, type HarnessContext } from './context-model';
+import { contextSwitcher } from './switcher';
 
 let active: Modal | undefined;
-export function openHarness(floor: string) {
+/** Opens the library on `opened` (the floor you're on), in the context chosen last time this page had it open (context-model.ts). */
+export function openHarness(opened: string) {
   if (active) return;
+  let context: HarnessContext = normalizeContext(rememberedContext(), opened);
+  /** The floor whose catalog the list shows: the project's, or for Global the floor the library was opened on. */
+  let floor = contextFloor(context, opened);
+  let loads = 0;
   let catalog: HarnessCatalog | undefined;
   let selected = new Set<string>();
   let current: HarnessText | undefined;
@@ -14,7 +23,13 @@ export function openHarness(floor: string) {
   let closed = false;
   let busy = false;
   const abort = new AbortController();
-  const cascade = cascadePanel(floor, abort.signal);
+  const bar = contextBar({ opened, signal: abort.signal, onRequest: (next) => switcher.request(next), onProjects: () => { render(); cascade.retitle(); if (shown) receives.show(shown.view, shown.ctx, bar.label(shown.ctx), owner(shown.ctx)); } });
+  const receives = receivesPanel();
+  const switcher = contextSwitcher({ opened, initial: context, bar: () => bar, editor: () => cascade, preview: () => receives, onApplied: (next, floorChanged) => applied(next, floorChanged) });
+  /** The profile the preview shows, so it can be relabelled once the project names are in. */
+  let shown: { view: Parameters<typeof receives.show>[0]; ctx: HarnessContext } | undefined;
+  const owner = (c: HarnessContext) => (c.kind === 'global' ? '' : 'Project ' + bar.projectName(c.floor));
+  const cascade = cascadePanel({ opened, signal: abort.signal, label: (c) => bar.label(c), repoOf: (f) => bar.repoOf(f), onView: (view, c) => { shown = { view, ctx: c }; receives.show(view, c, bar.label(c), owner(c)); }, onError: (c, message) => receives.pending(bar.label(c), message) });
   const assign = h('button.btn', { type: 'button', onclick: () => { if (current) cascade.assign(current); } }, 'Assign resource');
   const filter = h('input', { type: 'search', placeholder: 'Search resources…', 'aria-label': 'Search harness resources' });
   const category = h('select', { 'aria-label': 'Resource category' }, h('option', { value: '' }, 'All categories'), ...HARNESS_CATEGORIES.map((c) => h('option', { value: c, title: HARNESS_CATEGORY_PURPOSE[c] }, c)));
@@ -36,10 +51,11 @@ export function openHarness(floor: string) {
   const refresh = h('button.btn', { type: 'button' }, 'Refresh');
   const el = h('div.modal.harness-window', { role: 'dialog', 'aria-label': 'Harness library', 'aria-modal': 'true', tabindex: -1, 'data-pane': 'list' },
     h('header', {}, h('h2', {}, '📚 Harness'), h('span.harness-tag', {}, 'Model context library')),
+    bar.el,
     h('p.harness-intro', {}, 'Instructions, skills, hooks, rules, commands, scripts, tools, MCP, memory, plugins, permissions, testing and operations references. Select what your model needs for this task.'),
     h('div.harness-toolbar', {}, filter, category, source, refresh),
     purpose,
-    h('div.body.harness-body', {}, cascade.el, h('aside', {}, status, list, sources), h('section.harness-reader', { 'aria-live': 'polite' }, back, title, origin, h('div.harness-actions', {}, add, assign), retryRead, text)),
+    h('div.body.harness-body', {}, cascade.el, receives.el, h('aside', {}, status, list, sources), h('section.harness-reader', { 'aria-live': 'polite' }, back, title, origin, h('div.harness-actions', {}, add, assign), retryRead, text)),
     h('footer', {}, count, clear, download, copy),
   );
   const keys = libraryKeys(el, filter, list);
@@ -68,13 +84,13 @@ export function openHarness(floor: string) {
   function render() {
     if (!catalog) return;
     const words = filter.value.toLowerCase().trim().split(/\s+/);
-    const entries = catalog.entries.filter((e) => (!category.value || e.category === category.value) && (!source.value || e.source === source.value) && words.every((w) => (e.title + ' ' + e.path + ' ' + e.source).toLowerCase().includes(w)));
+    const entries = catalog.entries.filter((e) => elementInContext(e.id, context, bar.globalNamespaces()) && (!category.value || e.category === category.value) && (!source.value || e.source === source.value) && words.every((w) => (e.title + ' ' + e.path + ' ' + e.source).toLowerCase().includes(w)));
     status.textContent = entries.length + (entries.length === 1 ? ' resource' : ' resources') + (catalog.limited ? ' · catalog limit reached' : '');
     const picked = category.value as keyof typeof HARNESS_CATEGORY_PURPOSE | '';
     purpose.textContent = picked ? picked + ': ' + HARNESS_CATEGORY_PURPOSE[picked] : '';
     list.replaceChildren(...entries.map((e) => h('button.harness-entry', { type: 'button', 'aria-pressed': current?.id === e.id, title: e.id + ' · revision ' + e.version, onclick: () => void read(e.id, true) },
       h('strong', {}, (selected.has(e.id) ? '✓ ' : '') + e.title), h('small', {}, e.category + ' / ' + e.group + ' · ' + e.source), h('small', {}, e.path))));
-    if (!catalog.entries.length) list.append(note('No resources published yet. Add instructions, tools or memory exports under .harness/ in this repository, then refresh.', h('button.btn', { type: 'button', onclick: () => void load() }, 'Refresh')));
+    if (!catalog.entries.some((e) => elementInContext(e.id, context, bar.globalNamespaces()))) list.append(note('No resources published yet. Add instructions, tools or memory exports under .harness/ in this repository, then refresh.', h('button.btn', { type: 'button', onclick: () => void load() }, 'Refresh')));
     else if (!entries.length) list.append(note('No matching resources.', h('button.btn', { type: 'button', onclick: () => { filter.value = category.value = source.value = ''; render(); filter.focus(); } }, 'Clear filters')));
     list.removeAttribute('aria-busy');
     update();
@@ -107,13 +123,15 @@ export function openHarness(floor: string) {
     } finally { if (ticket === request) text.removeAttribute('aria-busy'); }
   }
   async function load() {
+    const ticket = ++loads;
     refresh.disabled = true;
     status.textContent = 'Loading resources…';
     list.setAttribute('aria-busy', 'true');
     list.replaceChildren(...Array.from({ length: 6 }, () => h('div.harness-skeleton', { 'aria-hidden': 'true' })));
     try {
       const result = await get<HarnessCatalog>('');
-      if (closed) return;
+      // The catalog of a floor the context has left behind is never shown for the new one.
+      if (closed || ticket !== loads) return;
       catalog = result;
       selected = new Set([...selected].filter((id) => result.entries.some((e) => e.id === id)));
       source.replaceChildren(h('option', { value: '' }, 'All sources'), ...[...new Set(result.entries.map((e) => e.source))].map((s) => h('option', { value: s }, s)));
@@ -122,12 +140,26 @@ export function openHarness(floor: string) {
       render();
       if (!current && result.entries.some((e) => e.id === 'guide:instructions')) await read('guide:instructions');
     } catch (err) {
-      if (closed) return;
+      if (closed || ticket !== loads) return;
       status.textContent = 'Library unavailable';
       list.removeAttribute('aria-busy');
       list.replaceChildren(note((err as Error).message, h('button.btn.primary', { type: 'button', onclick: () => void load() }, 'Try again')));
     }
-    finally { refresh.disabled = false; }
+    finally { if (ticket === loads) refresh.disabled = false; }
+  }
+  /** After a switch: the list follows the context, and a new floor brings its own catalog (the reader and the pack belong to the floor they were read from). */
+  function applied(next: HarnessContext, floorChanged: boolean) {
+    context = next;
+    shown = undefined;
+    if (!floorChanged) return render();
+    floor = contextFloor(next, opened);
+    current = undefined;
+    request++;
+    selected.clear();
+    title.textContent = 'Choose a resource';
+    origin.textContent = '';
+    text.textContent = 'Read a resource, add it to your context pack, then copy or download the selection for a model.';
+    void load();
   }
   async function exportPack(clipboard: boolean) {
     if (busy || !selected.size) return;
@@ -160,5 +192,6 @@ export function openHarness(floor: string) {
   copy.onclick = () => void exportPack(true);
   download.onclick = () => void exportPack(false);
   update();
+  switcher.start();
   void load();
 }
