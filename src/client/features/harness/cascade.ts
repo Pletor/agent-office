@@ -25,7 +25,7 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
   const effective = h('pre.harness-effective');
   const preview = h('pre.harness-effective');
   const el = h('details.harness-cascade', {}, h('summary', {}, 'Inheritance: Global → Repository → Task'),
-    h('p', {}, 'Named slots work like CSS: task overrides repository, which overrides global. Missing key = inherit; null = disable. Delete an override to inherit again. Save explicitly; changing task/scope discards unsaved edits.'),
+    h('p', {}, 'Named slots work like CSS: task overrides repository, which overrides global. Missing key = inherit; null = disable. Delete an override to inherit again. Save explicitly; changing task/scope discards unsaved edits. Global binds handbook, machine, published and OpenViking elements only; a project element (el:project:…) is bound at repository or task scope.'),
     h('div.harness-profile-grid', {}, h('section', {}, h('div.harness-toolbar', {}, scope, task, tasks, reload),
     h('label', {}, 'Assignment slot (used by “Assign resource”): ', slot),
     h('p', {}, 'Resource: {"rules.quality":{"resource":"guide:testing"}} · Setting: {"settings.language":{"value":"cs"}}'),

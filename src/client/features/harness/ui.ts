@@ -1,5 +1,5 @@
 import './ui.css';
-import { HARNESS_CATEGORIES, harnessBundle, type HarnessCatalog, type HarnessText } from '../../../shared/harness';
+import { HARNESS_CATEGORIES, HARNESS_CATEGORY_PURPOSE, harnessBundle, type HarnessCatalog, type HarnessText } from '../../../shared/harness';
 import { h, openModal, toast, type Modal } from '../../ui/dom';
 import { cascadePanel } from './cascade';
 
@@ -16,7 +16,8 @@ export function openHarness(floor: string) {
   const cascade = cascadePanel(floor, abort.signal);
   const assign = h('button.btn', { type: 'button', onclick: () => { if (current) cascade.assign(current); } }, 'Assign resource');
   const filter = h('input', { type: 'search', placeholder: 'Search resources…', 'aria-label': 'Search harness resources' });
-  const category = h('select', { 'aria-label': 'Resource category' }, h('option', { value: '' }, 'All categories'), ...HARNESS_CATEGORIES.map((c) => h('option', { value: c }, c)));
+  const category = h('select', { 'aria-label': 'Resource category' }, h('option', { value: '' }, 'All categories'), ...HARNESS_CATEGORIES.map((c) => h('option', { value: c, title: HARNESS_CATEGORY_PURPOSE[c] }, c)));
+  const purpose = h('p.harness-purpose', { title: 'What this category is for' });
   const source = h('select', { 'aria-label': 'Resource source' }, h('option', { value: '' }, 'All sources'));
   const list = h('div.harness-list', { 'aria-label': 'Harness resources' });
   const title = h('h3', {}, 'Choose a resource');
@@ -32,8 +33,9 @@ export function openHarness(floor: string) {
   const refresh = h('button.btn', { type: 'button' }, 'Refresh');
   const el = h('div.modal.harness-window', { role: 'dialog', 'aria-label': 'Harness library' },
     h('header', {}, h('h2', {}, '📚 Harness'), h('span.harness-tag', {}, 'Model context library')),
-    h('p.harness-intro', {}, 'Instructions, skills, tools and memory references. Select what your model needs for this task.'),
+    h('p.harness-intro', {}, 'Instructions, skills, hooks, rules, commands, scripts, tools, MCP, memory, plugins, permissions, testing and operations references. Select what your model needs for this task.'),
     h('div.harness-toolbar', {}, filter, category, source, refresh),
+    purpose,
     h('div.body.harness-body', {}, cascade.el, h('aside', {}, status, list, sources), h('section.harness-reader', {}, title, origin, h('div', {}, add, assign), text)),
     h('footer', {}, count, clear, download, copy),
   );
@@ -55,8 +57,10 @@ export function openHarness(floor: string) {
     const words = filter.value.toLowerCase().trim().split(/\s+/);
     const entries = catalog.entries.filter((e) => (!category.value || e.category === category.value) && (!source.value || e.source === source.value) && words.every((w) => (e.title + ' ' + e.path + ' ' + e.source).toLowerCase().includes(w)));
     status.textContent = entries.length + ' resources' + (catalog.limited ? ' · catalog limit reached' : '');
-    list.replaceChildren(...entries.map((e) => h('button.harness-entry', { type: 'button', 'aria-pressed': current?.id === e.id, onclick: () => void read(e.id) },
-      h('strong', {}, (selected.has(e.id) ? '✓ ' : '') + e.title), h('small', {}, e.category + ' · ' + e.source), h('small', {}, e.path))));
+    const picked = category.value as keyof typeof HARNESS_CATEGORY_PURPOSE | '';
+    purpose.textContent = picked ? picked + ': ' + HARNESS_CATEGORY_PURPOSE[picked] : '';
+    list.replaceChildren(...entries.map((e) => h('button.harness-entry', { type: 'button', 'aria-pressed': current?.id === e.id, title: e.id + ' · revision ' + e.version, onclick: () => void read(e.id) },
+      h('strong', {}, (selected.has(e.id) ? '✓ ' : '') + e.title), h('small', {}, e.category + ' / ' + e.group + ' · ' + e.source), h('small', {}, e.path))));
     if (!entries.length) list.append(h('p', {}, 'No matching resources.'));
     update();
   }
@@ -72,7 +76,7 @@ export function openHarness(floor: string) {
       if (closed || ticket !== request) return;
       current = result;
       title.textContent = result.title;
-      origin.textContent = result.source + ' / ' + result.path;
+      origin.textContent = result.source + ' / ' + result.path + ' · ' + result.id + ' · revision ' + result.version;
       text.textContent = result.text;
       text.scrollTop = 0;
       render();
