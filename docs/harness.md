@@ -6,7 +6,7 @@ Back to the [README](../README.md).
 
 The **Harness** bookshelf stands on the other side of the balcony doors from **Docs**, with the same wooden case and books. Walk up and press **E**. The window supports search, category and source filters, source availability, reading, and a selection of up to 24 resources. **Copy pack** or **Download pack** produces a model-neutral Markdown context pack with source paths. Close with the top-right ✕ or Esc to return to mouse-look.
 
-The handbook covers instructions, skills, hooks, rules, commands, scripts, tools, MCP, memory, evaluations and operating procedures. Local resources appear alongside it. Resources are displayed as plain text; selecting one does not execute code, install a plugin, change a model's permissions or configure its runner. Use the native runner's configuration for hooks and MCP.
+The handbook covers the thirteen categories: instructions, skills, hooks, rules, commands, scripts, tools, MCP, memory, plugins, permissions, testing and operations. Each category states its purpose (the tooltip of the category filter, and a line under the toolbar when one is selected), and every element sits in a group inside its category, the folder it was published in, so a category reads as a shelf rather than a heap of files. Local resources appear alongside the handbook. Resources are displayed as plain text; selecting one does not execute code, install a plugin, change a model's permissions or configure its runner. Use the native runner's configuration for hooks and MCP.
 
 ![Selecting memory references for a context pack](images/harness-library.png)
 
@@ -30,9 +30,13 @@ Example layout:
   tools/browser.md
   mcp/example.json
   memory/decisions.md
+  plugins/office/plugin.json
+  permissions/allow-list.md
   testing/evaluations.md
   operations/handoff.md
 ```
+
+A file is categorised by the first category name on its path (`hooks/claude/after-tool.py` is a hook in group `claude`); singular folder names and `runbooks` work too, and a `SKILL.md` is always a skill. Files that match no category take the source's default (instructions for project folders, skills or commands for machine folders, memory for OpenViking).
 
 Publish only resources intended to be shared with people on that office. Files in these folders are available to signed-in users. The library skips credential-like filenames, environment files, binary files, symlinks, build/dependency folders and files over 128 KiB; these filters are not a secret scanner. Do not put credentials in published files. Discovery is bounded to 1,200 entries, 6,000 visited paths and 10 directory levels. The UI indicates a truncated catalog.
 
@@ -45,6 +49,20 @@ Links (symlinks and Windows junctions) are never followed inside a published fol
 The server also checks that the opened file is the same one it validated before and after reading, compared by file ID. Editing a file, including saving it by replacing the file, keeps it readable. These are path checks. They make a concurrent rename race much narrower but do not eliminate it: someone who can rename folders in the project at exactly the right moments could still succeed. Hard links to files elsewhere are not detected because they are the same file. Only publish folders in projects whose writers you trust.
 
 Admins and shared-password sessions also see the machine user's .agents/skills, .codex/skills, .claude/skills and .claude/commands. Named non-admin accounts only see project resources and the handbook. To publish another machine resource folder, set **AGENT_OFFICE_HARNESS_DIR** before starting the office. Refresh re-reads resources from disk.
+
+## Element IDs, revisions and digests
+
+Every element has three identifying fields in the catalog, the CLI output and the context pack header (`Element: <id> · revision <n> · sha256:<digest>`):
+
+- **id**: a local installation ID of the form `el:<namespace>:<20 hex>`, derived from the element's namespace and its path from the namespace root, never from where the folder is on disk. Namespaces are `project` (the floor's checkout: `AGENTS.md`, `.harness/...`, `.claude/skills/...`), `machine` (the OS user's skill and command folders), `published` (**AGENT_OFFICE_HARNESS_DIR**), `openviking` and `handbook`. A restart or a moved checkout keeps every ID, and two checkouts of the same repository (worktrees, a clone on another disk) share the IDs of the elements they both hold. On case-insensitive filesystems the path is case-folded first. Handbook entries keep their readable IDs (`guide:testing`).
+- **version**: a revision kept in `<office dataDir>/harness-registry.json`, beside the profiles. It is the number the element's current content got when that content was first listed: new content always gets a higher number than any seen before, content seen before keeps its number (so two worktrees on different branches do not leapfrog each other), and the number never goes backwards. The registry stores digests and metadata only, never content.
+- **digest**: SHA-256 of the file as listed; a read reports the digest of the bytes actually returned.
+
+A shared element, such as a machine-level skill, has one ID in every project. Assignments reference IDs, and each project's layers are stored separately, so one project changing its assignments, or the shared file changing its content, never changes another project's assignments: both see the same ID at the new revision.
+
+When a listed element disappears, its registry record stays as a **tombstone**. An assignment that points at it resolves as *missing* (with the last known path, revision, digest and the time it went missing), is refused when saved and blocks a handoff, and is never silently remapped to another file. Only a complete listing of the element's own source instance can tombstone it, so one project's listing never marks another project's elements as gone, and a listing cut short by the discovery bounds marks nothing. If the file comes back at the same place it gets the same ID again, at the next revision. An unreadable registry fails closed: versions read 0, nothing resolves as missing, and the file is left for repair.
+
+Profiles saved before this registry hold the previous IDs, hashes of the absolute path. Each element lists those as `aliases`; they resolve, read and bundle exactly like the canonical ID, and the catalog shows the canonical one.
 
 ## OpenViking
 
@@ -66,12 +84,13 @@ Configure the plugin in the chosen runner, verify a harmless memory read, then u
 After building the office, a local agent can use the same catalog without a browser:
 
 ```sh
-node /path/to/agent-office/bin/office-harness.js --project /path/to/project
+node /path/to/agent-office/bin/office-harness.js --project /path/to/project --catalog
 node /path/to/agent-office/bin/office-harness.js --project /path/to/project --read guide:instructions
 node /path/to/agent-office/bin/office-harness.js --project /path/to/project --bundle guide:instructions guide:memory
+node /path/to/agent-office/bin/office-harness.js --project /path/to/project --resolve el:project:0123456789abcdef0123
 ```
 
-Outside an office worker, the first command emits JSON with stable resource IDs; use those IDs with --read or --bundle. Local CLI access uses the current OS user's files and permissions and does not execute resources. Inside a worker (when `AGENT_OFFICE_HOOK_URL` is set), the command uses the authenticated office API instead, with the commands below; it never falls back to unrestricted local discovery. Remote models can receive the downloaded Markdown file or pasted context pack. Hooks, tool calls and MCP require support from the agent runner, independently of which model it runs.
+Outside an office worker, the first command emits JSON with each element's id, version, digest, category, group and aliases; use the IDs with --read, --bundle or --resolve (available, missing or unknown). Revisions come from the registry in the office data dir: `<project>/.agent-office` when it exists, else `--data-dir <folder>` or **AGENT_OFFICE_DATA_DIR**; without one, versions read 0 and no tombstones are kept. Local CLI access uses the current OS user's files and permissions and does not execute resources. Inside a worker (when `AGENT_OFFICE_HOOK_URL` is set), the command uses the authenticated office API instead, with the commands below; it never falls back to unrestricted local discovery. Remote models can receive the downloaded Markdown file or pasted context pack. Hooks, tool calls and MCP require support from the agent runner, independently of which model it runs.
 
 A pack is a snapshot assembled from selected files at export time. Re-export after editing sources. It is reference material: repository instructions and the task's permissions still apply.
 
@@ -98,7 +117,7 @@ Try `{"settings.color":{"value":"red"}}` globally, `blue` for the repository, an
 
 For resources, choose a semantic slot and scope in the inheritance editor, collapse it, select a book, click **Assign resource**, and **Save layer**. The first opening loads profiles automatically; the default slot is `rules.quality` at repository scope. Assignment edits and ad-hoc **Add to pack** selections are intentionally separate. Saving a layer persists assignments; exporting a pack does not.
 
-**Resolved handoff preview** shows the exact saved configuration/content to be supplied to a worker, with scope provenance and SHA-256 snapshot digest. Missing or inaccessible resources show a blocking warning. Profiles survive restarts in `<office dataDir>/harness-profiles.json`. Repository identity is the absolute checkout path (case-insensitive on Windows); moving a checkout requires reassigning its repository/task profiles. Resource IDs are local installation IDs, not portable package names.
+**Resolved handoff preview** shows the exact saved configuration/content to be supplied to a worker, with scope provenance and SHA-256 snapshot digest. Missing or inaccessible resources show a blocking warning. Profiles survive restarts in `<office dataDir>/harness-profiles.json`. Repository identity is the absolute checkout path (case-insensitive on Windows); moving a checkout requires reassigning its repository/task profiles, while the element IDs inside them stay valid (see Element IDs). Resource IDs are local installation IDs, not portable package names.
 
 ## Orchestrator handoff
 
@@ -122,7 +141,7 @@ This first integration applies to **Opora card dispatch**, not arbitrary direct 
 
 ## Verification
 
-Run `npm run typecheck`, `npm test`, and `npm run build`. Focused coverage: `node --import tsx --import=#tests/css --test tests/harness*.test.ts tests/opora.test.ts tests/size.test.ts`.
+Run `npm run typecheck`, `npm test`, and `npm run build`. Focused coverage: `node --import tsx --import=#tests/css --test tests/harness*.test.ts tests/opora.test.ts tests/size.test.ts`. `tests/harness-registry.test.ts` covers the element registry: IDs across a restart and a checkout move, revisions following content, tombstones, shared elements between projects, credential exclusion and the compatibility aliases.
 
 With the isolated office running on 4617, `node tests/harness-office.browser.mjs` tests the **production bundle**, real session/catalog and F8/✕/Esc mouse-look behavior. For the editable visual lab, run Vite on 5187 and `node tests/harness-live.browser.mjs`: this forwards requests to the real authenticated office API, exercises all three layers and restores test settings unless a concurrent edit intervenes. It does not launch paid agents. `HARNESS_OFFICE_URL`, `HARNESS_PASSWORD`, `HARNESS_FLOOR`, `HARNESS_LAB_URL` and `HARNESS_SHOTS` customize these tests. Screenshots default to the OS temporary directory.
 
