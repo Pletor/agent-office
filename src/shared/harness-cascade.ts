@@ -19,8 +19,8 @@ export interface HarnessPathNode { level: HarnessNodeLevel; node: string; name?:
 /** The way down from the project to the node addressed, outermost first, one entry per level at most. */
 export type HarnessPath = readonly HarnessPathNode[];
 
-/** Where an effective slot came from: the level, and for a level below the project the node's key. */
-export interface HarnessEffective { binding: HarnessBinding | null; scope: HarnessLevel; node?: string }
+/** Where an effective slot came from: the level, and for a level below the project the node's key and, when the canvas knows it, its name. */
+export interface HarnessEffective { binding: HarnessBinding | null; scope: HarnessLevel; node?: string; nodeName?: string }
 export interface HarnessProfile {
   /** The store's revision, one for every level: a save at any level moves it (compare-and-set). */
   revision: number;
@@ -55,8 +55,9 @@ export function pathNode(path: HarnessPath, level: HarnessLevel): HarnessPathNod
 export function resolveHarness(layers: Partial<Record<HarnessLevel, HarnessLayer>>, path: HarnessPath = []): HarnessProfile['effective'] {
   const result: HarnessProfile['effective'] = Object.create(null);
   for (const scope of HARNESS_LEVELS) {
-    const node = pathNode(path, scope)?.node;
-    for (const [key, binding] of Object.entries(layers[scope] ?? {})) result[key] = { binding, scope, ...(node ? { node } : {}) };
+    const at = pathNode(path, scope);
+    const origin = at ? { node: at.node, ...(at.name ? { nodeName: at.name } : {}) } : {};
+    for (const [key, binding] of Object.entries(layers[scope] ?? {})) result[key] = { binding, scope, ...origin };
   }
   return result;
 }

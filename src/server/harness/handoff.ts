@@ -18,8 +18,11 @@ export async function harnessHandoff(dataDir: string, repo: string, target: Harn
     if (!entry) throw new HarnessError('Assigned harness resource is unavailable for this worker: ' + id);
     entries.push(entry);
   }
-  const task = profile.path.find((p) => p.level === 'task')?.node ?? (typeof target === 'string' ? target : '');
-  const manifest = JSON.stringify({ task, path: profile.path, revision: profile.revision, slots: profile.effective }, null, 2);
+  // What was dispatched: the deepest node of the path (a card, or a sector handed out whole), or a custom task id.
+  const last = profile.path[profile.path.length - 1];
+  const task = last?.node ?? (typeof target === 'string' ? target : '');
+  const level = last?.level ?? (task ? 'task' : 'project');
+  const manifest = JSON.stringify({ task, level, path: profile.path, revision: profile.revision, slots: profile.effective }, null, 2);
   const body = manifest + '\n\n' + (entries.length ? harnessBundle(entries) : 'No resource instructions assigned.');
   if (Buffer.byteLength(body) > 96 * 1024) throw new HarnessError('Effective harness exceeds 96 KiB; choose smaller resources.');
   const digest = createHash('sha256').update(body).digest('hex');
