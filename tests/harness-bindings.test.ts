@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Ctx } from '../src/server/office/context.js';
@@ -17,6 +17,7 @@ import { officeHarnessBinding, checkBindTarget } from '../src/server/harness/bin
 import { HarnessBindings, assertBoundWrite } from '../src/server/harness/bindings.js';
 import { HarnessRequests, requestDigest } from '../src/server/harness/requests.js';
 import { HarnessProfiles, harnessRepoKey } from '../src/server/harness/profiles.js';
+import { withFileLock } from '../src/server/harness/lock.js';
 import { harnessCardHandoff } from '../src/server/harness/handoff.js';
 import { oporaKey } from '../src/shared/opora-identity.js';
 import { remoteHarness } from '../bin/harness-remote.js';
@@ -42,10 +43,10 @@ function office(t: test.TestContext) {
   const byWorker: Record<string, unknown> = { planner: floor, ordinary: floor, 'worker-b': floorB, mplanner: floorC };
   const ctx = {
     cfg: { dataDir: dir, port: 0 }, floors: new Map([['a', floor], ['b', floorB], ['c', floorC]]),
-    accounts: { get: (id: string) => ({ role: id === 'admin' ? 'admin' : 'member' }) },
+    accounts: { get: (id: string) => ({ role: id === 'admin' || id.startsWith('admin-') ? 'admin' : 'member' }) },
     auth: { fromRequest: (req: http.IncomingMessage) => {
       const s = req.headers['x-test-session'];
-      return s === 'admin' ? { account: { id: 'admin', role: 'admin' } } : s === 'member' ? { account: { id: 'mia', role: 'member' } } : s === 'shared' ? {} : undefined;
+      return s === 'admin' || s?.startsWith('admin-') ? { account: { id: String(s), role: 'admin' } } : s === 'member' ? { account: { id: 'mia', role: 'member' } } : s === 'shared' ? {} : undefined;
     } },
     workerFloor: (id: string) => byWorker[id],
   } as unknown as Ctx;
@@ -412,4 +413,124 @@ test('two office processes sending the same write, and binding one floor to diff
   assert.deepEqual([...bound].sort(), [409, 'bound'], 'one project won, the other is a 409');
   assert.equal(new HarnessBindings(dir).audit().length, 1);
   assert.equal(new HarnessBindings(dir).revision(), 1);
+});
+
+test('a bind repeated without a requestId is replayed only while its stored reply is still the truth (E1)', async (t) => {
+  const { call, dir, opora } = await office(t);
+  const bindUrl = '/api/harness/binding?floor=a';
+  const fileProject = () => (JSON.parse(readFileSync(path.join(dir, 'harness-bindings.json'), 'utf8')) as { bindings: Record<string, { project: string }> }).bindings.a?.project;
+  assert.equal((await call(bindUrl, 'admin', place)).status, 200);
+  // The same payload again while nothing changed is a replay of the first reply.
+  const again = await call(bindUrl, 'admin', place);
+  assert.equal(again.status, 200);
+  assert.equal(again.headers.get('x-harness-replay'), '1');
+  Object.assign(opora, { project: { id: 'q', name: 'Q' } });
+  assert.equal((await call(bindUrl, 'admin', { project: 'q', workspace: 'w', rebind: true })).status, 200);
+  Object.assign(opora, { project: { id: 'p', name: 'P' } });
+  // Bound to q now: binding p again without rebind is a conflict, never a replay claiming p.
+  const stale = await call(bindUrl, 'admin', place);
+  assert.equal(stale.status, 409);
+  assert.equal(stale.headers.get('x-harness-replay'), null);
+  assert.equal(fileProject(), 'q');
+  // Binding q again (what the file holds) succeeds idempotently and reports q.
+  Object.assign(opora, { project: { id: 'q', name: 'Q' } });
+  const idem = await call(bindUrl, 'admin', { project: 'q', workspace: 'w' });
+  assert.equal(idem.status, 200);
+  assert.equal(((await idem.json()) as { binding: { project: string } }).binding.project, 'q');
+});
+
+test('a save queued behind the request-log lock sees a rebind that landed while it waited (E2)', async (t) => {
+  const { call, dir } = await office(t);
+  assert.equal((await call('/api/harness/binding?floor=a', 'admin', place)).status, 200);
+  const url = '/api/harness/profile?floor=a&node=' + encodeURIComponent(k('c1'));
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  let acquired!: () => void;
+  const gotLock = new Promise<void>((r) => (acquired = r));
+  const holder = withFileLock(path.join(dir, 'harness-requests.json.lock'), { waitMs: 5000 }, async () => { acquired(); await held; });
+  await gotLock;
+  const save = call(url, 'admin', { scope: 'sector', layer: { tone: { value: 'stale' } }, revision: 0, at: k('sector') });
+  await new Promise((r) => setTimeout(r, 400)); // the save is queued behind the lock
+  await new HarnessBindings(dir).bind('a', dir, { project: 'q', workspace: 'w' }, 'account:admin', { rebind: true });
+  release();
+  await holder;
+  const res = await save;
+  assert.equal(res.status, 403, 'a node of project p is foreign once the floor is bound to q');
+  assert.equal(existsSync(path.join(dir, 'harness-profiles.json')), false, 'nothing was written');
+});
+
+test('a null item in the bindings audit fails closed with 503 (not a TypeError)', async (t) => {
+  const { call, dir } = await office(t);
+  assert.equal((await call('/api/harness/binding?floor=a', 'admin', place)).status, 200);
+  const file = path.join(dir, 'harness-bindings.json');
+  const data = JSON.parse(readFileSync(file, 'utf8')) as { audit: unknown[] };
+  data.audit.push(null);
+  writeFileSync(file, JSON.stringify(data));
+  const res = await call('/api/harness/binding?floor=a', 'admin');
+  assert.equal(res.status, 503);
+  assert.throws(() => new HarnessBindings(dir).audit(), (e: Error & { status: number }) => e.status === 503);
+});
+
+const MAX_LOG = 4 * 1024 * 1024;
+const logSize = (dir: string) => statSync(path.join(dir, 'harness-requests.json')).size;
+
+test('many callers saving large profiles never leave a request log the reader refuses (B1)', async (t) => {
+  const { call, dir } = await office(t);
+  const api = '/api/harness/profile?floor=a';
+  let revision = 0;
+  // 14 different callers (each its own log scope), each a valid save of 50 slots x 3500 characters: together far over the log's cap.
+  for (let i = 0; i < 14; i++) {
+    const layer = Object.fromEntries(Array.from({ length: 50 }, (_, n) => ['s' + n, { value: String(i % 10).repeat(3500) }]));
+    const res = await call(api, 'admin-' + i, { scope: 'repository', layer, revision });
+    assert.equal(res.status, 200, 'save ' + i + ': ' + (res.status === 200 ? '' : JSON.stringify(await res.clone().json())));
+    revision = (await res.json() as { revision: number }).revision;
+    assert.ok(logSize(dir) <= MAX_LOG, 'the file stays under the cap after save ' + i);
+    assert.doesNotThrow(() => new HarnessRequests(dir).replay('repo:none', { scope: 'task', layer: {}, revision: 0 }), 'a fresh reader accepts the file after save ' + i);
+  }
+  // A bind goes through too (it also needs a readable log).
+  assert.equal((await call('/api/harness/binding?floor=a', 'admin', { ...place, requestId: 'b1-bind' })).status, 200);
+});
+
+test('the request log keeps at most 200 scopes, the least recently written dropped first', async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'harness-scopes-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const log = new HarnessRequests(dir);
+  const body = (n: number) => ({ scope: 'task', layer: { n: { value: n } }, revision: n });
+  for (let i = 0; i < 205; i++) await log.exclusive(async () => log.record('scope:' + i, body(i), 200, { i }));
+  const stored = JSON.parse(readFileSync(path.join(dir, 'harness-requests.json'), 'utf8')) as { requests: Record<string, unknown[]> };
+  assert.equal(Object.keys(stored.requests).length, 200);
+  const fresh = new HarnessRequests(dir);
+  for (let i = 0; i < 5; i++) assert.equal(fresh.replay('scope:' + i, body(i)), undefined, 'scope ' + i + ' was evicted');
+  for (let i = 5; i < 205; i++) assert.equal(fresh.replay('scope:' + i, body(i))?.status, 200, 'scope ' + i + ' is kept');
+});
+
+test('a single reply over the per-record cap is not stored, and the log stays as it was', async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'harness-big-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const log = new HarnessRequests(dir);
+  const small = { scope: 'task', layer: {}, revision: 1 }, big = { scope: 'task', layer: {}, revision: 2 };
+  await log.exclusive(async () => log.record('repo:x', small, 200, { ok: true }));
+  const before = readFileSync(path.join(dir, 'harness-requests.json'), 'utf8');
+  await log.exclusive(async () => log.record('repo:x', big, 200, { blob: 'x'.repeat(MAX_LOG) }));
+  assert.equal(readFileSync(path.join(dir, 'harness-requests.json'), 'utf8'), before);
+  assert.equal(new HarnessRequests(dir).replay('repo:x', big), undefined, 'the retry gets an ordinary answer');
+  assert.equal(new HarnessRequests(dir).replay('repo:x', small)?.status, 200);
+});
+
+test('the log a writer evicted down is read by a fresh instance, newest records kept, oldest scopes gone', async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'harness-evict-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const log = new HarnessRequests(dir);
+  const body = (n: number) => ({ scope: 'task', layer: {}, revision: n, requestId: 'r' + n });
+  const reply = (n: number) => ({ n, pad: String(n % 10).repeat(380 * 1024) });
+  // One scope with several records, then 12 scopes of one 380 KiB record each: well over 4 MiB.
+  for (let n = 0; n < 3; n++) await log.exclusive(async () => log.record('scope:multi', body(n), 200, reply(n)));
+  for (let i = 0; i < 12; i++) await log.exclusive(async () => log.record('scope:' + i, body(100 + i), 200, reply(100 + i)));
+  assert.ok(logSize(dir) <= MAX_LOG);
+  const fresh = new HarnessRequests(dir);
+  assert.equal(fresh.replay('scope:11', body(111))?.status, 200, 'the newest write is kept');
+  assert.equal(fresh.replay('scope:multi', body(0)), undefined, 'the oldest records of a multi-record scope went first');
+  assert.equal(fresh.replay('scope:0', body(100)), undefined, 'then the oldest whole scope');
+  await log.exclusive(async () => log.record('scope:12', body(112), 200, reply(112)));
+  assert.equal(new HarnessRequests(dir).replay('scope:12', body(112))?.status, 200, 'and the log still takes writes');
 });

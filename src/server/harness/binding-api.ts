@@ -40,7 +40,9 @@ export async function harnessBindingRequest(ctx: Ctx, floor: Floor, req: http.In
     // The log's lock is held across replay check, bind and record: the same request twice binds once, the second is a replay.
     await requests.exclusive(async () => {
       const replay = requests.replay(scope, body);
-      if (replay) return send(res, replay.status, replay.body, { [REPLAY_HEADER]: '1' });
+      // A retry by requestId gets its stored reply; a payload-only repeat only while that reply is still the truth (same bindings revision), else it is a normal request: 409 on a conflicting bind, idempotent when the binding already equals it.
+      const current = replay && (body.requestId !== undefined || (replay.body as { revision?: unknown } | null)?.revision === bindings.revision());
+      if (replay && current) return send(res, replay.status, replay.body, { [REPLAY_HEADER]: '1' });
       checkBindTarget(floor.opora.view(), place);
       const { changed } = await bindings.bind(floor.id, floor.dir, place, by, { rebind: body.rebind === true, revision: body.revision });
       const result = { ...reply(), changed };

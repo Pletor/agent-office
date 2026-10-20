@@ -79,6 +79,10 @@ export class HarnessBindings {
       for (const [floorId, b] of Object.entries(data.bindings)) {
         if (!object(b) || b.floorId !== floorId || [b.project, b.workspace, b.repoHash, b.checkoutPath, b.boundAt, b.boundBy].some((v) => typeof v !== 'string')) throw new Error('invalid binding');
       }
+      const place = (v: unknown) => object(v) && typeof v.project === 'string' && typeof v.workspace === 'string';
+      for (const a of data.audit) {
+        if (!object(a) || typeof a.at !== 'string' || !Number.isSafeInteger(a.revision) || typeof a.floorId !== 'string' || typeof a.repoHash !== 'string' || typeof a.by !== 'string' || !place(a.to) || (a.from !== null && !place(a.from))) throw new Error('invalid audit entry');
+      }
       return data;
     } catch { throw new HarnessError('Harness bindings are unreadable. Repair the saved file; it has not been overwritten.', 503); }
   }
