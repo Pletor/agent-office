@@ -5,13 +5,15 @@ import { readBody, send } from '../http/util.js';
 import { HarnessProfiles, HarnessError, parseHarnessLayer } from './profiles.js';
 import { harnessHandoff } from './handoff.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
-import { HARNESS_LEVELS, oporaHarnessTask } from '../../shared/harness-cascade.js';
+import { HARNESS_LEVELS, harnessLevel, oporaHarnessTask } from '../../shared/harness-cascade.js';
 import { harnessTarget } from '../../shared/harness-hierarchy.js';
 
 /**
  * Reads or saves profiles down to what `?task=` or `?node=` addresses: an Opora key of the floor's
  * project is placed on the canvas (its page, layer, area and sector resolve with it), a key of another
  * project or workspace is refused, and anything else is a custom task id. `by` goes into the audit.
+ * A save may name the node it was edited for (`at`): when the canvas has since moved the target so that
+ * level is another node now, it is refused (409) rather than written where the editor never looked.
  */
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean, by = '') {
   try {
@@ -27,6 +29,9 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       const body = JSON.parse(await readBody(req, 300_000));
       if (!body || typeof body !== 'object') throw new HarnessError('Expected a JSON object');
       if (body.scope === 'global' && !globalWrite) return send(res, 403, { error: 'Global settings require the administrator UI.' });
+      const level = harnessLevel(body.scope);
+      const at = level && level !== 'global' && level !== 'project' ? path.find((p) => p.level === level)?.node : undefined;
+      if (body.at !== undefined && body.at !== (at ?? '')) throw new HarnessError('The canvas moved this node since you loaded it: reload before saving.', 409);
       const layer = parseHarnessLayer(body.layer);
       const ids = Object.values(layer).flatMap((b) => b && 'resource' in b ? [b.resource] : []);
       if (ids.length) {

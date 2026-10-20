@@ -7,6 +7,7 @@ const LEVELS = ['repository', 'project', 'page', 'layer', 'area', 'sector', 'tas
 export async function remoteHarness(argv) {
   const args = [...argv];
   let task = '';
+  if (args.includes('--task') && args.includes('--node')) throw new Error('--task and --node name the same node: pass one of them');
   for (const flag of ['--task', '--node']) {
     const at = args.indexOf(flag);
     if (at < 0) continue;

@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { HarnessProfiles, HARNESS_STORE_VERSION, parseHarnessLayer } from '../src/server/harness/profiles.js';
 import { harnessHandoff, harnessPlannerBrief } from '../src/server/harness/handoff.js';
-import { HARNESS_LEVELS, harnessLevel, oporaHarnessTask, resolveHarness, type HarnessLevel, type HarnessPath } from '../src/shared/harness-cascade.js';
+import { HARNESS_LEVELS, harnessLevel, oporaHarnessTask, type HarnessLevel, type HarnessPath } from '../src/shared/harness-cascade.js';
+import { HarnessProfilesV1 } from './fixtures/harness-profiles-v1.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const dir = mkdtempSync(path.join(tmpdir(), 'harness-cascade-'));
@@ -139,26 +140,17 @@ test('profiles survive restart; stale revisions and invalid layers never overwri
   assert.throws(() => restarted.view('/repo'), /unreadable/);
 });
 
-/** How the 3-level store (version 1) read its file: the revision, and the layers it knows the keys of. */
-function v1Read(file: string) {
-  const data = JSON.parse(readFileSync(file, 'utf8')) as { revision: number; layers: Record<string, unknown> };
-  assert.ok(Number.isSafeInteger(data.revision) && data.revision >= 0 && data.layers && typeof data.layers === 'object');
-  for (const layer of Object.values(data.layers)) parseHarnessLayer(layer);
-  return data;
-}
-
-test('a 3-level store loads unchanged, and the hierarchy store rolls back to it: old keys byte-identical, new ones dormant', (t) => {
+test('a 3-level store loads unchanged, and the hierarchy store rolls back to it: the real version 1 code reads what version 2 wrote', (t) => {
   const { store, dir } = fixture(t);
   const file = path.join(dir, 'harness-profiles.json');
-  // What the version 1 store wrote: no version, no audit, these three key shapes.
-  const probe = new HarnessProfiles(dir);
-  probe.save('/repo', key('task1'), 'global', { color: { value: 'red' }, tools: { resource: 'guide:tools' } }, 0);
-  probe.save('/repo', key('task1'), 'repository', { color: { value: 'blue' } }, 1);
-  probe.save('/repo', key('task1'), 'task', { color: { value: 'green' } }, 2);
-  const written = JSON.parse(readFileSync(file, 'utf8'));
-  const v1 = { revision: written.revision, layers: written.layers };
+  // Written by the version 1 store itself (tests/fixtures/harness-profiles-v1.ts): no version, no audit, three key shapes.
+  const old = new HarnessProfilesV1(dir);
+  old.save('/repo', key('task1'), 'global', { color: { value: 'red' }, tools: { resource: 'guide:tools' } }, 0);
+  old.save('/repo', key('task1'), 'repository', { color: { value: 'blue' } }, 1);
+  old.save('/repo', key('task1'), 'task', { color: { value: 'green' } }, 2);
+  const v1 = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual(Object.keys(v1).sort(), ['layers', 'revision']);
   assert.deepEqual(Object.keys(v1.layers).map((k) => k.split(':')[0]).sort(), ['global', 'repo', 'task']);
-  writeFileSync(file, JSON.stringify(v1, null, 2));
   // 1. Loads as it is, with the same effective result the 3-level store gave.
   const legacy = store.view('/repo', key('task1'));
   assert.equal(legacy.revision, 3);
@@ -175,18 +167,42 @@ test('a 3-level store loads unchanged, and the hierarchy store rolls back to it:
   assert.deepEqual(Object.keys(v2.layers).filter((k) => !(k in v1.layers)).map((k) => k.split(':')[0]), ['node']);
   assert.equal(store.view('/repo', PATH).effective.color.scope, 'task', 'the task still wins over its sector');
   assert.equal(store.view('/repo', sibling('task')).effective.color.scope, 'sector');
-  // 3. Rollback: the version 1 reader takes the version 2 file as it is, sees the three levels it knows and ignores the rest.
-  const back = v1Read(file);
+  // 3. Rollback: the version 1 store takes the version 2 file as it is, sees the three levels it knows and ignores the rest.
+  const back = old.view('/repo', key('task1'));
   assert.equal(back.revision, 4);
-  for (const [k, layer] of Object.entries(v1.layers)) assert.deepEqual(back.layers[k], layer);
-  const threeLevels = resolveHarness({ global: back.layers.global as never, project: back.layers[Object.keys(v1.layers).find((k) => k.startsWith('repo:'))!] as never, task: back.layers[Object.keys(v1.layers).find((k) => k.startsWith('task:'))!] as never });
-  assert.deepEqual(threeLevels.color.binding, { value: 'green' });
-  // 4. A version 1 save (replace one key, bump the revision, drop nothing) keeps the dormant node: layer for a later upgrade.
+  assert.deepEqual(back.effective.color, { binding: { value: 'green' }, scope: 'task' });
+  assert.deepEqual(back.effective.tools, { binding: { resource: 'guide:tools' }, scope: 'global' });
+  assert.equal(old.view('/repo', key('task-other')).effective.color.scope, 'repository', 'the sector layer is dormant for the old code');
+  // 4. A version 1 save keeps the dormant node: layer, version and audit for a later upgrade.
+  old.save('/repo', '', 'global', { color: { value: 'violet' } }, 4);
+  const afterOld = JSON.parse(readFileSync(file, 'utf8'));
+  assert.equal(afterOld.version, HARNESS_STORE_VERSION);
+  assert.equal(afterOld.audit.length, 1);
   const nodeKey = Object.keys(v2.layers).find((k) => k.startsWith('node:'))!;
-  writeFileSync(file, JSON.stringify({ ...back, revision: back.revision + 1, layers: { ...back.layers, global: { color: { value: 'violet' } } } }, null, 2));
+  assert.deepEqual(afterOld.layers[nodeKey], { color: { value: 'sector' } });
   const upgraded = new HarnessProfiles(dir).view('/repo', sibling('task'));
   assert.equal(upgraded.revision, 5);
   assert.deepEqual(upgraded.effective.color, { binding: { value: 'sector' }, scope: 'sector', node: nodeKey.split(':').slice(2).join(':') });
+  assert.deepEqual(upgraded.layers.global, { color: { value: 'violet' } });
+});
+
+test('a task layer the 3-level store gave a node that is a sector today is read at the sector and moved on its next save', (t) => {
+  const { store, dir } = fixture(t);
+  const old = new HarnessProfilesV1(dir);
+  old.save('/repo', key('sector1'), 'task', { color: { value: 'teal' }, tone: { value: 'terse' } }, 0);
+  const sectorPath = PATH.filter((p) => p.level !== 'task');
+  const seen = store.view('/repo', sectorPath);
+  assert.deepEqual(seen.layers.sector, { color: { value: 'teal' }, tone: { value: 'terse' } }, 'the old task layer is the sector\'s own view');
+  assert.deepEqual(store.view('/repo', PATH).effective.color, { binding: { value: 'teal' }, scope: 'sector', node: key('sector1') }, 'and the cards under it inherit it');
+  assert.deepEqual(store.view('/repo', sibling('sector')).layers.sector, {}, 'a sibling sector sees nothing of it');
+  store.save('/repo', sectorPath, 'sector', { color: { value: 'teal' } }, 1);
+  const file = JSON.parse(readFileSync(path.join(dir, 'harness-profiles.json'), 'utf8'));
+  assert.deepEqual(Object.keys(file.layers).map((k) => k.split(':')[0]), ['node'], 'moved to the node key; the task key is gone');
+  assert.deepEqual(store.view('/repo', PATH).effective.color.scope, 'sector');
+  assert.equal(store.view('/repo', PATH).effective.tone, undefined, 'the save replaced the whole layer, as every save does');
+  // Audit entries that aren't ones are dropped on read, never crash a view.
+  writeFileSync(path.join(dir, 'harness-profiles.json'), JSON.stringify({ ...file, audit: [...file.audit, { at: 1 }, 'x', null] }));
+  assert.equal(store.audit().length, 1);
 });
 
 test('task IDs isolate projects, workspaces and separator-containing IDs', () => {

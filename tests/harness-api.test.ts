@@ -82,4 +82,8 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   assert.equal((await call(api + '&node=' + encodeURIComponent(oporaKey({ project: 'other', workspace: 'w' }, 'c1')), 'admin')).status, 400);
   assert.equal((await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'floor', layer: {}, revision: 4 })).status, 400);
   assert.equal((await call(api + '&task=custom', 'admin', { scope: 'sector', layer: {}, revision: 4 })).status, 400, 'a custom task has no sector above it');
+  // A save that names the node it was edited for is refused when the canvas has moved the target since.
+  assert.equal((await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'sector', layer: {}, revision: 4, at: k('sector') })).status, 200);
+  assert.equal((await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'sector', layer: {}, revision: 5, at: k('other-sector') })).status, 409);
+  assert.equal((await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'global', layer: {}, revision: 5, at: '' })).status, 200);
 });

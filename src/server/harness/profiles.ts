@@ -8,6 +8,9 @@
 //   repo:<sha256 of checkout>   the project (repository) layer
 //   task:<repo>:<task key>      a task's layer (the key is the Opora key, or a custom id)
 //   node:<repo>:<node key>      a page's, layer's, area's or sector's layer (new in version 2)
+// A task: layer the 3-level store (or a save before the canvas was read) wrote for a node that the
+// canvas now places above the task level is read as that level's layer (when it has no node: layer)
+// and moved to its node: key on that level's next save, so nothing a version 1 file assigned goes missing.
 // `version` and `audit` are new in version 2; a reader that doesn't know them ignores them.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -73,6 +76,7 @@ export class HarnessProfiles {
       if (data.version !== undefined && (!Number.isSafeInteger(data.version) || data.version < 1 || data.version > HARNESS_STORE_VERSION)) throw new Error('unknown store version');
       for (const layer of Object.values(data.layers)) parseHarnessLayer(layer);
       if (data.audit !== undefined && !Array.isArray(data.audit)) throw new Error('invalid audit');
+      if (data.audit) data.audit = data.audit.filter((a): a is HarnessAudit => object(a) && typeof a.at === 'string' && Number.isSafeInteger(a.revision) && typeof a.level === 'string' && typeof a.node === 'string' && typeof a.by === 'string' && Array.isArray(a.slots) && a.slots.every((s) => typeof s === 'string'));
       return data;
     } catch { throw new HarnessError('Harness profiles are unreadable. Repair the saved file; it has not been overwritten.', 503); }
   }
@@ -90,11 +94,18 @@ export class HarnessProfiles {
     if (node.length > 500 || /[\x00-\x1f]/.test(node)) throw new HarnessError('Invalid task ID');
     return (level === 'task' ? 'task:' : 'node:') + repoKey + ':' + node;
   }
+  /** The task: key a 3-level store would have given the node at `level`, which the canvas now puts above the task level. */
+  private legacyKey(repo: string, path: HarnessPath, level: HarnessLevel): string | undefined {
+    const node = pathNode(path, level);
+    if (!node || level === 'task') return undefined;
+    return this.key(repo, [{ level: 'task', node: node.node }], 'task');
+  }
   private assemble(data: Stored, repo: string, path: HarnessPath): HarnessProfile {
     const layers = emptyLayers();
     for (const level of HARNESS_LEVELS) {
-      const key = this.key(repo, path, level);
-      if (key && data.layers[key]) layers[level] = data.layers[key];
+      const key = this.key(repo, path, level), legacy = this.legacyKey(repo, path, level);
+      const layer = (key && data.layers[key]) || (legacy && data.layers[legacy]);
+      if (layer) layers[level] = layer;
     }
     return { revision: data.revision, path, layers, effective: resolveHarness(layers, path) };
   }
@@ -121,6 +132,8 @@ export class HarnessProfiles {
     const next = parseHarnessLayer(layer), data = this.read();
     if (revision !== data.revision) throw new HarnessError('Profiles changed elsewhere. Reload before saving.', 409);
     if (Object.keys(next).length) data.layers[key] = next; else delete data.layers[key];
+    const legacy = this.legacyKey(repo, path, level);
+    if (legacy) delete data.layers[legacy];
     data.revision++;
     data.version = HARNESS_STORE_VERSION;
     const entry: HarnessAudit = { at: new Date().toISOString(), revision: data.revision, level, node: pathNode(path, level)?.node ?? '', by: String(by).slice(0, 120), slots: Object.keys(next) };

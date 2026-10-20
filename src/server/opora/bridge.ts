@@ -364,6 +364,7 @@ export class OporaBridge {
       const lost = this.chosen && !chosen ? `The project this floor was linked to (${this.chosen}) isn't on Opora any more: ${byFolder ? `reading ${byFolder.name}, the one for this floor's folder, instead` : 'pick another'}` : undefined;
       const project = chosen ?? byFolder;
       if (!project) {
+        this.canvas = [];
         Object.assign(s, { connected: true, error: lost ?? `No Opora project plans this floor's folder (${this.floor.dir}): pick one in the 🛰️ Opora window, or add the folder in Opora as a local or git project`, project: null, linkedBy: undefined, workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], scope: [], checkedAt: Date.now() });
         return;
       }
@@ -375,7 +376,6 @@ export class OporaBridge {
       // Another project (its folder's, as the one picked left Opora) has another architecture: the whole of it.
       if (s.project && s.project.id !== project.id) this.focus = [];
       const nodes = await this.client.nodes(project.id, workspace);
-      this.canvas = nodes;
       const byId = new Map(nodes.map((n) => [n.id, n]));
       const isCard = (id: string) => byId.get(id)?.kind === 'node';
       const sectors = nodes.filter((n) => n.kind === 'sector').slice(0, MAX_SECTORS);
@@ -389,6 +389,8 @@ export class OporaBridge {
         }
       }
       this.noteReady(`${project.id}/${workspace}`, cards);
+      // Committed together with the project and workspace the nodes are of: a card is never placed on another's canvas.
+      this.canvas = nodes;
       Object.assign(s, { connected: true, error: [lost, gone].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
       // Judged on the architecture and workspace just read, not the ones before.
       const focusLost = this.focusLost();

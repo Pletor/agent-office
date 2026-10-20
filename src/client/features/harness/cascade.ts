@@ -38,10 +38,11 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
     h('details', {}, h('summary', {}, 'Latest saves (audit)'), audit))));
   /** Whether the loaded node has a level: global and project always, the rest only on its way down. */
   const onPath = (level: string) => level === 'global' || level === 'project' || view!.path.some((p) => p.level === level);
+  const canSave = () => !!view && view.writable && !(scope.value === 'global' && !view.globalWrite) && onPath(scope.value);
   function render() {
     if (!view) return;
     editor.value = JSON.stringify(view.layers[scope.value as HarnessLevel], null, 2);
-    editor.disabled = save.disabled = !view.writable || (scope.value === 'global' && !view.globalWrite) || !onPath(scope.value);
+    editor.disabled = save.disabled = !canSave();
     where.textContent = view.path.length ? 'Path: ' + view.path.map((p) => `${p.level} ${p.name ?? p.node}`).join(' › ') : 'Path: project only (load a task or node to edit the levels below).';
     effective.textContent = JSON.stringify(view.effective, null, 2);
     audit.textContent = view.audit.map((a) => `${a.at} r${a.revision} ${a.level}${a.node ? ' ' + a.node : ''} by ${a.by || '—'}: ${a.slots.length ? a.slots.join(', ') : 'removed'}`).join('\n') || 'No saves yet.';
@@ -61,14 +62,14 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
       if (write && target !== loadedTask) throw new Error('Load this task before saving.');
       const response = await fetch('/api/harness/profile?' + new URLSearchParams({ floor, task: target }), {
         signal, method: write ? 'POST' : 'GET', headers: { 'content-type': 'application/json' },
-        ...(write ? { body: JSON.stringify({ scope: scope.value, layer: JSON.parse(editor.value), revision: view?.revision }) } : {}),
+        ...(write ? { body: JSON.stringify({ scope: scope.value, layer: JSON.parse(editor.value), revision: view?.revision, at: view?.path.find((p) => p.level === scope.value)?.node ?? '' }) } : {}),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Could not load profiles');
       if (seq !== ticket || signal.aborted) return;
       view = data; loadedTask = target; render();
     } catch (err) { if (!signal.aborted && seq === ticket) status.textContent = (err as Error).message; }
-    finally { if (seq === ticket) { saving = false; loading = false; save.disabled = !view?.writable || (scope.value === 'global' && !view.globalWrite); } }
+    finally { if (seq === ticket) { saving = false; loading = false; save.disabled = !canSave(); } }
   }
   scope.onchange = render;
   reload.onclick = () => void load();
@@ -77,7 +78,7 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
   return { el, async assign(entry: HarnessText) {
     el.open = true;
     if (!view) await load();
-    if (!view || !view.writable || (scope.value === 'global' && !view.globalWrite)) { status.textContent = 'These profiles are read-only or unavailable.'; return; }
+    if (!canSave()) { status.textContent = view ? 'This level is read-only here, or the loaded node has no such level.' : 'These profiles are read-only or unavailable.'; return; }
     try {
       const layer = JSON.parse(editor.value);
       if (!/^[a-zA-Z][a-zA-Z0-9_.-]{0,79}$/.test(slot.value)) throw new Error('Choose a named assignment slot.');

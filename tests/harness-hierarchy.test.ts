@@ -16,6 +16,7 @@ const PLAN: HierarchyNode[] = [
   { id: 'sector2', kind: 'sector', name: '01.2', parentId: 'layer', memberOf: 'area-elsewhere' },
   { id: 'h01', kind: 'node', name: 'H01', parentId: 'sector' },
   { id: 'h02', kind: 'node', name: 'H02', parentId: 'sector' },
+  { id: 'sub', kind: 'node', name: 'Sub-card of H02', parentId: 'h02' },
   { id: 'h03', kind: 'node', name: 'H03', parentId: 'sector2' },
   { id: 'loose', kind: 'node', name: 'Card under the page', parentId: 'page' },
   { id: 'deep', kind: 'node', name: 'Extra level', parentId: 'layer' },
@@ -35,6 +36,7 @@ test('a task’s path goes down page › layer › area › sector › task, fro
   // Siblings share everything above them and differ at the task.
   assert.deepEqual(harnessPath(PLAN, place, 'h01').slice(0, 4), harnessPath(PLAN, place, 'h02').slice(0, 4));
   assert.notDeepEqual(harnessPath(PLAN, place, 'h01')[4], harnessPath(PLAN, place, 'h02')[4]);
+  assert.equal(harnessPath(PLAN, place, 'h02')[4].level, 'task', 'a card under a sector is the task even with a sub-card');
 });
 
 test('an area counts only when Opora says the sector is a member of it under the same parent', () => {
@@ -50,7 +52,8 @@ test('nodes above the sector are the page and the layer; what’s between them h
   assert.deepEqual(harnessPath(PLAN, place, 'root'), [], 'a root sector adds nothing to the project level');
   assert.deepEqual(harnessPath(PLAN, place, 'page').map((p) => p.level), ['page'], 'a page addressed is a page, not a task');
   assert.deepEqual(harnessPath(PLAN, place, 'sector').map((p) => p.level), ['page', 'layer', 'area', 'sector']);
-  assert.deepEqual(harnessPath(PLAN, place, 'area').map((p) => p.level), ['page', 'layer'], 'an area is never a parent, so on its own it is only its way down');
+  assert.deepEqual(harnessPath(PLAN, place, 'area').map((p) => [p.level, p.node]), [['page', k('page')], ['layer', k('layer')], ['area', k('area')]], 'an area addressed by its key is its own area level');
+  assert.deepEqual(harnessPath(PLAN, place, 'sub').map((p) => [p.level, p.node]), [['page', k('page')], ['layer', k('layer')], ['area', k('area')], ['sector', k('sector')], ['task', k('sub')]], 'a card under a card under the sector is the task; the card between has no level');
   const cards = [{ id: 's', kind: 'sector', name: 'Shop', parentId: null }, { id: 'c', kind: 'node', name: 'Cart', parentId: 's' }];
   assert.deepEqual(harnessPath(cards, place, 'c'), [{ level: 'task', node: k('c'), name: 'Cart' }], 'a card under a root sector is a task of the project');
 });

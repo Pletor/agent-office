@@ -22,7 +22,9 @@ export type HierarchyNode = Pick<CanvasNode, 'id' | 'kind' | 'name' | 'parentId'
  *   sector (or else the node) is a `memberOf` is the `area`.
  * - The cards above the sector are the `page` (the outermost) and the `layer` (the innermost, when
  *   there are two or more); any in between have no level and set nothing.
- * - A card with nothing under it is a `task`. A card with children is a page or a layer, never a task.
+ * - A card under a sector is a `task`, children or not (cards between the sector and it have no level).
+ *   With no sector above it, a card with nothing under it is a `task` and one with children is a page or a layer.
+ * - An area addressed by its own key is the `area` of its path (it is never a parent, so nothing is under it).
  * - A node id the canvas doesn't have is a task with nothing above it, so a custom task id keeps working.
  */
 export function harnessPath(nodes: readonly HierarchyNode[], place: OporaPlace, nodeId: string): HarnessPath {
@@ -36,11 +38,11 @@ export function harnessPath(nodes: readonly HierarchyNode[], place: OporaPlace, 
   const down = up.reverse().filter((n) => !(n.kind === 'sector' && !n.parentId));
   const hasChildren = (id: string) => nodes.some((n) => n.parentId === id && n.kind !== 'area');
   const last = down[down.length - 1];
-  const task = last && last.kind === 'node' && !hasChildren(last.id) ? last : undefined;
   const sectorAt = down.map((n) => n.kind).lastIndexOf('sector');
   const sector = sectorAt >= 0 ? down[sectorAt] : undefined;
+  const task = last && last.kind === 'node' && (sector || !hasChildren(last.id)) ? last : undefined;
   const above = (sector ? down.slice(0, sectorAt) : down.filter((n) => n !== task)).filter((n) => n.kind === 'node');
-  const area = (sector && areaOf(nodes, sector.id)) || (task && areaOf(nodes, task.id)) || undefined;
+  const area = self.kind === 'area' ? self.id : (sector && areaOf(nodes, sector.id)) || (task && areaOf(nodes, task.id)) || undefined;
   const entry = (level: HarnessPathNode['level'], n: HierarchyNode | undefined): HarnessPathNode[] => (n ? [{ level, node: key(n.id), ...(n.name ? { name: n.name } : {}) }] : []);
   return [
     ...entry('page', above[0]),
