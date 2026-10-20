@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaAgentName, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
-import { buildScope, cleanFocus, focusLine, inFocus, toggleFocus } from '../../shared/opora-scope.js';
+import { buildScope, cleanFocus, focusLine, inFocus, toggleFocus, type CanvasNode } from '../../shared/opora-scope.js';
 import { focusIntact, samePlace, type OporaPlace } from '../../shared/opora-identity.js';
 import { fillPrompt, type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
@@ -33,8 +33,8 @@ export interface BridgeFloor {
 }
 
 export interface BridgeEvents {
-  /** Optional task context, prepared before claiming a lease; failure prevents dispatch. */
-  prepareTask?(project: string, workspace: string, card: string, owner?: string): Promise<string>;
+  /** Optional task context, prepared before claiming a lease from the canvas as last read; failure prevents dispatch. */
+  prepareTask?(project: string, workspace: string, card: string, owner: string | undefined, nodes: readonly CanvasNode[]): Promise<string>;
   update(state: OporaState): void;
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
   prompt(id: PromptId): string;
@@ -47,6 +47,8 @@ interface Held extends OporaRun {
 }
 
 const POLL_MS = 20_000;
+/** How long a fresh read of the canvas (freshCanvasNodes) may take before it counts as Opora not answering. */
+const FRESH_MS = 2500;
 const HEARTBEAT_MS = 5 * 60_000;
 const LEASE_TTL = 900;
 /** How many finished runs stay in the list. */
@@ -86,6 +88,8 @@ export class OporaBridge {
   private live: ActivityFeed;
   /** The project whose folder is this floor's checkout, as of the last read. */
   private byFolder?: string;
+  /** The canvas as last read, every node with its parent and area, for what resolves a card's place in it (the Harness cascade). */
+  private canvas: CanvasNode[] = [];
   private client: OporaClient;
   private statePath: string;
   private pollTimer: NodeJS.Timeout;
@@ -198,6 +202,21 @@ export class OporaBridge {
     return 'What the cell works on isn’t in the project’s architecture any more, or not where it was: switch it again at the 🎚️ switchboard';
   }
 
+  /** The canvas's nodes as last read (docs/opora-identity.md): what places a node in the hierarchy. */
+  canvasNodes(): readonly CanvasNode[] {
+    return this.canvas;
+  }
+
+  /**
+   * The canvas of `place` read from Opora now, not the last poll (up to POLL_MS old): for a check that must
+   * see a move made since, such as a harness save's place re-checked under the store's lock. Bounded by
+   * FRESH_MS; throws an OporaError when Opora doesn't answer in time. It leaves the poll's state alone.
+   */
+  freshCanvasNodes(place: OporaPlace): Promise<readonly CanvasNode[]> {
+    if (this.stopped) return Promise.reject(new OporaError(0, 'The Opora link of this floor is stopped'));
+    return this.client.nodes(place.project, place.workspace, FRESH_MS);
+  }
+
   /** The focus in words for a brief, or '' for the whole project. */
   focusLine(): string {
     return focusLine(this.state.scope, this.focus);
@@ -235,7 +254,7 @@ export class OporaBridge {
     if (!desk) return 'Every desk is taken: send someone home, or build the back office out';
     const agent = oporaAgentName(this.floor.id, card.id);
     let context = '';
-    try { context = await this.events.prepareTask?.(project.id, workspace, card.id, owner) ?? ''; }
+    try { context = await this.events.prepareTask?.(project.id, workspace, card.id, owner, this.canvas) ?? ''; }
     catch (err) { return 'Task context: ' + (err as Error).message; }
     let lease;
     try {
@@ -357,6 +376,7 @@ export class OporaBridge {
       const lost = this.chosen && !chosen ? `The project this floor was linked to (${this.chosen}) isn't on Opora any more: ${byFolder ? `reading ${byFolder.name}, the one for this floor's folder, instead` : 'pick another'}` : undefined;
       const project = chosen ?? byFolder;
       if (!project) {
+        this.canvas = [];
         Object.assign(s, { connected: true, error: lost ?? `No Opora project plans this floor's folder (${this.floor.dir}): pick one in the 🛰️ Opora window, or add the folder in Opora as a local or git project`, project: null, linkedBy: undefined, workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], scope: [], checkedAt: Date.now() });
         return;
       }
@@ -381,6 +401,8 @@ export class OporaBridge {
         }
       }
       this.noteReady(`${project.id}/${workspace}`, cards);
+      // Committed together with the project and workspace the nodes are of: a card is never placed on another's canvas.
+      this.canvas = nodes;
       Object.assign(s, { connected: true, error: [lost, gone].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
       // Judged on the architecture and workspace just read, not the ones before.
       const focusLost = this.focusLost();

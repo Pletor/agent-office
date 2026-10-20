@@ -30,7 +30,7 @@ try {
   await page.getByLabel('Harness task', { exact: true }).fill('qa:cascade');
   await page.getByRole('button', { name: 'Load task / reload' }).click();
   await page.waitForResponse((r) => r.url().includes('/profile') && r.request().method() === 'GET');
-  for (const [scope, color] of [['global', 'red'], ['repository', 'blue'], ['task', 'green']]) {
+  for (const [scope, color] of [['global', 'red'], ['project', 'blue'], ['task', 'green']]) {
     await page.getByLabel('Harness scope').selectOption(scope);
     const layer = { ...before.layers[scope], 'qa.color': { value: color } };
     if (scope === 'global') layer['qa.instructions'] = { resource: 'guide:instructions' };
@@ -57,7 +57,7 @@ try {
   console.log('PASS: real authenticated API, 3-level persistence/inheritance, handoff preview, reopen, responsive screenshot.');
 } finally {
   // Restore only if no one edited concurrently; never overwrite a user's newer revision.
-  for (const scope of ['task', 'repository', 'global']) {
+  for (const scope of ['task', 'project', 'global']) {
     const response = await api.post(endpoint, { headers: { origin: base }, data: { scope, revision, layer: before.layers[scope] } });
     if (!response.ok()) { console.error('Restore stopped: profiles changed concurrently.'); break; }
     revision = (await response.json()).revision;
