@@ -36,7 +36,7 @@ export async function harnessBindingRequest(ctx: Ctx, floor: Floor, req: http.In
     const body = JSON.parse(await readBody(req, 64_000));
     const place = parseBindingPlace(body);
     const requests = new HarnessRequests(ctx.cfg.dataDir);
-    const scope = 'floor:' + floor.id;
+    const scope = 'floor:' + floor.id + ':' + by;
     const replay = requests.replay(scope, body);
     if (replay) return send(res, replay.status, replay.body, { [REPLAY_HEADER]: '1' });
     checkBindTarget(floor.opora.view(), place);

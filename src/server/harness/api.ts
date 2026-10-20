@@ -23,7 +23,7 @@ export const REPLAY_HEADER = 'x-harness-replay';
  * Opora node is checked against the binding first (`assertBoundWrite`: unbound, foreign, Opora down,
  * link drifted, unknown node), and a request that names the project and workspace it acts on
  * (`project`, `workspace`) is refused when they aren't the floor's. A save sent again with its
- * `requestId` (or the same payload) gets the stored result back and writes nothing (requests.ts).
+ * `requestId` (or the same payload) by the same identity gets the stored result back and writes nothing (requests.ts).
  * A save below the project at a node of the canvas names the node it was edited for (`at`, the node's key
  * on the path the preceding read returned): when the canvas has since moved the target so that level is
  * another node now, it is refused (409) rather than written where the editor never looked. A save at the
@@ -50,7 +50,8 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       throw new HarnessError((err as Error).message, 400);
     }
     let body: Record<string, unknown> | undefined, requests: HarnessRequests | undefined;
-    const scope = 'repo:' + harnessRepoKey(floor.dir);
+    // The log of accepted writes is the caller's own: a retry is by the same identity, and nobody is handed another's reply.
+    const scope = 'repo:' + harnessRepoKey(floor.dir) + ':' + by;
     if (req.method === 'POST') {
       if (!writable) return send(res, 403, { error: 'Only administrators and their active orchestrator can assign harness profiles.' });
       body = JSON.parse(await readBody(req, 300_000));

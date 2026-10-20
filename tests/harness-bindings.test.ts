@@ -207,6 +207,10 @@ test('the orchestrator contract: safe retries, CAS, an unknown node, a request n
   assert.equal(profiles.view(dir).revision, 2, 'nothing was written twice');
   assert.equal(profiles.audit(50).filter((a) => a.level === 'sector').length, 1, 'one audit entry');
   assert.equal((await call(planner('&node=' + encodeURIComponent(k('c1'))), '', { ...save, layer: { tone: { value: 'warm' } } }, undefined, auth)).status, 409);
+  // The log is the caller's own: the administrator sending the planner's exact request is not handed the planner's reply but a conflict of its own (stale revision).
+  const admin = await call(api, 'admin', save);
+  assert.equal(admin.status, 409);
+  assert.equal(admin.headers.get('x-harness-replay'), null);
   // CAS: a stale revision with a new payload is a conflict, and the layer is as the accepted save left it.
   const stale = await call(planner('&node=' + encodeURIComponent(k('c1'))), '', { scope: 'sector', layer: { tone: { value: 'warm' } }, revision: 1, at: k('sector') }, undefined, auth);
   assert.equal(stale.status, 409);
