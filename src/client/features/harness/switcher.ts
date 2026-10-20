@@ -7,7 +7,7 @@
 import { contextFloor, normalizeContext, rememberContext, sameContext, type HarnessContext } from './context-model';
 
 interface Bar { set(ctx: HarnessContext): void; guard(text: string, onDiscard: () => void, onKeep: () => void): void; label(ctx: HarnessContext): string }
-interface Editor { dirty(): boolean; discard(): void; show(ctx: HarnessContext): void }
+interface Editor { dirty(): boolean; busy?(): boolean; discard(): void; show(ctx: HarnessContext): void }
 interface Preview { pending(label: string): void }
 
 export function contextSwitcher(opts: { opened: string; initial: HarnessContext; bar: () => Bar; editor: () => Editor; preview: () => Preview; onApplied(ctx: HarnessContext, floorChanged: boolean): void }) {
@@ -29,6 +29,8 @@ export function contextSwitcher(opts: { opened: string; initial: HarnessContext;
     request(next: HarnessContext) {
       const was = context;
       if (sameContext(next, was)) return opts.bar().set(was);
+      // A save in flight finishes where it was sent: the switch waits for the user to try again.
+      if (opts.editor().busy?.()) return opts.bar().set(was);
       if (!opts.editor().dirty()) return apply(next);
       opts.bar().guard(`Unsaved changes to ${opts.bar().label(was)} would be lost.`, () => { opts.editor().discard(); apply(next); }, () => opts.bar().set(was));
     },

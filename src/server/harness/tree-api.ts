@@ -42,7 +42,10 @@ function describe(ctx: Ctx, floor: Floor): HarnessProjectView {
   const repo = harnessRepoKey(floor.dir);
   let bound;
   try { bound = new HarnessBindings(ctx.cfg.dataDir).forFloor(floor.id); }
-  catch (err) { return { floor: floor.id, name, repo, binding: null, status: 'error', notice: (err as Error).message }; }
+  catch (err) {
+    console.error('harness: the bindings could not be read: ' + (err as Error).message);
+    return { floor: floor.id, name, repo, binding: null, status: 'error', notice: 'The floor bindings could not be read: nothing is offered until an administrator repairs them.' };
+  }
   const view = floor.opora.view();
   if (!bound) return { floor: floor.id, name, repo, binding: null, status: 'unbound', notice: 'Not linked to an Opora project: only the project level can be edited here. An administrator binds the floor (office-harness --bind PROJECT WORKSPACE, or POST /api/harness/binding).' };
   const projectName = view.projects?.find((p) => p.id === bound.project)?.name || (view.project?.id === bound.project ? view.project.name : '');

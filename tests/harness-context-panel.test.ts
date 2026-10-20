@@ -179,8 +179,9 @@ test('stale profile: the editor drops a reply of the context it left, in whichev
   // And the other way round: the late reply is the current one's, the early one is stale.
   panel.show({ kind: 'global' });
   panel.show({ kind: 'project', floor: 'ample' });
+  // Both reads go to the opened floor: the stale Global read is answered first, the project's second; only the latter counts.
   await fetches.release('floor=ample', profile({ 'ample.voice': { value: 'voice' } }));
-  await fetches.release('floor=ample', profile({ 'ample.voice': { value: 'voice' } })); // the Global read (opened floor) arriving last
+  await fetches.release('floor=ample', profile({ 'ample.voice': { value: 'voice' } }));
   assert.deepEqual(views, ['project:tajemstvi', 'project:ample']);
   assert.match(editor.value, /ample\.voice/, 'the project layer, not the global one');
 });
@@ -213,6 +214,39 @@ test('the editor shows only its own level\'s slots and saves; the audit lists on
   assert.equal(sent.init?.method, 'POST');
   assert.deepEqual(JSON.parse(String(sent.init?.body)), { scope: 'project', layer: { 'ample.voice': { value: 'new' } }, revision: 7 });
   assert.equal(panel.dirty(), false);
+});
+
+test('a save in flight: Reload, Discard and a switch wait for it, and its reply is what the editor shows', async () => {
+  const fetches = heldFetch();
+  const panel = cascadePanel({ opened: 'ample', signal: new AbortController().signal, label: () => 'Project ample-shop', repoOf: () => 'ra', onView: () => {} });
+  const el = panel.el as unknown as FakeNode;
+  panel.show({ kind: 'project', floor: 'ample' });
+  await fetches.release('floor=ample', profile({ 'ample.voice': { value: 'voice' } }));
+  const editor = el.querySelector('textarea')!;
+  editor.value = '{"ample.voice":{"value":"new"}}';
+  (byText(el, 'Save layer') as unknown as { onclick(): void }).onclick();
+  await settle();
+  assert.equal(panel.busy(), true);
+  assert.ok(isDisabled(byText(el, 'Reload')!) && isDisabled(byText(el, 'Discard changes')!));
+  (byText(el, 'Reload') as unknown as { onclick(): void }).onclick();
+  await settle();
+  assert.equal(fetches.pending().length, 1, 'a reload never aborts the save');
+  const s = contextSwitcher({ opened: 'ample', initial: { kind: 'project', floor: 'ample' }, bar: () => ({ set: () => {}, label: () => '', guard: () => assert.fail('no guard while saving') }), editor: () => panel, preview: () => ({ pending: () => {} }), onApplied: () => {} });
+  s.request({ kind: 'global' });
+  assert.equal(model.contextKey(s.get()), 'project:ample', 'the switch waits for the save');
+  await fetches.release('floor=ample', profile({ 'ample.voice': { value: 'new' } }));
+  assert.equal(panel.busy(), false);
+  assert.match(editor.value, /"new"/);
+  assert.equal(panel.dirty(), false);
+});
+
+test('the audit names an unnamed node by its key', async () => {
+  const fetches = heldFetch();
+  const node = { kind: 'node', floor: 'ample', node: 'opora:p:w:sector', level: 'sector', name: 'opora:p:w:sector' } as const;
+  const panel = cascadePanel({ opened: 'ample', signal: new AbortController().signal, label: () => 'Sector', repoOf: () => 'ra', onView: () => {} });
+  panel.show(node);
+  await fetches.release('node=', profile({}, { path: [{ level: 'sector', node: 'opora:p:w:sector' }], audit: [{ at: '2026-10-20T10:00:00.000Z', revision: 3, level: 'sector', node: 'opora:p:w:sector', repo: 'ra', by: 'account:ana', slots: ['pace'] }] }));
+  assert.match((panel.el as unknown as FakeNode).querySelector('pre.harness-audit')!.textContent, /sector opora:p:w:sector by account:ana: pace/);
 });
 
 test('the unsaved-edit guard: a switch asks; Keep editing stays (edit kept), Discard switches; the context is remembered', async () => {

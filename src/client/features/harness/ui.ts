@@ -32,6 +32,9 @@ export function openHarness(opened: string) {
   const cascade = cascadePanel({ opened, signal: abort.signal, label: (c) => bar.label(c), repoOf: (f) => bar.repoOf(f), onView: (view, c) => { shown = { view, ctx: c }; receives.show(view, c, bar.label(c), owner(c)); }, onError: (c, message) => receives.pending(bar.label(c), message) });
   const assign = h('button.btn', { type: 'button', onclick: () => { if (current) cascade.assign(current); } }, 'Assign resource');
   const filter = h('input', { type: 'search', placeholder: 'Search resources…', 'aria-label': 'Search harness resources' });
+  // A project lists its own elements; this toggle adds the ones it inherits from Global (to assign or pack them here).
+  const inherited = h('input', { type: 'checkbox', 'aria-label': 'Also show Global elements' });
+  const inheritedField = h('label.harness-inherited', { title: 'A project lists its own elements; tick to add the Global ones it inherits (to assign or pack them here).' }, inherited, ' Also show Global elements');
   const category = h('select', { 'aria-label': 'Resource category' }, h('option', { value: '' }, 'All categories'), ...HARNESS_CATEGORIES.map((c) => h('option', { value: c, title: HARNESS_CATEGORY_PURPOSE[c] }, c)));
   const purpose = h('p.harness-purpose', { title: 'What this category is for' });
   const source = h('select', { 'aria-label': 'Resource source' }, h('option', { value: '' }, 'All sources'));
@@ -53,7 +56,7 @@ export function openHarness(opened: string) {
     h('header', {}, h('h2', {}, '📚 Harness'), h('span.harness-tag', {}, 'Model context library')),
     bar.el,
     h('p.harness-intro', {}, 'Instructions, skills, hooks, rules, commands, scripts, tools, MCP, memory, plugins, permissions, testing and operations references. Select what your model needs for this task.'),
-    h('div.harness-toolbar', {}, filter, category, source, refresh),
+    h('div.harness-toolbar', {}, filter, category, source, inheritedField, refresh),
     purpose,
     h('div.body.harness-body', {}, cascade.el, receives.el, h('aside', {}, status, list, sources), h('section.harness-reader', { 'aria-live': 'polite' }, back, title, origin, h('div.harness-actions', {}, add, assign), retryRead, text)),
     h('footer', {}, count, clear, download, copy),
@@ -75,8 +78,13 @@ export function openHarness(opened: string) {
     if (!response.ok) throw new Error(response.status === 401 ? 'Sign in again to read the library.' : 'Resource unavailable. Refresh and try again.');
     return response.json();
   }
+  /** In the list of the context: its own elements, plus Global's in a project when asked for. */
+  function listed(id: string) {
+    return elementInContext(id, context, bar.globalNamespaces()) || (context.kind !== 'global' && inherited.checked && elementInContext(id, { kind: 'global' }, bar.globalNamespaces()));
+  }
   function update() {
-    count.textContent = selected.size + ' selected / 24';
+    const hidden = catalog ? [...selected].filter((id) => !listed(id)).length : 0;
+    count.textContent = selected.size + ' selected / 24' + (hidden ? ` (${hidden} not in this view)` : '');
     add.disabled = !current || busy || (!selected.has(current.id) && selected.size >= 24);
     add.textContent = current && selected.has(current.id) ? 'Remove from pack' : 'Add to pack';
     copy.disabled = download.disabled = busy || selected.size === 0;
@@ -84,7 +92,8 @@ export function openHarness(opened: string) {
   function render() {
     if (!catalog) return;
     const words = filter.value.toLowerCase().trim().split(/\s+/);
-    const entries = catalog.entries.filter((e) => elementInContext(e.id, context, bar.globalNamespaces()) && (!category.value || e.category === category.value) && (!source.value || e.source === source.value) && words.every((w) => (e.title + ' ' + e.path + ' ' + e.source).toLowerCase().includes(w)));
+    inheritedField.hidden = context.kind === 'global';
+    const entries = catalog.entries.filter((e) => listed(e.id) && (!category.value || e.category === category.value) && (!source.value || e.source === source.value) && words.every((w) => (e.title + ' ' + e.path + ' ' + e.source).toLowerCase().includes(w)));
     status.textContent = entries.length + (entries.length === 1 ? ' resource' : ' resources') + (catalog.limited ? ' · catalog limit reached' : '');
     const picked = category.value as keyof typeof HARNESS_CATEGORY_PURPOSE | '';
     purpose.textContent = picked ? picked + ': ' + HARNESS_CATEGORY_PURPOSE[picked] : '';
@@ -156,7 +165,7 @@ export function openHarness(opened: string) {
   function applied(next: HarnessContext, floorChanged: boolean) {
     context = next;
     shown = undefined;
-    const inView = (id: string) => elementInContext(id, context, bar.globalNamespaces());
+    const inView = listed;
     if (floorChanged) selected.clear();
     // The reader shows an element of the list it belongs to, never one of the context left behind.
     if (floorChanged || (current && !inView(current.id))) {
@@ -200,7 +209,8 @@ export function openHarness(opened: string) {
   };
   clear.onclick = () => { if (!busy) { selected.clear(); render(); } };
   filter.oninput = category.onchange = source.onchange = render;
-  refresh.onclick = () => void load();
+  refresh.onclick = () => { bar.refresh(); void load(); };
+  inherited.onchange = render;
   copy.onclick = () => void exportPack(true);
   download.onclick = () => void exportPack(false);
   update();

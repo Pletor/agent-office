@@ -60,6 +60,9 @@
 .harness-guard { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; border: 2px solid var(--warn); border-radius: 9px; font-weight: 700; }
 .harness-guard[hidden], .harness-context-notice[hidden] { display: none; }
 .harness-guard span { flex: 1 1 220px; }
+.harness-inherited { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.harness-inherited[hidden] { display: none; }
+.harness-toolbar .harness-inherited input { flex: none; min-width: 0; width: 18px; height: 18px; margin: 0; padding: 0; }
 .harness-profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .harness-profile-grid > section { min-width: 0; }
 .harness-cascade textarea, .harness-cascade input, .harness-cascade select { width: 100%; box-sizing: border-box; padding: 8px; }
@@ -78,6 +81,7 @@
   .harness-context-row > label.harness-field { flex: 1 1 160px; }
   .harness-spec select { flex: 1 1 100%; padding: 6px 8px; }
   .harness-spec .harness-step-sep { display: none; }
+  .harness-toolbar .harness-inherited { grid-column: 1 / -1; order: 1; }
   .harness-context { max-height: 45vh; overflow-y: auto; }
   .harness-segmented .btn { min-width: 0; padding-inline: 14px; }
   .harness-tag, .harness-intro { display: none; }

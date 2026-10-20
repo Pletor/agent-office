@@ -51,6 +51,8 @@ const browser = await chromium.launch({ channel: process.platform === 'win32' ? 
 const delays = [];
 /** Every profile reply the page got, in the order it got them: [floor, node]. */
 const delivered = [];
+/** Profile requests the page aborted before their (held-back) reply came. */
+const aborted = [];
 async function open(width, height) {
   const page = await browser.newPage({ viewport: { width, height }, hasTouch: width < 700, isMobile: width < 700 });
   const errors = [];
@@ -62,8 +64,9 @@ async function open(width, height) {
     const body = await response.body();
     const wait = delays.find((d) => d.match(url))?.ms ?? 0;
     if (wait) await new Promise((r) => setTimeout(r, wait));
-    if (url.pathname.endsWith('/profile')) delivered.push([url.searchParams.get('floor'), url.searchParams.get('node') ?? '']);
-    await route.fulfill({ status: response.status(), headers: response.headers(), body }).catch(() => {}); // an aborted request is gone
+    // An aborted request is gone (the page dropped it): only replies the page really got count as delivered.
+    const got = await route.fulfill({ status: response.status(), headers: response.headers(), body }).then(() => true, () => false);
+    if (url.pathname.endsWith('/profile')) (got ? delivered : aborted).push([url.searchParams.get('floor'), url.searchParams.get('node') ?? '']);
   });
   await page.goto(lab + '?floor=ample');
   await page.waitForFunction(() => window.__ready);
@@ -107,6 +110,12 @@ try {
       await page.locator('.harness-list').getByText('ample-rules.md', { exact: true }).waitFor();
       noLeak(await viewText(page), TAJ_WORDS, 'Ample project');
       assert.equal(await page.locator('.harness-list').getByText('Start here', { exact: true }).count(), 0, 'a global element is not one of the project\'s own');
+      // The toggle adds the Global elements a project inherits (to assign or pack them), and takes them away again.
+      await page.getByLabel('Also show Global elements').check();
+      await page.locator('.harness-list').getByText('Start here', { exact: true }).waitFor();
+      noLeak(await viewText(page), TAJ_WORDS, 'Ample project with Global elements');
+      await page.getByLabel('Also show Global elements').uncheck();
+      assert.equal(await page.locator('.harness-list').getByText('Start here', { exact: true }).count(), 0);
     } else {
       // The context is remembered for the page's lifetime, not across pages: a fresh page starts on the floor's project.
       await settled(page, 'Ample voice');
@@ -178,13 +187,14 @@ try {
     // Stale response: Ample's profile is held back; the user moves on to Tajemství before it arrives.
     const picker = page.getByRole('combobox', { name: 'Project', exact: true });
     delays.push({ match: (u) => u.pathname.endsWith('/profile') && u.searchParams.get('floor') === 'ample', ms: 1500 });
-    const before = delivered.length;
+    const before = { aborted: aborted.length, delivered: delivered.length };
     await picker.selectOption('ample');
     await picker.selectOption('tajemstvi');
     await settled(page, 'Tajemství hlas');
-    await page.waitForFunction(() => true);
     await new Promise((r) => setTimeout(r, 1800));
-    assert.ok(delivered.slice(before).some(([f]) => f === 'ample'), 'the held-back Ample reply came back after the switch');
+    // Ample's held-back reply was answered after the switch: whether the page had aborted the request or dropped the reply
+    // (the browser doesn't tell), it never showed. Dropping a late reply that does reach the code is tests/harness-context-panel.test.ts.
+    assert.ok([...aborted.slice(before.aborted), ...delivered.slice(before.delivered)].some(([f]) => f === 'ample'), 'the held-back Ample reply came after the switch');
     assert.equal(await trail(page), 'Project tajemstvi-opory');
     noLeak(await viewText(page), AMPLE_WORDS, 'after the late Ample reply');
     // Fast switching, every Ample reply late: the view always ends on the last choice, clean.
@@ -220,7 +230,6 @@ try {
     assert.ok(seen.has('Global') && seen.has('Project'), 'the segmented control is reachable by Tab');
 
     // Closed and reopened, the library comes back to the context it was in; Esc closes it.
-    await page.getByRole('combobox', { name: 'Project', exact: true }).isDisabled();
     await page.getByRole('button', { name: 'Project', exact: true }).click();
     await page.getByRole('combobox', { name: 'Project', exact: true }).selectOption('tajemstvi');
     await page.getByRole('combobox', { name: 'Specialization', exact: true }).selectOption({ label: 'Page: Tajemství page' });

@@ -53,7 +53,8 @@ export function cascadePanel(opts: { opened: string; signal: AbortSignal; label(
   function controls() {
     editor.disabled = !canSave();
     save.disabled = !canSave() || !dirty();
-    reset.disabled = !dirty();
+    reset.disabled = saving || !dirty();
+    reload.disabled = saving;
   }
   function title(c: HarnessContext) {
     summary.textContent = "This level's own settings · " + opts.label(c).split(' › ').pop();
@@ -63,7 +64,7 @@ export function cascadePanel(opts: { opened: string; signal: AbortSignal; label(
   function renderAudit() {
     if (!view || !ctx) return;
     const names = new Map(view.path.map((p) => [p.node, p.name ?? '']));
-    audit.textContent = ownAudit(view.audit, ctx, opts.repoOf(contextFloor(ctx, opts.opened))).map((a) => `${a.at} r${a.revision} ${a.level}${a.node ? ' ' + (names.get(a.node) || a.node) : ''} by ${a.by || '—'}: ${a.slots.length ? a.slots.join(', ') : 'removed'}`).join('\n') || 'No saves yet.';
+    audit.textContent = ownAudit(view.audit, ctx, opts.repoOf(contextFloor(ctx, opts.opened))).map((a) => `${a.at} r${a.revision} ${a.level}${a.node ? ' ' + (names.get(a.node) || a.node) : ''} by ${a.by || '—'}: ${a.slots.length ? a.slots.join(', ') : 'removed'}`).join('\n') || 'No saves of this level among the latest 20.';
   }
   function render() {
     if (!view || !ctx) return;
@@ -82,7 +83,8 @@ export function cascadePanel(opts: { opened: string; signal: AbortSignal; label(
     return '/api/harness/profile?' + new URLSearchParams({ floor: contextFloor(c, opts.opened), ...(c.kind === 'node' ? { node: c.node } : {}) });
   }
   async function load(write = false) {
-    if (!ctx || (write && !canSave())) return;
+    // A save in flight is never aborted by a reload or a switch: its reply decides what the editor shows.
+    if (!ctx || saving || (write && !canSave())) return;
     const c = ctx;
     const turn = requests.next();
     const at = c.kind === 'node' && view ? pathNode(view.path, c.level)?.node : undefined;
@@ -116,6 +118,8 @@ export function cascadePanel(opts: { opened: string; signal: AbortSignal; label(
   return {
     el,
     dirty,
+    /** A save is in flight: the context must not change under it. */
+    busy: () => saving,
     /** Shows `next`'s own level, dropping whatever was loaded or loading for the one before. */
     show(next: HarnessContext) {
       ctx = next;
@@ -136,7 +140,7 @@ export function cascadePanel(opts: { opened: string; signal: AbortSignal; label(
     retitle() { if (ctx) title(ctx); renderAudit(); },
     async assign(entry: HarnessText) {
       el.open = true;
-      if (!canSave()) { status.textContent = view ? 'This level is read-only here.' : 'These profiles are read-only or unavailable.'; return; }
+      if (!canSave()) { status.textContent = saving ? 'Saving… assign again once it is done.' : !view ? 'Loading this level… assign again in a moment.' : 'This level is read-only here.'; return; }
       try {
         const layer = JSON.parse(editor.value);
         if (!/^[a-zA-Z][a-zA-Z0-9_.-]{0,79}$/.test(slot.value)) throw new Error('Choose a named assignment slot.');

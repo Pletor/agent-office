@@ -92,7 +92,10 @@ export function contextBar(opts: { opened: string; signal: AbortSignal; onReques
       if (i) selects.push(h('span.harness-step-sep', { 'aria-hidden': 'true' }, '›'));
       selects.push(select);
     }
+    // Rebuilt pickers keep the keyboard where it was: the one at the same step (or the last one).
+    const focused = typeof document !== 'undefined' && document.activeElement instanceof HTMLElement && spec.contains(document.activeElement) ? [...spec.querySelectorAll('select')].indexOf(document.activeElement as HTMLSelectElement) : -1;
     spec.replaceChildren(...selects);
+    if (focused >= 0) { const all = spec.querySelectorAll('select'); all[Math.min(focused, all.length - 1)]?.focus({ preventScroll: true }); }
   }
   function renderPicker() {
     const choices = projects.length ? projects : [{ floor: lastFloor, name: lastFloor, repo: '', binding: null, status: 'unbound', notice: '' } as ProjectChoice];
@@ -138,6 +141,9 @@ export function contextBar(opts: { opened: string; signal: AbortSignal; onReques
       globalNs = data.globalNamespaces ?? DEFAULT_GLOBAL;
       render();
       opts.onProjects?.();
+      // A remembered project this office no longer has falls back to the floor the library was opened on.
+      const at = ctx.kind === 'global' ? '' : ctx.floor;
+      if (at && projects.length && !projects.some((p) => p.floor === at)) opts.onRequest({ kind: 'project', floor: opts.opened });
     } catch { /* the picker keeps the floor it has; the tree says why when it fails too */ }
   }
 
@@ -167,8 +173,9 @@ export function contextBar(opts: { opened: string; signal: AbortSignal; onReques
     guard(text: string, onDiscard: () => void, onKeep: () => void) {
       guardText.textContent = text;
       guardEl.hidden = false;
-      discard.onclick = () => { guardEl.hidden = true; onDiscard(); };
-      keep.onclick = () => { guardEl.hidden = true; onKeep(); };
+      const back = () => (segmented.querySelector('[aria-pressed=true]') as HTMLElement | null)?.focus?.({ preventScroll: true });
+      discard.onclick = () => { guardEl.hidden = true; onDiscard(); back(); };
+      keep.onclick = () => { guardEl.hidden = true; onKeep(); back(); };
       keep.focus?.({ preventScroll: true });
     },
     /** Reads the projects and the current project's tree again. */
