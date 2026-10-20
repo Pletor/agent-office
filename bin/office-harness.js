@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // Read-only access to the same library from any model's local shell.
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { HarnessLibrary, harnessSources } from '../dist/server/server/harness/catalog.js';
+import { HarnessRegistry } from '../dist/server/server/harness/registry.js';
 import { harnessBundle } from '../dist/server/shared/harness.js';
 import { remoteHarness } from './harness-remote.js';
 const args = process.argv.slice(2);
@@ -13,15 +16,25 @@ if (args[0] === '--project') {
   project = args.shift();
   if (!project) throw new Error('--project requires a folder');
 }
-const action = args.shift();
-if (action && !['--read', '--bundle'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--read id | --bundle id ...]');
-const library = new HarnessLibrary(harnessSources(project, true));
+// Element revisions live in the office data dir beside the profiles; without one, versions read 0 and no tombstones are kept.
+let dataDir = process.env.AGENT_OFFICE_DATA_DIR ?? '';
+if (args[0] === '--data-dir') {
+  args.shift();
+  dataDir = args.shift();
+  if (!dataDir) throw new Error('--data-dir requires a folder');
+}
+if (!dataDir && existsSync(path.join(project, '.agent-office'))) dataDir = path.join(project, '.agent-office');
+let action = args.shift();
+if (action === '--catalog') action = undefined;
+if (action && !['--read', '--bundle', '--resolve'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--data-dir folder] [--catalog | --read id | --bundle id ... | --resolve id ...]');
+const library = new HarnessLibrary(harnessSources(project, true), dataDir ? new HarnessRegistry(dataDir) : undefined);
 const catalog = await library.list();
 if (!action) console.log(JSON.stringify(catalog, null, 2));
+else if (action === '--resolve') console.log(JSON.stringify(args.map((id) => library.resolve(id)), null, 2));
 else {
   if (!args.length || (action === '--read' && args.length !== 1) || args.length > 24) throw new Error('Select 1 entry to read, or 1–24 entries to bundle.');
   const entries = await Promise.all(args.map((id) => library.read(id)));
-  if (entries.some((e) => !e)) throw new Error('An entry is unavailable; list the catalog again.');
+  if (entries.some((e) => !e)) throw new Error('An entry is unavailable (use --resolve for its status); list the catalog again.');
   console.log(action === '--read' ? entries[0].text : harnessBundle(entries));
 }
 }

@@ -5,6 +5,7 @@ import { readBody, send } from '../http/util.js';
 import { HarnessProfiles, HarnessError, parseHarnessLayer } from './profiles.js';
 import { harnessHandoff } from './handoff.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
+import { HarnessRegistry } from './registry.js';
 import { oporaHarnessTask } from '../../shared/harness-cascade.js';
 
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean) {
@@ -19,9 +20,13 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       const layer = parseHarnessLayer(body.layer);
       const ids = Object.values(layer).flatMap((b) => b && 'resource' in b ? [b.resource] : []);
       if (ids.length) {
-        const lib = new HarnessLibrary(harnessSources(floor.dir, local));
-        const catalog = await lib.list();
-        for (const id of ids) if (!catalog.entries.some((entry) => entry.id === id)) throw new HarnessError('Unknown or inaccessible resource: ' + id);
+        const lib = new HarnessLibrary(harnessSources(floor.dir, local), new HarnessRegistry(ctx.cfg.dataDir));
+        await lib.list();
+        for (const id of ids) {
+          const found = lib.resolve(id);
+          if (found.status === 'missing') throw new HarnessError((found.missingSince ? 'Resource is missing since ' + found.missingSince : 'Resource is not published in this project') + ' (' + found.source + ' / ' + found.path + '): ' + id);
+          if (found.status !== 'available') throw new HarnessError('Unknown or inaccessible resource: ' + id);
+        }
       }
       store.save(floor.dir, task, body.scope, layer, body.revision);
     } else if (req.method !== 'GET') return send(res, 405, { error: 'Use GET or POST' });
@@ -48,7 +53,7 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   const active = plan?.workerId === id && (plan.mode === 'opora' || plan.mode === 'router');
   const admin = !!active && (!plan.owner || ctx.accounts.get(plan.owner)?.role === 'admin');
   if (req.method === 'GET' && url.searchParams.has('catalog')) {
-    return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin)).list());
+    return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin), new HarnessRegistry(ctx.cfg.dataDir)).list());
   }
   return harnessProfileRequest(ctx, floor, req, res, url, admin, admin, false);
 }

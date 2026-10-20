@@ -28,6 +28,10 @@ test('catalog reads published resources and exports provenance; rejects unavaila
   const skill = catalog.entries.find((e) => e.path === 'skills/fixture/SKILL.md')!;
   assert.equal(skill.category, 'skills');
   assert.equal(catalog.entries.find((e) => e.title === 'after-tool.py')?.category, 'hooks');
+  assert.equal(skill.group, 'fixture');
+  assert.match(skill.id, /^el:source:[0-9a-f]{20}$/);
+  assert.equal(skill.digest.length, 64);
+  assert.equal(skill.version, 0, 'no registry attached: unversioned');
   const entry = (await lib.read(skill.id))!;
   assert.match(harnessBundle([entry]), /Published \/ skills\/fixture\/SKILL.md/);
   assert.match(entry.text, /bounded search/);
@@ -49,8 +53,7 @@ test('skips credentials, binaries, oversized files and directory links outside a
   const lib = new HarnessLibrary([{ name: 'Published', dir: path.join(dir, 'published') }]);
   const catalog = await lib.list();
   const paths = catalog.entries.filter((e) => e.source === 'Published').map((e) => e.path);
-  assert.deepEqual(paths, ['binary.md', 'good.md']);
-  assert.equal(await lib.read(catalog.entries.find((e) => e.path === 'binary.md')!.id), undefined);
+  assert.deepEqual(paths, ['good.md']);
   // Replacing a listed directory with a link between listing and reading stays within root.
   await put('published/sub/entry.md', 'before');
   const second = await lib.list();

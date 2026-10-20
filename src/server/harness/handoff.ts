@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import { HarnessProfiles, HarnessError } from './profiles.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
+import { HarnessRegistry } from './registry.js';
 import { harnessBundle, type HarnessText } from '../../shared/harness.js';
 import type { HarnessProfile } from '../../shared/harness-cascade.js';
 
 /** Resolve once, then embed the actual content: later edits cannot change an already seated task. */
 export async function harnessHandoff(dataDir: string, repo: string, task: string, local: boolean, profile: HarnessProfile = new HarnessProfiles(dataDir).view(repo, task)) {
-  const library = new HarnessLibrary(harnessSources(repo, local));
+  const library = new HarnessLibrary(harnessSources(repo, local), new HarnessRegistry(dataDir));
   const entries: HarnessText[] = [];
   const ids = [...new Set(Object.values(profile.effective).flatMap(({ binding }) => binding && 'resource' in binding ? [binding.resource] : []))];
   if (ids.length > 24) throw new HarnessError('The effective harness exceeds 24 resources.');
