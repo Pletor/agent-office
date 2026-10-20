@@ -11,6 +11,7 @@ import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from '
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { HarnessError, harnessRepoKey } from './profiles.js';
+import { FileLockError, withFileLock, type Lease, type LockOptions } from './lock.js';
 import { parseOporaKey, samePlace, type OporaPlace } from '../../shared/opora-identity.js';
 
 /** One floor's binding: the project and workspace on Opora, and the checkout they plan. */
@@ -49,10 +50,16 @@ export function bindingView(binding: HarnessBinding | undefined): HarnessBinding
   return binding ? { project: binding.project, workspace: binding.workspace, repoHash: binding.repoHash, floorId: binding.floorId } : null;
 }
 
-/** Reads are plain reads of the file; a bind is read-check-write with atomic replacement, so a binding survives a restart or a crash mid-write. */
+const LOCK_WAIT_MS = 3000, LOCK_STALE_MS = 10_000;
+
+/**
+ * Reads are plain reads of the file; a bind is read-check-write under an exclusive lock file (lock.ts,
+ * `harness-bindings.json.lock`) with atomic replacement, so two offices (or two requests) binding at once
+ * never both pass the same check, and a binding survives a restart or a crash mid-write.
+ */
 export class HarnessBindings {
   private file: string;
-  constructor(private dataDir: string) { this.file = path.join(dataDir, 'harness-bindings.json'); }
+  constructor(private dataDir: string, private lockOptions: LockOptions = {}) { this.file = path.join(dataDir, 'harness-bindings.json'); }
   private read(): Stored {
     let text: string;
     for (let attempt = 0; ; attempt++) {
@@ -87,11 +94,19 @@ export class HarnessBindings {
   audit(limit = 20, floorId?: string): HarnessBindingAudit[] {
     return this.read().audit.filter((a) => floorId === undefined || a.floorId === floorId).slice(-Math.max(0, limit)).reverse();
   }
-  private replace(text: string) {
+  private async locked<T>(work: (lease: Lease) => T): Promise<T> {
+    mkdirSync(this.dataDir, { recursive: true });
+    try { return await withFileLock(this.file + '.lock', { waitMs: LOCK_WAIT_MS, staleMs: LOCK_STALE_MS, ...this.lockOptions }, async (lease) => work(lease)); }
+    catch (err) {
+      if (err instanceof FileLockError) throw new HarnessError(err.code === 'timeout' ? 'Another office is binding a floor. Try again in a moment.' : 'Another office took over the bindings lock while this bind waited; nothing was written. Try again.', 503);
+      throw err;
+    }
+  }
+  private replace(text: string, lease: Lease) {
     mkdirSync(this.dataDir, { recursive: true });
     const temp = this.file + '.' + randomUUID() + '.tmp';
     writeFileSync(temp, text, { mode: 0o600 });
-    try { renameSync(temp, this.file); }
+    try { lease.verify(); renameSync(temp, this.file); }
     catch (err) { try { unlinkSync(temp); } catch { /* keep the error that matters */ } throw err; }
   }
   /**
@@ -99,7 +114,11 @@ export class HarnessBindings {
    * to already changes nothing (and writes nothing); binding it to another place is a rebind, which
    * must be asked for (`rebind`) and is audited; with `revision` the bind is compare-and-set (409).
    */
-  bind(floorId: string, checkout: string, place: OporaPlace, by: string, options: { rebind?: boolean; revision?: unknown } = {}): { binding: HarnessBinding; revision: number; changed: boolean } {
+  bind(floorId: string, checkout: string, place: OporaPlace, by: string, options: { rebind?: boolean; revision?: unknown } = {}): Promise<{ binding: HarnessBinding; revision: number; changed: boolean }> {
+    return this.locked((lease) => this.bindLocked(lease, floorId, checkout, place, by, options));
+  }
+  /** The read, the checks and the write of a bind, all under the lock: what the file says now decides. */
+  private bindLocked(lease: Lease, floorId: string, checkout: string, place: OporaPlace, by: string, options: { rebind?: boolean; revision?: unknown }): { binding: HarnessBinding; revision: number; changed: boolean } {
     const data = this.read();
     if (options.revision !== undefined && options.revision !== data.revision) throw new HarnessError('Bindings changed elsewhere. Reload before binding.', 409);
     const current = data.bindings[floorId];
@@ -119,7 +138,7 @@ export class HarnessBindings {
       data.bindings[m.binding.floorId] = m.binding;
       data.audit = [...data.audit.slice(-(AUDIT_KEEP - 1)), { at: binding.boundAt, revision: data.revision, floorId: m.binding.floorId, repoHash, from: m.from ? { project: m.from.project, workspace: m.from.workspace } : null, to: { ...place }, by: binding.boundBy }];
     }
-    this.replace(JSON.stringify(data, null, 2));
+    this.replace(JSON.stringify(data, null, 2), lease);
     return { binding, revision: data.revision, changed: true };
   }
 }

@@ -37,13 +37,16 @@ export async function harnessBindingRequest(ctx: Ctx, floor: Floor, req: http.In
     const place = parseBindingPlace(body);
     const requests = new HarnessRequests(ctx.cfg.dataDir);
     const scope = 'floor:' + floor.id + ':' + by;
-    const replay = requests.replay(scope, body);
-    if (replay) return send(res, replay.status, replay.body, { [REPLAY_HEADER]: '1' });
-    checkBindTarget(floor.opora.view(), place);
-    const { changed } = bindings.bind(floor.id, floor.dir, place, by, { rebind: body.rebind === true, revision: body.revision });
-    const result = { ...reply(), changed };
-    try { requests.record(scope, body, 200, result); } catch (err) { console.error('harness: the request log was not written: ' + (err as Error).message); }
-    send(res, 200, result);
+    // The log's lock is held across replay check, bind and record: the same request twice binds once, the second is a replay.
+    await requests.exclusive(async () => {
+      const replay = requests.replay(scope, body);
+      if (replay) return send(res, replay.status, replay.body, { [REPLAY_HEADER]: '1' });
+      checkBindTarget(floor.opora.view(), place);
+      const { changed } = await bindings.bind(floor.id, floor.dir, place, by, { rebind: body.rebind === true, revision: body.revision });
+      const result = { ...reply(), changed };
+      try { requests.record(scope, body, 200, result); } catch (err) { console.error('harness: the request log was not written: ' + (err as Error).message); }
+      send(res, 200, result);
+    });
   } catch (err) {
     send(res, err instanceof HarnessError ? err.status : 400, { error: (err as Error).message });
   }

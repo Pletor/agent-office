@@ -4,7 +4,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Ctx } from '../src/server/office/context.js';
@@ -67,31 +69,31 @@ function office(t: test.TestContext) {
   }));
 }
 
-test('the binding store: one project and workspace per floor, explicit audited rebinding, CAS, a restart', (t) => {
+test('the binding store: one project and workspace per floor, explicit audited rebinding, CAS, a restart', async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'harness-bind-store-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const checkout = path.join(dir, 'repo');
   const store = new HarnessBindings(dir);
   assert.equal(store.forFloor('a'), undefined);
-  const first = store.bind('a', checkout, place, 'account:admin');
+  const first = await store.bind('a', checkout, place, 'account:admin');
   assert.equal(first.changed, true);
   assert.equal(first.revision, 1);
   assert.deepEqual(Object.keys(first.binding).sort(), ['boundAt', 'boundBy', 'checkoutPath', 'floorId', 'project', 'repoHash', 'workspace']);
   assert.equal(first.binding.repoHash, harnessRepoKey(checkout), 'the same key the profile store files the checkout under');
   // The same place again is nothing: no write, no audit entry, same revision.
-  const same = store.bind('a', checkout, place, 'account:other');
+  const same = await store.bind('a', checkout, place, 'account:other');
   assert.equal(same.changed, false);
   assert.equal(same.revision, 1);
   assert.equal(same.binding.boundBy, 'account:admin');
   assert.equal(store.audit().length, 1);
   // Another place is a rebind, which must be asked for; a stale revision is a conflict; names are not ids.
-  assert.throws(() => store.bind('a', checkout, { project: 'q', workspace: 'w' }, 'account:admin'), (e: Error & { status: number }) => e.status === 409 && /Rebinding is explicit/.test(e.message));
-  assert.throws(() => store.bind('a', checkout, { project: 'q', workspace: 'w' }, 'account:admin', { rebind: true, revision: 0 }), (e: Error & { status: number }) => e.status === 409 && /changed elsewhere/.test(e.message));
+  await assert.rejects(() => store.bind('a', checkout, { project: 'q', workspace: 'w' }, 'account:admin'), (e: Error & { status: number }) => e.status === 409 && /Rebinding is explicit/.test(e.message));
+  await assert.rejects(() => store.bind('a', checkout, { project: 'q', workspace: 'w' }, 'account:admin', { rebind: true, revision: 0 }), (e: Error & { status: number }) => e.status === 409 && /changed elsewhere/.test(e.message));
   // Another floor on the same checkout shares the place: it can't be bound elsewhere.
-  assert.throws(() => store.bind('a2', checkout, { project: 'q', workspace: 'w' }, 'account:admin'), (e: Error & { status: number }) => e.status === 409 && /Floor a has the same checkout bound/.test(e.message));
-  assert.equal(store.bind('a2', checkout, place, 'account:admin').changed, true);
+  await assert.rejects(() => store.bind('a2', checkout, { project: 'q', workspace: 'w' }, 'account:admin'), (e: Error & { status: number }) => e.status === 409 && /Floor a has the same checkout bound/.test(e.message));
+  assert.equal((await store.bind('a2', checkout, place, 'account:admin')).changed, true);
   // A rebind moves every floor on the checkout together, each with its own audit entry.
-  const moved = store.bind('a', checkout, { project: 'q', workspace: 'w2' }, 'worker:planner', { rebind: true, revision: 2 });
+  const moved = await store.bind('a', checkout, { project: 'q', workspace: 'w2' }, 'worker:planner', { rebind: true, revision: 2 });
   assert.equal(store.forFloor('a2')?.project, 'q', 'the other floor on the checkout moved with it');
   assert.equal(store.audit(20, 'a2')[0].by, 'worker:planner');
   assert.equal(moved.changed, true);
@@ -108,20 +110,20 @@ test('the binding store: one project and workspace per floor, explicit audited r
   assert.equal(readFileSync(path.join(dir, 'harness-bindings.json'), 'utf8'), '{not json');
 });
 
-test('the request log: a repeat by id or by payload gets the first result, the same id with another payload is refused', (t) => {
+test('the request log: a repeat by id or by payload gets the first result, the same id with another payload is refused', async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'harness-req-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const log = new HarnessRequests(dir);
   const body = { scope: 'task', layer: { tone: { value: 'warm' } }, revision: 3, requestId: 'r1' };
   assert.equal(log.replay('repo:x', body), undefined);
-  log.record('repo:x', body, 200, { revision: 4 });
+  await log.exclusive(async () => log.record('repo:x', body, 200, { revision: 4 }));
   assert.deepEqual(log.replay('repo:x', { ...body, layer: { tone: { value: 'warm' } } })?.body, { revision: 4 }, 'key order and the id do not count');
   assert.equal(log.replay('repo:y', body), undefined, 'another repository knows nothing of it');
   assert.throws(() => log.replay('repo:x', { ...body, revision: 4 }), (e: Error & { status: number }) => e.status === 409 && /another request/.test(e.message));
   assert.throws(() => log.replay('repo:x', { ...body, requestId: 'bad id!' }), (e: Error & { status: number }) => e.status === 400);
   // Without an id the payload itself (revision included) is the key; with a new revision it is a new write.
   const plain = { scope: 'task', layer: {}, revision: 5 };
-  log.record('repo:x', plain, 200, { revision: 6 });
+  await log.exclusive(async () => log.record('repo:x', plain, 200, { revision: 6 }));
   assert.deepEqual(log.replay('repo:x', { layer: {}, revision: 5, scope: 'task' })?.body, { revision: 6 });
   assert.equal(log.replay('repo:x', { ...plain, revision: 6 }), undefined);
   assert.notEqual(requestDigest(plain), requestDigest({ ...plain, revision: 6 }));
@@ -359,4 +361,55 @@ test('the CLI: --binding, --bind, --assign --request-id inside a worker; a clear
     assert.equal((await (await call('/api/harness/profile?floor=a', 'admin')).json() as { audit: unknown[] }).audit.length, 1);
     await assert.rejects(remoteHarness(['--assign', 'sector', assignments, '--node', k('c1')]), /Profiles changed elsewhere/, 'without the id, a stale revision is the conflict it is');
   } finally { console.log = log; for (const key of Object.keys(env)) delete process.env[key]; Object.assign(process.env, previous); }
+});
+
+const status = (code: number, message: RegExp) => (err: Error & { status: number }) => err.status === code && message.test(err.message);
+const child = (dir: string, mode: string, arg: string) => promisify(execFile)(process.execPath, ['--import', 'tsx', path.join(import.meta.dirname, 'fixtures', 'harness-bindings-writer.ts'), dir, mode, arg], { cwd: path.join(import.meta.dirname, '..'), timeout: 110_000 }).then((r) => JSON.parse(r.stdout) as string | number);
+
+test('the same save sent twice at once is written once: one revision, one audit entry, the second is a replay', async (t) => {
+  const { call, dir } = await office(t);
+  await new HarnessBindings(dir).bind('a', dir, place, 'account:admin');
+  const api = '/api/harness/profile?floor=a&node=' + encodeURIComponent(k('c1'));
+  const before = await (await call(api, 'admin')).json() as { revision: number };
+  const save = { scope: 'sector', layer: { tone: { value: 'once' } }, revision: before.revision, at: k('sector'), requestId: 'twice' };
+  const replies = await Promise.all([call(api, 'admin', save), call(api, 'admin', save)]);
+  assert.deepEqual(replies.map((r) => r.status), [200, 200]);
+  assert.equal(replies.filter((r) => r.headers.get('x-harness-replay') === '1').length, 1, 'exactly one of them is a replay');
+  const [first, second] = await Promise.all(replies.map((r) => r.json() as Promise<{ revision: number }>));
+  assert.equal(first.revision, before.revision + 1);
+  assert.equal(second.revision, before.revision + 1, 'the replay carries the first write result');
+  const after = await (await call(api, 'admin')).json() as { revision: number; audit: { slots: string[] }[] };
+  assert.equal(after.revision, before.revision + 1, 'one write');
+  assert.equal(after.audit.filter((a) => a.slots.includes('tone')).length, 1, 'one audit entry');
+  assert.equal(existsSync(path.join(dir, 'harness-requests.json.lock')), false, 'the request log lock is released');
+});
+
+test('the same bind sent twice at once binds once; two binds to different projects at once: one wins, the other is a 409', async (t) => {
+  const { call, dir } = await office(t);
+  const bind = { ...place, requestId: 'bind-twice' };
+  const replies = await Promise.all([call('/api/harness/binding?floor=a', 'admin', bind), call('/api/harness/binding?floor=a', 'admin', bind)]);
+  assert.deepEqual(replies.map((r) => r.status), [200, 200]);
+  assert.equal(replies.filter((r) => r.headers.get('x-harness-replay') === '1').length, 1);
+  assert.equal(new HarnessBindings(dir).audit().length, 1, 'one audit entry');
+  // Two stores (two offices on one directory) binding a new floor to different projects: the check and the write are one step under the lock.
+  const checkout = path.join(dir, 'other');
+  const results = await Promise.allSettled([new HarnessBindings(dir).bind('z', checkout, { project: 'p1', workspace: 'w' }, 'x'), new HarnessBindings(dir).bind('z2', checkout, { project: 'p2', workspace: 'w' }, 'y')]);
+  assert.deepEqual(results.map((r) => r.status).sort(), ['fulfilled', 'rejected']);
+  const lost = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+  assert.ok(status(409, /same checkout bound/)(lost.reason), String(lost.reason));
+  assert.equal(new HarnessBindings(dir).audit().length, 2, 'one more entry, the winner');
+  assert.equal(existsSync(path.join(dir, 'harness-bindings.json.lock')), false);
+});
+
+test('two office processes sending the same write, and binding one floor to different projects, at once', async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'harness-lock2-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const wrote = await Promise.all([child(dir, 'request', 'one'), child(dir, 'request', 'two')]);
+  assert.deepEqual([...wrote].sort(), ['replay', 'wrote'], 'one process wrote, the other found its record');
+  assert.equal(readFileSync(path.join(dir, 'writes.log'), 'utf8').trim().split(String.fromCharCode(10)).length, 1, 'one write, one audit line');
+  assert.equal(new HarnessRequests(dir).replay('repo:x', { scope: 'task', layer: { tone: { value: 'warm' } }, revision: 0, requestId: 'same' })?.status, 200);
+  const bound = await Promise.all([child(dir, 'bind', 'p1'), child(dir, 'bind', 'p2')]);
+  assert.deepEqual([...bound].sort(), [409, 'bound'], 'one project won, the other is a 409');
+  assert.equal(new HarnessBindings(dir).audit().length, 1);
+  assert.equal(new HarnessBindings(dir).revision(), 1);
 });

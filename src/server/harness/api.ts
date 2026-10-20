@@ -51,56 +51,64 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       try { return harnessTarget(nodes, place, id); }
       catch (err) { throw new HarnessError((err as Error).message, 400); }
     };
-    let path;
+    let path: ReturnType<typeof target>;
     let view: HarnessProfile;
     let body: Record<string, unknown> | undefined, requests: HarnessRequests | undefined;
     // The log of accepted writes is the caller's own: a retry is by the same identity, and nobody is handed another's reply.
     const scope = 'repo:' + harnessRepoKey(floor.dir) + ':' + by;
+    // The reply both a read and a committed write end in; a write records it in the request log (under that log's lock).
+    const respond = async () => {
+      const tasks = place && samePlace(place, linked) ? opora.cards.map((card) => ({ id: oporaHarnessTask(place.project, place.workspace, card.id), title: card.name })) : [];
+      let preview = '', warning = '';
+      try { preview = await harnessHandoff(ctx.cfg.dataDir, floor.dir, path, local, view); }
+      catch (err) { warning = (err as Error).message; }
+      if (!opora.connected) warning = [warning, `Opora isn't answering: this is the local store down the canvas as last read${opora.error ? ' (' + opora.error + ')' : ''}.`].filter(Boolean).join(' ');
+      const result = { ...view, ...rest, tasks, audit: store.audit(20, floor.dir, auditAll), binding: bindingView(binding), preview, warning };
+      // The write is done; remembering it is for the retry's sake and never fails the reply. The stored reply has no preview (a GET gives it).
+      if (body && requests) try { requests.record(scope, body, 200, { ...result, preview: '' }, id); } catch (err) { console.error('harness: the request log was not written: ' + (err as Error).message); }
+      send(res, 200, result);
+    };
     if (req.method === 'POST') {
       if (!writable) return send(res, 403, { error: 'Only administrators and their active orchestrator can assign harness profiles.' });
       body = JSON.parse(await readBody(req, 300_000));
       if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HarnessError('Expected a JSON object');
       if (body.scope === 'global' && !globalWrite) return send(res, 403, { error: 'Global settings require the administrator UI.' });
-      requests = new HarnessRequests(ctx.cfg.dataDir);
-      const replay = requests.replay(scope, body, id);
-      if (replay) return send(res, replay.status, replay.body, { [REPLAY_HEADER]: '1' });
-      const level = harnessLevel(body.scope);
-      const below = !!level && level !== 'global' && level !== 'project';
-      const canvasId = parseOporaKey(id)?.nodeId;
-      // The binding is checked before the key is placed on the canvas, so an unbound floor hears "bind first" and a foreign node "not yours", whatever the window reads.
-      assertBoundWrite({ floorId: floor.id, binding, opora: { connected: !!opora.connected, error: opora.error }, linked, key: id, below, claims: { project: body.project, workspace: body.workspace }, known: canvasId === undefined || canvas.some((n) => n.id === canvasId) });
-      path = target(canvas);
-      const at = below ? pathNode(path, level)?.node : undefined;
-      if (below && canvasId && at && body.at === undefined) throw new HarnessError(`Send "at": the key of the ${level} node this save was edited for, from the path the preceding read returned.`);
-      if (body.at !== undefined && body.at !== (at ?? '')) throw new HarnessError('The canvas moved this node since you loaded it: reload before saving.', 409);
-      /** The target's place on the canvas as `nodes` has it: the node at the level must still be `at`, and must not be a dead end. */
-      const placed = (nodes: readonly HierarchyNode[], fresh: boolean) => {
-        if (!below || !canvasId) return;
-        if (fresh && pathNode(target(nodes), level)?.node !== at) throw new HarnessError('The canvas moved this node while the save waited for the store: reload before saving.', 409);
-        // The addressed node itself is the one at this level (its canonical key, however the request spelled it).
-        const deadEnd = place && at === oporaKey(place, canvasId) ? harnessDeadEnd(nodes, canvasId) : undefined;
-        if (deadEnd) throw new HarnessError(deadEnd);
-      };
-      placed(canvas, false);
-      const layer = parseHarnessLayer(body.layer);
-      const ids = Object.values(layer).flatMap((b) => b && 'resource' in b ? [b.resource] : []);
-      if (ids.length) {
-        const lib = new HarnessLibrary(harnessSources(floor.dir, local), new HarnessRegistry(ctx.cfg.dataDir));
-        await lib.list();
-        for (const id of ids) assertBindable(lib, body.scope as never, id);
-      }
-      view = committed = await store.save(floor.dir, path, body.scope, layer, body.revision, by, () => placed(floor.opora.canvasNodes(), true));
+      const log = requests = new HarnessRequests(ctx.cfg.dataDir);
+      // The log's lock is held from the replay check to the record: the same write sent twice at once is done once, the second is a replay.
+      const posted: Record<string, unknown> = body;
+      await log.exclusive(async () => {
+        const replay = log.replay(scope, posted, id);
+        if (replay) return send(res, replay.status, replay.body, { [REPLAY_HEADER]: '1' });
+        const level = harnessLevel(posted.scope);
+        const below = !!level && level !== 'global' && level !== 'project';
+        const canvasId = parseOporaKey(id)?.nodeId;
+        // The binding is checked before the key is placed on the canvas, so an unbound floor hears "bind first" and a foreign node "not yours", whatever the window reads.
+        assertBoundWrite({ floorId: floor.id, binding, opora: { connected: !!opora.connected, error: opora.error }, linked, key: id, below, claims: { project: posted.project, workspace: posted.workspace }, known: canvasId === undefined || canvas.some((n) => n.id === canvasId) });
+        path = target(canvas);
+        const at = below ? pathNode(path, level)?.node : undefined;
+        if (below && canvasId && at && posted.at === undefined) throw new HarnessError(`Send "at": the key of the ${level} node this save was edited for, from the path the preceding read returned.`);
+        if (posted.at !== undefined && posted.at !== (at ?? '')) throw new HarnessError('The canvas moved this node since you loaded it: reload before saving.', 409);
+        /** The target's place on the canvas as `nodes` has it: the node at the level must still be `at`, and must not be a dead end. */
+        const placed = (nodes: readonly HierarchyNode[], fresh: boolean) => {
+          if (!below || !canvasId) return;
+          if (fresh && pathNode(target(nodes), level)?.node !== at) throw new HarnessError('The canvas moved this node while the save waited for the store: reload before saving.', 409);
+          // The addressed node itself is the one at this level (its canonical key, however the request spelled it).
+          const deadEnd = place && at === oporaKey(place, canvasId) ? harnessDeadEnd(nodes, canvasId) : undefined;
+          if (deadEnd) throw new HarnessError(deadEnd);
+        };
+        placed(canvas, false);
+        const layer = parseHarnessLayer(posted.layer);
+        const ids = Object.values(layer).flatMap((b) => b && 'resource' in b ? [b.resource] : []);
+        if (ids.length) {
+          const lib = new HarnessLibrary(harnessSources(floor.dir, local), new HarnessRegistry(ctx.cfg.dataDir));
+          await lib.list();
+          for (const id of ids) assertBindable(lib, posted.scope as never, id);
+        }
+        view = committed = await store.save(floor.dir, path, posted.scope, layer, posted.revision, by, () => placed(floor.opora.canvasNodes(), true));
+        await respond();
+      });
     } else if (req.method !== 'GET') return send(res, 405, { error: 'Use GET or POST' });
-    else { path = target(canvas); view = store.view(floor.dir, path); }
-    const tasks = place && samePlace(place, linked) ? opora.cards.map((card) => ({ id: oporaHarnessTask(place.project, place.workspace, card.id), title: card.name })) : [];
-    let preview = '', warning = '';
-    try { preview = await harnessHandoff(ctx.cfg.dataDir, floor.dir, path, local, view); }
-    catch (err) { warning = (err as Error).message; }
-    if (!opora.connected) warning = [warning, `Opora isn't answering: this is the local store down the canvas as last read${opora.error ? ' (' + opora.error + ')' : ''}.`].filter(Boolean).join(' ');
-    const result = { ...view, ...rest, tasks, audit: store.audit(20, floor.dir, auditAll), binding: bindingView(binding), preview, warning };
-    // The write is done; remembering it is for the retry's sake and never fails the reply. The stored reply has no preview (a GET gives it).
-    if (body && requests) try { requests.record(scope, body, 200, { ...result, preview: '' }, id); } catch (err) { console.error('harness: the request log was not written: ' + (err as Error).message); }
-    send(res, 200, result);
+    else { path = target(canvas); view = store.view(floor.dir, path); await respond(); }
   } catch (err) {
     if (committed) return send(res, 200, { ...committed, ...rest, tasks: [], audit: [], preview: '', warning: `Saved as revision ${committed.revision}, but the rest of this response could not be built: ${(err as Error).message}` });
     send(res, err instanceof HarnessError ? err.status : 400, { error: (err as Error).message });

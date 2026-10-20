@@ -3,10 +3,16 @@
 // gets the stored result back and changes nothing (no second save, no second audit entry): the same
 // `requestId` with the same payload, or, without one, the same payload (revision included). The same
 // `requestId` with another payload is a mistake, refused (409), never written.
+//
+// Two identical requests at once must not both write: the log's lock (lock.ts, `harness-requests.json.lock`)
+// is held across the whole of a write (`exclusive`: replay check, the write, the record), so the second
+// request waits, then finds the first's record and is a replay. `record` re-reads the file under that
+// lock, checks the lease is still ours (fencing) and replaces the file atomically.
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { HarnessError } from './profiles.js';
+import { FileLockError, withFileLock, type Lease, type LockOptions } from './lock.js';
 
 /** One accepted write: the request's id (when it had one), its payload's digest, and what it got back. */
 export interface HarnessRequestRecord { id?: string; digest: string; status: number; body: unknown; at: string }
@@ -40,9 +46,29 @@ export function requestDigest(body: Record<string, unknown>, target = ''): strin
 /** The most one stored result may take; a bigger one is not kept (the retry then gets an ordinary answer). */
 const MAX_RECORD_BYTES = 512 * 1024;
 
+/** A write holds the log's lock while it waits for the profiles' or the bindings' lock, so this wait is longer than theirs. */
+const LOCK_WAIT_MS = 15_000, LOCK_STALE_MS = 10_000;
+
 export class HarnessRequests {
   private file: string;
-  constructor(private dataDir: string) { this.file = path.join(dataDir, 'harness-requests.json'); }
+  private lease: Lease | undefined;
+  constructor(private dataDir: string, private lockOptions: LockOptions = {}) { this.file = path.join(dataDir, 'harness-requests.json'); }
+  /**
+   * Runs `work` holding the log's lock: the one place a write is replayed, done and recorded without
+   * another office doing the same in between. Out of wait is 503 (retry in a moment). One call at a time per instance.
+   */
+  async exclusive<T>(work: () => Promise<T>): Promise<T> {
+    mkdirSync(this.dataDir, { recursive: true });
+    try {
+      return await withFileLock(this.file + '.lock', { waitMs: LOCK_WAIT_MS, staleMs: LOCK_STALE_MS, ...this.lockOptions }, async (lease) => {
+        this.lease = lease;
+        try { return await work(); } finally { this.lease = undefined; }
+      });
+    } catch (err) {
+      if (err instanceof FileLockError) throw new HarnessError(err.code === 'timeout' ? 'Another office is writing harness settings. Try again in a moment.' : 'Another office took over the request-log lock while this write waited; retry it with the same requestId.', 503);
+      throw err;
+    }
+  }
   private read(): Stored {
     let text: string;
     for (let attempt = 0; ; attempt++) {
@@ -83,8 +109,11 @@ export class HarnessRequests {
   /**
    * Remembers that `body` at `target` was accepted under `scope` with `status` and `result`, so sending it
    * again changes nothing. A result too big to keep is not kept; the write it belongs to is done either way.
+   * Only inside `exclusive`: the log is re-read there, under the lock, never trusted from before it.
    */
   record(scope: string, body: Record<string, unknown>, status: number, result: unknown, target = ''): void {
+    const lease = this.lease;
+    if (!lease) throw new Error('HarnessRequests.record runs inside exclusive()');
     const id = parseRequestId(body.requestId);
     const entry: HarnessRequestRecord = { ...(id === undefined ? {} : { id }), digest: requestDigest(body, target), status, body: result, at: new Date().toISOString() };
     if (Buffer.byteLength(JSON.stringify(entry)) > MAX_RECORD_BYTES) return;
@@ -101,7 +130,7 @@ export class HarnessRequests {
     mkdirSync(this.dataDir, { recursive: true });
     const temp = this.file + '.' + randomUUID() + '.tmp';
     writeFileSync(temp, text, { mode: 0o600 });
-    try { renameSync(temp, this.file); }
+    try { lease.verify(); renameSync(temp, this.file); }
     catch (err) { try { unlinkSync(temp); } catch { /* keep the error that matters */ } throw err; }
   }
 }
