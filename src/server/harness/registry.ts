@@ -54,12 +54,13 @@ const text = (v: unknown, max = 1000): v is string => typeof v === 'string' && v
 const revisionOf = (v: unknown): number | undefined => Number.isSafeInteger(v) && (v as number) > 0 ? v as number : undefined;
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 /**
- * A root is pruned only when it is gone while some folder above it, other than the volume root, is still
- * there: a deleted worktree or clone. When nothing above it exists down to the volume root (an unmounted
- * disk, an absent share, a checkout that sat directly under the drive root) it is kept, conservatively.
+ * A place (the checkout a published folder belongs to) is pruned only when it is gone while some folder
+ * above it, other than the volume root, is still there: a deleted worktree or clone. When nothing above
+ * it exists down to the volume root (an unmounted disk, a checkout that sat directly under the drive
+ * root) it is kept, conservatively; a network path is never checked, so it is never pruned.
  */
 const rootGone = (dir: string) => {
-  if (!path.isAbsolute(dir) || existsSync(dir)) return false;
+  if (!path.isAbsolute(dir) || /^[\\/]{2}/.test(dir) || existsSync(dir)) return false;
   const volume = path.parse(dir).root;
   for (let above = path.dirname(dir); above !== volume; above = path.dirname(above)) if (existsSync(above)) return true;
   return false;
@@ -168,10 +169,10 @@ export class HarnessRegistry {
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EEXIST') return undefined;
         try {
-          const stale = Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS, seen = holder();
-          // Re-checked right before the unlink, so a lock just taken over by another writer is not the one deleted.
-          if (stale && seen !== undefined && holder() === seen && Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) unlinkSync(lock);
-        } catch { /* raced */ }
+          // A stale lock is claimed by renaming it (atomic: only one taker succeeds) and the claimed file is removed,
+          // so a fresh lock another writer created meanwhile is never the one deleted.
+          if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) { const claimed = lock + '.' + token; renameSync(lock, claimed); unlinkSync(claimed); }
+        } catch { /* raced, or already gone */ }
         await delay(LOCK_WAIT_MS);
       }
     }
@@ -181,13 +182,15 @@ export class HarnessRegistry {
   /**
    * Record one listing. `seen` are the elements found now; `complete` holds the source instances
    * (see sourceInstance) walked to the end, so only their own absent elements become tombstones;
-   * `roots` maps each instance hash seen to its real folder. Returns the revision of every seen
-   * element; 0 for one whose revision could not be persisted (registry unreadable, locked, unwritable or full).
+   * `roots` maps each instance hash seen to the real folder of the place it belongs to (the checkout, or
+   * the published folder itself when it has no boundary). Returns the revision of every seen element; 0
+   * for one whose revision could not be persisted (registry unwritable or full), and 0 for all of them
+   * when the registry could not be read or locked.
    */
   async observe(seen: Observed[], complete: Set<string>, roots: Record<string, string> = {}, now = new Date()): Promise<Map<string, number>> {
     const versions = new Map<string, number>();
     const release = await this.lock();
-    if (!release) { this.warn('is locked by another writer; this listing is not recorded'); return versions; }
+    if (!release) { this.warn('lock could not be taken (held by another writer, or the folder is not writable); this listing is not recorded'); return versions; }
     try {
       const data = this.read();
       if (this.unreadable) return versions;

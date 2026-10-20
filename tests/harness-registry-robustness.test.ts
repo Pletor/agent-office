@@ -88,7 +88,7 @@ test('a registry that cannot be written: an unpersisted revision reads 0, nothin
     const listed = await library.list();
     assert.equal(listed.entries.find((e) => e.path === 'rules/y.md')!.version, 0, 'a new element gets no revision until one is persisted');
     assert.equal(listed.entries.find((e) => e.path === 'rules/x.md')!.version, 0, 'new content of a known element: its new revision was not persisted');
-    // On Windows the lock is still taken, so a revision persisted earlier is still served; a read-only folder on POSIX refuses the lock too.
+    // On Windows the lock is still taken, so a revision persisted earlier is still served; a read-only folder on POSIX refuses the lock too (then everything reads 0).
     assert.equal(listed.entries.find((e) => e.path === 'rules/kept.md')!.version, win ? 1 : 0);
     assert.deepEqual(await readFile(registry), before, 'the file is untouched');
     assert.equal(warn.mock.callCount(), 1, 'one warning per registry');
@@ -173,20 +173,23 @@ test('a read that is denied leaves the walk incomplete: the element is not liste
   assert.equal(back.digest, y.digest);
 });
 
-test('records of a deleted checkout are pruned at the next save; a root whose parent is gone too is kept', async (t) => {
+test('records of a deleted checkout are pruned at the next save; a checkout that only lost its .harness folder and a root whose parent is gone too are kept', async (t) => {
   const { at, put, data, registry } = await fixture(t);
   await put('wts/wt1/.harness/rules/only-here.md', 'only in wt1');
+  await put('wts/wt2/.harness/rules/branch-only.md', 'only on this branch');
   await put('p/.harness/rules/p.md', 'p');
   const only = (await lib(at('wts/wt1'), data).list()).entries.find((e) => e.path === 'rules/only-here.md')!;
+  const branchOnly = (await lib(at('wts/wt2'), data).list()).entries.find((e) => e.path === 'rules/branch-only.md')!;
   await lib(at('p'), data).list();
   let stored = JSON.parse(await readFile(registry, 'utf8')) as { elements: Record<string, { instances: Record<string, unknown> }>; roots: Record<string, string> };
-  assert.ok(Object.values(stored.roots).some((dir) => dir.toLowerCase().endsWith(path.join('wt1', '.harness').toLowerCase())), 'the root of each instance is kept with its hash');
+  assert.ok(Object.values(stored.roots).some((dir) => dir.toLowerCase().endsWith('wt1')), 'the place of each instance is the checkout, kept with the instance hash');
   // A root that cannot be checked (nothing above it but the volume root: an unmounted disk, an absent share) is kept, conservatively.
   const ghost = 'a'.repeat(16), ghostId = 'el:project:' + 'b'.repeat(20);
   stored.roots[ghost] = path.resolve('/no-such-parent-' + randomUUID(), 'wt');
   stored.elements[ghostId] = { ...stored.elements[only.id], instances: { [ghost]: stored.elements[only.id].instances[Object.keys(stored.elements[only.id].instances)[0]] } };
   await writeFile(registry, JSON.stringify(stored, null, 1));
   await rm(at('wts/wt1'), { recursive: true, force: true });
+  await rm(at('wts/wt2/.harness'), { recursive: true, force: true }); // a branch without published folders: the checkout is still there
   await put('p/.harness/rules/p.md', 'p changed');
   const p = lib(at('p'), data);
   await p.list();
@@ -194,6 +197,7 @@ test('records of a deleted checkout are pruned at the next save; a root whose pa
   assert.equal(stored.elements[only.id], undefined, 'the deleted worktree\'s only element is gone from the registry');
   assert.equal(Object.values(stored.roots).some((dir) => dir.toLowerCase().includes('wt1')), false);
   assert.ok(stored.elements[ghostId], 'the unreachable root is kept');
+  assert.ok(stored.elements[branchOnly.id], 'a checkout that only switched branches keeps its records');
   assert.equal(p.resolve(only.id).status, 'unknown');
 });
 

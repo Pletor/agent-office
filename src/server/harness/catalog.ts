@@ -133,7 +133,8 @@ export class HarnessLibrary {
       sources.push({ name: source.name, available: !!root });
       if (!root) continue;
       const verified = root, instance = sha256(CASELESS ? root.toLowerCase() : root).slice(0, 16);
-      roots[instance] = root;
+      // The place this instance belongs to: the checkout for a project folder, else the folder itself (see registry pruning).
+      roots[instance] = boundary ?? root;
       let whole = true;
       const walk = async (rel: string, depth: number): Promise<void> => {
         if (++visits > MAX_VISITS || entries.length >= MAX_FILES || depth > 10) { limited = true; whole = false; return; }
