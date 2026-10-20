@@ -121,14 +121,15 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   // The audit a worker reads is its floor's repository's: nothing of another floor, no global saves. The administrator sees everything.
   const adminAudit = (await (await call(api, 'admin')).json()).audit;
   assert.ok(adminAudit.some((a: { level: string }) => a.level === 'global') && adminAudit.length >= 8);
+  assert.equal((await call('/api/harness/profile?floor=floor-b', 'admin', { scope: 'repository', layer: { own: { value: 'b' } }, revision: 9 })).status, 200);
   const workerB = await (await call('/office/harness?worker=worker-b', '', undefined, base, 'Bearer test-token')).json();
-  assert.deepEqual(workerB.audit, [], 'floor B has no saves, and sees none of floor A\'s keys, slots or accounts');
+  assert.deepEqual(workerB.audit.map((a: { level: string; slots: string[] }) => [a.level, a.slots]), [['project', ['own']]], 'floor B\'s worker sees its own repository\'s save and none of floor A\'s keys, slots or accounts');
   assert.deepEqual(workerB.levels, ['global', 'project', 'page', 'layer', 'area', 'sector', 'task']);
   const workerA = await (await call('/office/harness?worker=planner', '', undefined, base, 'Bearer test-token')).json();
   assert.ok(workerA.audit.length > 0 && workerA.audit.every((a: { level: string; repo: string }) => a.level !== 'global' && a.repo === workerA.audit[0].repo), 'floor A\'s planner sees only its repository\'s saves below global');
   // The CLI sends `at` from the path it read right before saving, so a card the canvas moved in between is refused (409).
   const assignments = path.join(dir, 'assignments.json');
-  writeFileSync(assignments, JSON.stringify({ revision: 9, layer: { tone: { value: 'cli' } } }));
+  writeFileSync(assignments, JSON.stringify({ revision: 10, layer: { tone: { value: 'cli' } } }));
   const env = { AGENT_OFFICE_HOOK_URL: base, AGENT_OFFICE_WORKER_ID: 'planner', AGENT_OFFICE_HOOK_TOKEN: 'test-token' };
   const previous = { ...process.env };
   Object.assign(process.env, env);
@@ -138,12 +139,18 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   try {
     moveAfterRead = true;
     await assert.rejects(remoteHarness(['--assign', 'sector', assignments, '--node', k('c1')]), /canvas moved this node/);
-    assert.equal((await (await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin')).json()).revision, 9, 'nothing was written');
+    assert.equal((await (await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin')).json()).revision, 10, 'nothing was written');
     const saved = await remoteHarness(['--assign', 'sector', assignments, '--node', k('c1')]).then(() => JSON.parse(printed.pop()!));
     assert.deepEqual(saved.effective.tone, { binding: { value: 'cli' }, scope: 'sector', node: k('sector2'), nodeName: 'Sector 2' }, 'read again, Card 1 is in Sector 2 now and the save goes there');
     assert.equal(saved.audit[0].node, k('sector2'));
     await assert.rejects(remoteHarness(['--assign', 'area', assignments, '--node', k('c4')]), /has no area on its way down the canvas/);
     await assert.rejects(remoteHarness(['--assign', 'sector', assignments]), /needs the node it is for/);
     await assert.rejects(remoteHarness(['--assign', 'sector', assignments, '--node', k('c1'), '--at', k('sector')]), /canvas moved this node/, 'an explicit --at is sent as given');
+    await assert.rejects(remoteHarness(['--assign', 'repository', assignments, '--at', k('sector')]), /takes none/);
+    await assert.rejects(remoteHarness(['--assign', 'sector', assignments, '--at', k('sector')]), /goes with --task ID or --node ID/);
+    // The dead-end check sees through a non-canonical spelling of the key.
+    const spelled = await call(api + '&node=' + encodeURIComponent('opora:p:w:m%69d'), 'admin', { scope: 'layer', layer: { palette: { value: 'cold' } }, revision: 11, at: k('mid') });
+    assert.equal(spelled.status, 400);
+    assert.match((await spelled.json()).error, /no task's path goes through it/);
   } finally { console.log = log; for (const key of Object.keys(env)) delete process.env[key]; Object.assign(process.env, previous); }
 });

@@ -59,7 +59,11 @@ export interface HarnessAudit {
 export const HARNESS_STORE_VERSION = 2;
 /** Audit entries kept, oldest dropped first. */
 const AUDIT_KEEP = 200;
-/** How long a save waits for another office process's lock before giving up (ms), and how old a lock is stale. */
+/**
+ * How long a save waits for another office process's lock before giving up (ms), and how old a lock is
+ * stale (a crashed holder's). A save holds the lock for one read and one write, milliseconds; the stale
+ * age must stay far above that, or a slow holder's lock would be taken over under it.
+ */
 const LOCK_WAIT_MS = 3000, LOCK_STALE_MS = 10_000;
 interface Stored { version?: number; revision: number; layers: Record<string, HarnessLayer>; audit?: HarnessAudit[]; legacyTasks?: string[] }
 
@@ -80,7 +84,8 @@ export class HarnessProfiles {
   constructor(private dataDir: string) { this.file = path.join(dataDir, 'harness-profiles.json'); this.lock = this.file + '.lock'; }
   private read(): Stored {
     let text: string;
-    // Windows refuses a read for a moment while another process replaces the file: try again a few times.
+    // Windows refuses a read for a moment while another process replaces the file. The read is synchronous,
+    // so this is a short spin (tens of attempts, no sleep): it covers the rename itself, not a slow writer.
     for (let attempt = 0; ; attempt++) {
       try { text = readFileSync(this.file, 'utf8'); break; }
       catch (err) {
@@ -166,7 +171,12 @@ export class HarnessProfiles {
       }
     }
   }
-  /** Runs `work` holding the lock file: created exclusively, waited for briefly, taken over when stale (a crashed process left it). */
+  /**
+   * Runs `work` holding the lock file: created exclusively, waited for briefly, taken over when stale (a
+   * crashed process left it). A stale lock is taken over by renaming it away, so of two waiters that both
+   * found it stale only the one whose rename succeeds removes it, and neither can remove the fresh lock
+   * the other creates right after.
+   */
   private async locked<T>(work: () => Promise<T>): Promise<T> {
     mkdirSync(this.dataDir, { recursive: true });
     const until = Date.now() + LOCK_WAIT_MS;
@@ -175,7 +185,13 @@ export class HarnessProfiles {
       try { fd = openSync(this.lock, 'wx', 0o600); }
       catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-        try { if (Date.now() - statSync(this.lock).mtimeMs > LOCK_STALE_MS) unlinkSync(this.lock); } catch { /* gone already, or still someone's */ }
+        try {
+          if (Date.now() - statSync(this.lock).mtimeMs > LOCK_STALE_MS) {
+            const gone = this.lock + '.stale.' + randomUUID();
+            renameSync(this.lock, gone);
+            unlinkSync(gone);
+          }
+        } catch { /* gone already, or still someone's */ }
         if (Date.now() > until) throw new HarnessError('Another office is saving harness profiles. Try again in a moment.', 503);
         await sleep(5 + Math.random() * 20);
         continue;
@@ -203,7 +219,9 @@ export class HarnessProfiles {
       const legacy = this.legacyKey(data, repo, path, level);
       if (Object.keys(next).length) data.layers[key] = next; else delete data.layers[key];
       // The lifted layer lives at its node: key from now on; the task: key stays as it was, for a rollback.
-      if (legacy) data.legacyTasks = data.legacyTasks?.filter((k) => k !== legacy);
+      // A task: key this office writes (a task save, legacy or not) is the card's task layer and nothing else.
+      const settled = legacy ?? (level === 'task' ? key : undefined);
+      if (settled) data.legacyTasks = data.legacyTasks?.filter((k) => k !== settled);
       if (data.legacyTasks && !data.legacyTasks.length) delete data.legacyTasks;
       data.revision++;
       data.version = HARNESS_STORE_VERSION;

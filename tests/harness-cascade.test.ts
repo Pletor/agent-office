@@ -287,10 +287,12 @@ test('a task: key version 2 wrote stays the card’s task layer: a leaf card tha
   const old = new HarnessProfilesV1(dir), fresh = new HarnessProfiles(dir);
   old.save('/repo', key('card'), 'task', { color: { value: 'green' } }, 0);
   assert.equal(fresh.view('/repo', widened).effective.color.scope, 'layer', 'a version 1 task: key is lifted');
-  await fresh.save('/repo', leaf, 'task', { color: { value: 'lime' } }, 1);
-  await fresh.save('/repo', [{ level: 'page', node: key('page1') }, { level: 'task', node: key('card2') }], 'task', { color: { value: 'olive' } }, 2);
-  assert.equal(fresh.view('/repo', widened).effective.color.scope, 'layer', 'the version 1 key is still the one to lift, even after the card’s own task layer was saved again');
+  await fresh.save('/repo', [{ level: 'page', node: key('page1') }, { level: 'task', node: key('card2') }], 'task', { color: { value: 'olive' } }, 1);
+  assert.equal(fresh.view('/repo', widened).effective.color.scope, 'layer', 'the version 1 key is still the one to lift after an unrelated task save');
   assert.equal(fresh.view('/repo', [{ level: 'page', node: key('page1') }, { level: 'layer', node: key('card2') }, { level: 'task', node: key('child') }]).effective.color, undefined, 'a key version 2 wrote is never lifted');
+  await fresh.save('/repo', leaf, 'task', { color: { value: 'lime' } }, 2);
+  assert.equal(fresh.view('/repo', widened).effective.color, undefined, 'once this office saves the card’s task layer, the key is the card’s and lifts no more');
+  assert.deepEqual(fresh.view('/repo', leaf).layers.task, { color: { value: 'lime' } });
 });
 
 test('task IDs isolate projects, workspaces and separator-containing IDs', () => {

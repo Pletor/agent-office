@@ -7,7 +7,7 @@ import { harnessHandoff } from './handoff.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { HARNESS_LEVELS, harnessLevel, oporaHarnessTask, pathNode } from '../../shared/harness-cascade.js';
 import { harnessDeadEnd, harnessTarget } from '../../shared/harness-hierarchy.js';
-import { parseOporaKey } from '../../shared/opora-identity.js';
+import { oporaKey, parseOporaKey } from '../../shared/opora-identity.js';
 
 /**
  * Reads or saves profiles down to what `?task=` or `?node=` addresses: an Opora key of the floor's
@@ -37,10 +37,11 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       const level = harnessLevel(body.scope);
       const below = level && level !== 'global' && level !== 'project';
       const at = below ? pathNode(path, level)?.node : undefined;
-      const canvasId = place && parseOporaKey(id) ? parseOporaKey(id)!.nodeId : undefined;
+      const canvasId = place ? parseOporaKey(id)?.nodeId : undefined;
       if (below && canvasId && at && body.at === undefined) throw new HarnessError(`Send "at": the key of the ${level} node this save was edited for, from the path the preceding read returned.`);
       if (body.at !== undefined && body.at !== (at ?? '')) throw new HarnessError('The canvas moved this node since you loaded it: reload before saving.', 409);
-      const deadEnd = below && canvasId && at === id ? harnessDeadEnd(floor.opora.canvasNodes(), canvasId) : undefined;
+      // The addressed node itself is the one at this level (its canonical key, however the request spelled it).
+      const deadEnd = below && canvasId && place && at === oporaKey(place, canvasId) ? harnessDeadEnd(floor.opora.canvasNodes(), canvasId) : undefined;
       if (deadEnd) throw new HarnessError(deadEnd);
       const layer = parseHarnessLayer(body.layer);
       const ids = Object.values(layer).flatMap((b) => b && 'resource' in b ? [b.resource] : []);

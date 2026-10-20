@@ -47,6 +47,7 @@ export async function remoteHarness(argv, fetchImpl = fetch) {
   else if (action === '--assign' && args.length === 2 && LEVELS.includes(args[0])) {
     const level = args[0] === 'repository' ? 'project' : args[0];
     const data = JSON.parse(readFileSync(args[1], 'utf8'));
+    if (at && (level === 'project' || !task)) throw new Error(level === 'project' ? '--at names a node below the project; --assign ' + args[0] + ' takes none' : '--at goes with --task ID or --node ID: the node the level is saved through');
     if (level !== 'project' && !at) {
       if (!task) throw new Error('--assign ' + args[0] + ' needs the node it is for: pass --task ID or --node ID (from --effective)');
       const current = await call();
