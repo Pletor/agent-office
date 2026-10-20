@@ -11,7 +11,7 @@ const catalog = await library.list();
 const lab = process.env.HARNESS_LAB_URL ?? 'http://localhost:5187/lab/harness.html';
 const shots = process.env.HARNESS_SHOTS ?? os.tmpdir();
 const browser = await chromium.launch({ channel: process.platform === 'win32' ? 'msedge' : 'chrome', headless: true });
-const long = { id: 'long', title: 'A resource with a very long title that keeps going well past the width of a phone screen without any breaks', category: 'instructions', source: 'Harness handbook', path: 'a/very/deeply/nested/path/that/also/keeps/going/and/going/without/a/single/space/README.md' };
+const long = { id: 'guide:long', title: 'A resource with a very long title that keeps going well past the width of a phone screen without any breaks', category: 'instructions', source: 'Harness handbook', path: 'a/very/deeply/nested/path/that/also/keeps/going/and/going/without/a/single/space/README.md' };
 
 /** A page whose /api/harness answers as `mode` says: real, slow (never answers), failing, or empty. */
 async function open(width, height, mode = 'real', reduced = false) {
@@ -24,12 +24,13 @@ async function open(width, height, mode = 'real', reduced = false) {
     if (mode === 'slow') return;
     if (mode === 'error') return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
     if (mode === 'empty') return route.fulfill({ status: file ? 404 : 200, contentType: 'application/json', body: JSON.stringify(file ? {} : { ...catalog, entries: [] }) });
-    if (file && url.searchParams.get('id') === 'broken') return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
-    if (file && url.searchParams.get('id') === 'long') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...long, text: 'word '.repeat(4000) + 'x'.repeat(600) }) });
-    const data = file ? await library.read(url.searchParams.get('id')) : { ...catalog, entries: [...catalog.entries, long, { ...long, id: 'broken', title: 'Broken resource' }] };
+    if (file && url.searchParams.get('id') === 'guide:broken') return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+    if (file && url.searchParams.get('id') === 'guide:long') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...long, text: 'word '.repeat(4000) + 'x'.repeat(600) }) });
+    const data = file ? await library.read(url.searchParams.get('id')) : { ...catalog, entries: [...catalog.entries, long, { ...long, id: 'guide:broken', title: 'Broken resource' }] };
     await route.fulfill({ status: data ? 200 : 404, contentType: 'application/json', body: JSON.stringify(data ?? { error: 'Not found' }) });
   });
-  await page.goto(lab);
+  // On Global: the handbook's elements are Global's (a project lists its own, see tests/harness-context.browser.mjs).
+  await page.goto(lab + '?context=global');
   await page.waitForFunction(() => window.__ready);
   await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
   await page.getByRole('dialog', { name: 'Harness library' }).waitFor();

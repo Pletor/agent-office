@@ -90,7 +90,11 @@ export function openHarness(opened: string) {
     purpose.textContent = picked ? picked + ': ' + HARNESS_CATEGORY_PURPOSE[picked] : '';
     list.replaceChildren(...entries.map((e) => h('button.harness-entry', { type: 'button', 'aria-pressed': current?.id === e.id, title: e.id + ' · revision ' + e.version, onclick: () => void read(e.id, true) },
       h('strong', {}, (selected.has(e.id) ? '✓ ' : '') + e.title), h('small', {}, e.category + ' / ' + e.group + ' · ' + e.source), h('small', {}, e.path))));
-    if (!catalog.entries.some((e) => elementInContext(e.id, context, bar.globalNamespaces()))) list.append(note('No resources published yet. Add instructions, tools or memory exports under .harness/ in this repository, then refresh.', h('button.btn', { type: 'button', onclick: () => void load() }, 'Refresh')));
+    if (!catalog.entries.some((e) => elementInContext(e.id, context, bar.globalNamespaces()))) {
+      list.append(context.kind === 'global'
+        ? note('No resources published yet. Add instructions, tools or memory exports under .harness/ in this repository, then refresh.', h('button.btn', { type: 'button', onclick: () => void load() }, 'Refresh'))
+        : note('This project publishes no elements of its own yet: add instructions, tools or memory exports under .harness/ in its repository, then refresh. The elements every project shares are under Global.', h('button.btn', { type: 'button', onclick: () => void load() }, 'Refresh'), h('button.btn', { type: 'button', onclick: () => switcher.request({ kind: 'global' }) }, 'Show Global')));
+    }
     else if (!entries.length) list.append(note('No matching resources.', h('button.btn', { type: 'button', onclick: () => { filter.value = category.value = source.value = ''; render(); filter.focus(); } }, 'Clear filters')));
     list.removeAttribute('aria-busy');
     update();
@@ -138,7 +142,8 @@ export function openHarness(opened: string) {
       sources.replaceChildren(h('summary', {}, 'Sources and availability'), ...result.sources.map((s) => h('p', {}, (s.available ? '✓ ' : '— ') + s.name + (s.available ? '' : ' · not found'))),
         h('p', {}, 'OpenViking files are references. Live memory requires a configured OpenViking server and a compatible runner. Publish additional resources in .harness/; see docs/harness.md.'));
       render();
-      if (!current && result.entries.some((e) => e.id === 'guide:instructions')) await read('guide:instructions');
+      // The start-here guide opens by itself where it belongs to the list (Global's).
+      if (!current && result.entries.some((e) => e.id === 'guide:instructions' && elementInContext(e.id, context, bar.globalNamespaces()))) await read('guide:instructions');
     } catch (err) {
       if (closed || ticket !== loads) return;
       status.textContent = 'Library unavailable';
@@ -151,15 +156,22 @@ export function openHarness(opened: string) {
   function applied(next: HarnessContext, floorChanged: boolean) {
     context = next;
     shown = undefined;
-    if (!floorChanged) return render();
-    floor = contextFloor(next, opened);
-    current = undefined;
-    request++;
-    selected.clear();
-    title.textContent = 'Choose a resource';
-    origin.textContent = '';
-    text.textContent = 'Read a resource, add it to your context pack, then copy or download the selection for a model.';
-    void load();
+    const inView = (id: string) => elementInContext(id, context, bar.globalNamespaces());
+    if (floorChanged) selected.clear();
+    // The reader shows an element of the list it belongs to, never one of the context left behind.
+    if (floorChanged || (current && !inView(current.id))) {
+      current = undefined;
+      request++;
+      title.textContent = 'Choose a resource';
+      origin.textContent = '';
+      text.textContent = 'Read a resource, add it to your context pack, then copy or download the selection for a model.';
+    }
+    if (floorChanged) {
+      floor = contextFloor(next, opened);
+      return void load();
+    }
+    render();
+    if (!current && catalog?.entries.some((e) => e.id === 'guide:instructions') && inView('guide:instructions')) void read('guide:instructions');
   }
   async function exportPack(clipboard: boolean) {
     if (busy || !selected.size) return;

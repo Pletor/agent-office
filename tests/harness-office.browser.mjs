@@ -16,12 +16,15 @@ try {
   await page.waitForTimeout(1500);
   await page.keyboard.press('F8');
   await page.getByRole('dialog', { name: 'Harness library' }).waitFor();
-  await page.getByRole('heading', { name: 'Start here', exact: true }).waitFor();
+  // A first open is on the floor's project; the handbook is Global's, and the library keeps Global from here on.
+  await page.locator('.harness-trail', { hasText: /^Project / }).waitFor();
   await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished)));
   const box = await page.getByRole('dialog').boundingBox();
   assert.deepEqual([box.x, box.y, Math.round(box.width), Math.round(box.height)], [0, 0, 1440, 900], 'the library covers the whole browser');
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Search harness resources', 'search has focus');
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Search harness resources');
   assert.equal(await search.inputValue(), '', 'F8 opens with an empty search');
+  await page.getByRole('button', { name: 'Global', exact: true }).click();
+  await page.getByRole('heading', { name: 'Start here', exact: true }).waitFor();
   await page.screenshot({ path: path.join(process.env.HARNESS_SHOTS ?? os.tmpdir(), 'harness-office.png') });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.waitForFunction(() => !!document.pointerLockElement);

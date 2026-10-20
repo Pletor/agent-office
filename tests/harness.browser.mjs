@@ -18,7 +18,8 @@ try {
     const data = url.pathname.endsWith('/file') ? await library.read(url.searchParams.get('id')) : catalog;
     await route.fulfill({ status: data ? 200 : 404, contentType: 'application/json', body: JSON.stringify(data ?? { error: 'Not found' }) });
   });
-  await page.goto(process.env.HARNESS_LAB_URL ?? 'http://localhost:5187/lab/harness.html');
+  // On Global: the handbook's elements are Global's (a project lists its own, see tests/harness-context.browser.mjs).
+  await page.goto((process.env.HARNESS_LAB_URL ?? 'http://localhost:5187/lab/harness.html') + '?context=global');
   await page.waitForFunction(() => window.__ready);
   const shots = process.env.HARNESS_SHOTS ?? os.tmpdir();
   await page.screenshot({ path: path.join(shots, 'harness-shelves.png') });
