@@ -54,9 +54,13 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   const listed = await (await call('/api/harness?floor=floor', 'admin')).json() as { entries: { id: string; path: string; version: number }[] };
   const review = listed.entries.find((e) => e.path === 'rules/review.md')!;
   assert.equal(review.version, 1);
-  assert.equal((await call(api, 'admin', { ...data, layer: { rule: { resource: review.id } }, revision: 2 })).status, 200);
+  // A project element names a different file in every other project, so the global layer refuses it; the repository layer takes it.
+  const global = await call(api, 'admin', { ...data, layer: { rule: { resource: review.id } }, revision: 2 });
+  assert.equal(global.status, 400);
+  assert.match(((await global.json()) as { error: string }).error, /Project-scoped element in global layer/);
+  assert.equal((await call(api, 'admin', { ...data, scope: 'repository', layer: { rule: { resource: review.id } }, revision: 2 })).status, 200);
   rmSync(path.join(dir, '.harness', 'rules', 'review.md'));
-  const refused = await call(api, 'admin', { ...data, layer: { rule: { resource: review.id } }, revision: 3 });
+  const refused = await call(api, 'admin', { ...data, scope: 'repository', layer: { rule: { resource: review.id } }, revision: 3 });
   assert.equal(refused.status, 400);
   assert.match(((await refused.json()) as { error: string }).error, /missing since .*rules\/review\.md/);
 });

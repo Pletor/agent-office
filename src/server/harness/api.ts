@@ -3,7 +3,7 @@ import type { Ctx } from '../office/context.js';
 import type { Floor } from '../floor.js';
 import { readBody, send } from '../http/util.js';
 import { HarnessProfiles, HarnessError, parseHarnessLayer } from './profiles.js';
-import { harnessHandoff } from './handoff.js';
+import { harnessHandoff, assertBindable } from './handoff.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { HarnessRegistry } from './registry.js';
 import { oporaHarnessTask } from '../../shared/harness-cascade.js';
@@ -22,11 +22,7 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       if (ids.length) {
         const lib = new HarnessLibrary(harnessSources(floor.dir, local), new HarnessRegistry(ctx.cfg.dataDir));
         await lib.list();
-        for (const id of ids) {
-          const found = lib.resolve(id);
-          if (found.status === 'missing') throw new HarnessError((found.missingSince ? 'Resource is missing since ' + found.missingSince : 'Resource is not published in this project') + ' (' + found.source + ' / ' + found.path + '): ' + id);
-          if (found.status !== 'available') throw new HarnessError('Unknown or inaccessible resource: ' + id);
-        }
+        for (const id of ids) assertBindable(lib, body.scope, id);
       }
       store.save(floor.dir, task, body.scope, layer, body.revision);
     } else if (req.method !== 'GET') return send(res, 405, { error: 'Use GET or POST' });
