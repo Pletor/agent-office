@@ -40,7 +40,7 @@ test('the place of a node is re-checked under the lock against Opora itself, and
   const bridge = new OporaBridge(bridgeFloor, dataDir, { update() {}, toast() {}, prompt: (id) => PROMPTS[id].text }, `http://127.0.0.1:${(opora.address() as AddressInfo).port}`);
   await bridge.poll();
   const floor = { id: 'shop', dir, opora: bridge } as unknown as Floor;
-  // Saves at Opora nodes need the floor bound to the project it reads (H04, harness/bindings.ts).
+  // A save at an Opora node needs the floor bound to the project it plans (bindings.ts).
   await new HarnessBindings(dataDir).bind('shop', dir, { project: 'p', workspace: 'w' }, 'test');
   const ctx = { cfg: { dataDir } } as unknown as Ctx;
   const office = http.createServer((req, res) => void harnessProfileRequest(ctx, floor, req, res, new URL(req.url!, 'http://x'), true, true, true, 'admin'));

@@ -117,11 +117,10 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
         };
         placed(canvas, false);
         /** Under the store's lock: the canvas as Opora has it now, not the last poll; no save below the project at a canvas node without it. */
-        const here = place;
         const recheck = async () => {
-          if (!below || !canvasId || !here) return undefined;
+          if (!below || !canvasId || !place) return undefined;
           let nodes: readonly HierarchyNode[];
-          try { nodes = await floor.opora.freshCanvasNodes(here); }
+          try { nodes = await floor.opora.freshCanvasNodes(place); }
           catch (err) { throw new HarnessError(`Opora can't be reached to check where this node is now, so nothing was saved: ${(err as Error).message}. Try again.`, 503); }
           return placed(nodes, true);
         };

@@ -7,10 +7,10 @@
 //
 // Format (version 1), kept apart from harness-profiles.json, whose format does not change:
 //   { version: 1, revision: N, bindings: { <floorId>: HarnessBinding }, audit: [HarnessBindingAudit] }
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { HarnessError, harnessRepoKey } from './profiles.js';
+import { DamagedRevision, publishRevision, readCommitted, RevisionConflict } from './commit.js';
 import { FileLockError, withFileLock, type Lease, type LockOptions } from './lock.js';
 import { parseOporaKey, samePlace, type OporaPlace } from '../../shared/opora-identity.js';
 
@@ -53,24 +53,23 @@ export function bindingView(binding: HarnessBinding | undefined): HarnessBinding
 const LOCK_WAIT_MS = 3000, LOCK_STALE_MS = 10_000;
 
 /**
- * Reads are plain reads of the file; a bind is read-check-write under an exclusive lock file (lock.ts,
- * `harness-bindings.json.lock`) with atomic replacement, so two offices (or two requests) binding at once
- * never both pass the same check, and a binding survives a restart or a crash mid-write.
+ * Reads are plain reads of the file (and of the revisions published after it, commit.ts); a bind is
+ * read-check-write under a lock file (lock.ts, `harness-bindings.json.lock`, best effort) and commits by
+ * publishing the next revision exclusively (commit.ts), so two offices (or two requests) binding at once
+ * never both commit on the same revision even when a lock was taken over or a holder stalled: the loser
+ * gets 409, a damaged published file 503. The main file keeps its format; a binding survives a restart
+ * or a crash mid-write.
  */
 export class HarnessBindings {
   private file: string;
   constructor(private dataDir: string, private lockOptions: LockOptions = {}) { this.file = path.join(dataDir, 'harness-bindings.json'); }
-  private read(): Stored {
-    let text: string;
-    for (let attempt = 0; ; attempt++) {
-      try { text = readFileSync(this.file, 'utf8'); break; }
-      catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code === 'ENOENT') return { revision: 0, bindings: {}, audit: [] };
-        if ((code === 'EPERM' || code === 'EBUSY') && attempt < 50) continue;
-        throw err;
-      }
-    }
+  /** The store as committed (the main file and the revisions published after it), and the text a bind builds on. */
+  private committed(): { data: Stored; base: string } {
+    const { text, value } = readCommitted(this.file, (raw) => this.parse(raw));
+    return { data: value ?? { revision: 0, bindings: {}, audit: [] }, base: text };
+  }
+  private read(): Stored { return this.committed().data; }
+  private parse(text: string): Stored {
     try {
       if (Buffer.byteLength(text) > 1024 * 1024) throw new Error('too large');
       const data = JSON.parse(text) as Stored;
@@ -98,20 +97,13 @@ export class HarnessBindings {
   audit(limit = 20, floorId?: string): HarnessBindingAudit[] {
     return this.read().audit.filter((a) => floorId === undefined || a.floorId === floorId).slice(-Math.max(0, limit)).reverse();
   }
-  private async locked<T>(work: (lease: Lease) => T): Promise<T> {
+  private async locked<T>(work: (lease: Lease) => Promise<T>): Promise<T> {
     mkdirSync(this.dataDir, { recursive: true });
-    try { return await withFileLock(this.file + '.lock', { waitMs: LOCK_WAIT_MS, staleMs: LOCK_STALE_MS, ...this.lockOptions }, async (lease) => work(lease)); }
+    try { return await withFileLock(this.file + '.lock', { waitMs: LOCK_WAIT_MS, staleMs: LOCK_STALE_MS, ...this.lockOptions }, work); }
     catch (err) {
-      if (err instanceof FileLockError) throw new HarnessError(err.code === 'timeout' ? 'Another office is binding a floor. Try again in a moment.' : 'Another office took over the bindings lock while this bind waited; nothing was written. Try again.', 503);
+      if (err instanceof FileLockError) throw new HarnessError(err.code === 'timeout' ? 'Another office is binding a floor. Try again in a moment.' : err.code === 'unavailable' ? err.message : 'Another office took over the bindings lock while this bind waited; nothing was written. Try again.', 503);
       throw err;
     }
-  }
-  private replace(text: string, lease: Lease) {
-    mkdirSync(this.dataDir, { recursive: true });
-    const temp = this.file + '.' + randomUUID() + '.tmp';
-    writeFileSync(temp, text, { mode: 0o600 });
-    try { lease.verify(); renameSync(temp, this.file); }
-    catch (err) { try { unlinkSync(temp); } catch { /* keep the error that matters */ } throw err; }
   }
   /**
    * Binds `floorId` (whose checkout is `checkout`) to `place`. Binding a floor to the place it is bound
@@ -122,8 +114,8 @@ export class HarnessBindings {
     return this.locked((lease) => this.bindLocked(lease, floorId, checkout, place, by, options));
   }
   /** The read, the checks and the write of a bind, all under the lock: what the file says now decides. */
-  private bindLocked(lease: Lease, floorId: string, checkout: string, place: OporaPlace, by: string, options: { rebind?: boolean; revision?: unknown }): { binding: HarnessBinding; revision: number; changed: boolean } {
-    const data = this.read();
+  private async bindLocked(lease: Lease, floorId: string, checkout: string, place: OporaPlace, by: string, options: { rebind?: boolean; revision?: unknown }): Promise<{ binding: HarnessBinding; revision: number; changed: boolean }> {
+    const { data, base } = this.committed();
     if (options.revision !== undefined && options.revision !== data.revision) throw new HarnessError('Bindings changed elsewhere. Reload before binding.', 409);
     const current = data.bindings[floorId];
     if (current && samePlace(current, place)) return { binding: current, revision: data.revision, changed: false };
@@ -142,7 +134,16 @@ export class HarnessBindings {
       data.bindings[m.binding.floorId] = m.binding;
       data.audit = [...data.audit.slice(-(AUDIT_KEEP - 1)), { at: binding.boundAt, revision: data.revision, floorId: m.binding.floorId, repoHash, from: m.from ? { project: m.from.project, workspace: m.from.workspace } : null, to: { ...place }, by: binding.boundBy }];
     }
-    this.replace(JSON.stringify(data, null, 2), lease);
+    const text = JSON.stringify(data, null, 2);
+    // The lock is checked right before the publish (a holder whose lock was taken over stops here, 503); the publish itself
+    // refuses a successor of this revision when another writer got there first: a bind that lost the race is a normal conflict (409).
+    const revisionOf = (raw: string) => { try { return this.parse(raw).revision; } catch { return undefined; } };
+    try { await publishRevision(this.file, data.revision, base, text, { fence: () => { lease.verify(); this.lockOptions.hooks?.verified?.(); }, revisionOf }); }
+    catch (err) {
+      if (err instanceof RevisionConflict) throw new HarnessError('Bindings changed elsewhere. Reload before binding.', 409);
+      if (err instanceof DamagedRevision) throw new HarnessError(err.message, 503);
+      throw err;
+    }
     return { binding, revision: data.revision, changed: true };
   }
 }
