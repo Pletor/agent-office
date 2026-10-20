@@ -3,11 +3,12 @@ import type { Ctx } from '../office/context.js';
 import type { Floor } from '../floor.js';
 import { readBody, send } from '../http/util.js';
 import { HarnessProfiles, HarnessError, parseHarnessLayer } from './profiles.js';
-import { harnessHandoff } from './handoff.js';
+import { harnessHandoff, assertBindable } from './handoff.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { HARNESS_LEVELS, harnessLevel, oporaHarnessTask, pathNode } from '../../shared/harness-cascade.js';
 import { harnessDeadEnd, harnessTarget } from '../../shared/harness-hierarchy.js';
 import { oporaKey, parseOporaKey } from '../../shared/opora-identity.js';
+import { HarnessRegistry } from './registry.js';
 
 /**
  * Reads or saves profiles down to what `?task=` or `?node=` addresses: an Opora key of the floor's
@@ -46,9 +47,9 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       const layer = parseHarnessLayer(body.layer);
       const ids = Object.values(layer).flatMap((b) => b && 'resource' in b ? [b.resource] : []);
       if (ids.length) {
-        const lib = new HarnessLibrary(harnessSources(floor.dir, local));
-        const catalog = await lib.list();
-        for (const id of ids) if (!catalog.entries.some((entry) => entry.id === id)) throw new HarnessError('Unknown or inaccessible resource: ' + id);
+        const lib = new HarnessLibrary(harnessSources(floor.dir, local), new HarnessRegistry(ctx.cfg.dataDir));
+        await lib.list();
+        for (const id of ids) assertBindable(lib, body.scope, id);
       }
       await store.save(floor.dir, path, body.scope, layer, body.revision, by);
     } else if (req.method !== 'GET') return send(res, 405, { error: 'Use GET or POST' });
@@ -74,7 +75,7 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   const active = plan?.workerId === id && (plan.mode === 'opora' || plan.mode === 'router');
   const admin = !!active && (!plan.owner || ctx.accounts.get(plan.owner)?.role === 'admin');
   if (req.method === 'GET' && url.searchParams.has('catalog')) {
-    return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin)).list());
+    return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin), new HarnessRegistry(ctx.cfg.dataDir)).list());
   }
   return harnessProfileRequest(ctx, floor, req, res, url, admin, admin, false, 'worker:' + id, false);
 }

@@ -4,6 +4,8 @@
 .harness-intro { margin: 0; padding: 12px 20px; color: var(--muted); }
 .harness-toolbar { display: flex; gap: 10px; padding: 0 20px 14px; flex-wrap: wrap; }
 .harness-toolbar input { flex: 1; min-width: 180px; }
+.harness-purpose { margin: 0; padding: 0 20px 10px; color: var(--muted); font-size: 13px; }
+.harness-purpose:empty { display: none; }
 .harness-toolbar input, .harness-toolbar select { padding: 9px; border-radius: 8px; }
 .harness-window .body.harness-body { display: grid; grid-template-columns: 320px minmax(0, 1fr); padding: 0; flex: 1; min-height: 0; overflow: hidden; }
 .harness-body aside { overflow: auto; padding: 0 12px 16px; border-right: 1px solid #8884; }

@@ -3,6 +3,7 @@ import { send, sameOrigin } from '../util.js';
 import { harnessProfileRequest } from '../../harness/api.js';
 import { floorParam } from './files.js';
 import { HarnessLibrary, harnessSources } from '../../harness/catalog.js';
+import { HarnessRegistry } from '../../harness/registry.js';
 
 /** Machine-owned resources are visible only to admins or the machine's shared-password session. */
 export const harnessRoute: Route = {
@@ -13,7 +14,7 @@ export const harnessRoute: Route = {
     const floor = floorParam(ctx, url);
     if (!floor) return send(res, 404, { error: 'No such floor' });
     const local = !session.account || session.account.role === 'admin';
-    const library = new HarnessLibrary(harnessSources(floor.dir, local));
+    const library = new HarnessLibrary(harnessSources(floor.dir, local), new HarnessRegistry(ctx.cfg.dataDir));
     const catalog = await library.list();
     const headers = { 'cache-control': 'no-store' };
     if (path === '/api/harness') return send(res, 200, catalog, headers);
