@@ -16,11 +16,11 @@
 // writes the node: key, takes the key off `legacyTasks` and leaves the task: key as it was for a
 // rollback to version 1 (docs/harness.md "Store format and rollback").
 // `version`, `audit` and `legacyTasks` are new in version 2; a reader that doesn't know them ignores them.
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
-import { setTimeout as sleep } from 'node:timers/promises';
+import { createHash } from 'node:crypto';
 import { FileLockError, withFileLock, type Lease, type LockOptions } from './lock.js';
+import { DamagedRevision, publishRevision, readCommitted, RevisionConflict } from './commit.js';
 import { emptyLayers, harnessLevel, pathNode, resolveHarness, HARNESS_LEVELS, type HarnessLayer, type HarnessLevel, type HarnessPath, type HarnessProfile } from '../../shared/harness-cascade.js';
 
 export class HarnessError extends Error {
@@ -61,10 +61,12 @@ export const HARNESS_STORE_VERSION = 2;
 /** Audit entries kept, oldest dropped first. */
 const AUDIT_KEEP = 200;
 /**
- * How long a save waits for another office process's lock before giving up (ms), and how long a lock may
+ * How long a save waits for another office process's lock before giving up (ms: room for a save ahead of it
+ * that re-reads the canvas from Opora under the lock, up to 2.5 s), and how long a lock may
  * go unrenewed before it is a crashed holder's (lock.ts: a live holder renews it every quarter of that).
  */
-const LOCK_WAIT_MS = 3000, LOCK_STALE_MS = 10_000;
+const LOCK_WAIT_MS = 6000, LOCK_STALE_MS = 10_000;
+const CHANGED = 'Profiles changed elsewhere. Reload before saving.';
 interface Stored { version?: number; revision: number; layers: Record<string, HarnessLayer>; audit?: HarnessAudit[]; legacyTasks?: string[] }
 
 /** What a view or a save addresses: a task id (the 3-level form), or the way down to a node (shared/harness-hierarchy.ts). */
@@ -75,27 +77,25 @@ function asPath(target: HarnessTarget): HarnessPath {
 }
 
 /**
- * Reads are plain reads of the file; a save is read-check-write under an exclusive lock file (lock.ts),
- * so two office processes on one data directory never lose each other's writes; atomic replacement
- * survives restarts. `lockOptions` are for tests (time, sleeping, file system calls and interleaving hooks).
+ * Reads are plain reads of the file (and of the revisions published after it, commit.ts); a save is
+ * read-check-write under a lock file (lock.ts, best effort) and commits by publishing the next revision
+ * exclusively (commit.ts), so a save never overwrites one it didn't read, even from another office
+ * process on the same data directory: the loser gets 409. Atomic replacement survives restarts.
+ * `lockOptions` are for tests (time, sleeping, file system calls and interleaving hooks).
  */
 export class HarnessProfiles {
   private file: string;
   private lock: string;
   constructor(private dataDir: string, private lockOptions: LockOptions = {}) { this.file = path.join(dataDir, 'harness-profiles.json'); this.lock = this.file + '.lock'; }
+  /** The store as committed (commit.ts: the main file and the revisions published after it), and the text a save builds on. */
+  private committed(): { data: Stored; base: string } {
+    const { text, value } = readCommitted(this.file, (raw) => this.parse(raw));
+    return { data: value ?? { revision: 0, layers: {} }, base: text };
+  }
   private read(): Stored {
-    let text: string;
-    // Windows refuses a read for a moment while another process replaces the file. The read is synchronous,
-    // so this is a short spin (tens of attempts, no sleep): it covers the rename itself, not a slow writer.
-    for (let attempt = 0; ; attempt++) {
-      try { text = readFileSync(this.file, 'utf8'); break; }
-      catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code === 'ENOENT') return { revision: 0, layers: {} };
-        if ((code === 'EPERM' || code === 'EBUSY') && attempt < 50) continue;
-        throw err;
-      }
-    }
+    return this.committed().data;
+  }
+  private parse(text: string): Stored {
     try {
       if (Buffer.byteLength(text) > 2 * 1024 * 1024) throw new Error('too large');
       const data = JSON.parse(text) as Stored;
@@ -159,49 +159,39 @@ export class HarnessProfiles {
     const visible = (this.read().audit ?? []).filter((a) => mine === undefined || everything || a.repo === mine);
     return visible.slice(-Math.max(0, limit)).reverse();
   }
-  /** Replaces the file atomically; Windows refuses the rename for a moment while another process reads the file, so it is retried briefly. */
-  private async replace(text: string) {
-    const temp = this.file + '.' + randomUUID() + '.tmp';
-    writeFileSync(temp, text, { mode: 0o600 });
-    for (let attempt = 0; ; attempt++) {
-      try { renameSync(temp, this.file); return; }
-      catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if ((code !== 'EPERM' && code !== 'EBUSY') || attempt >= 40) { try { unlinkSync(temp); } catch { /* keep the error that matters */ } throw err; }
-        await sleep(5 + Math.random() * 20);
-      }
-    }
-  }
   /**
-   * Runs `work` holding the lock file (lock.ts: created exclusively, renewed while held, waited for while
-   * fresh, taken over when stale, released only when still ours). Out of wait is 503: retry in a moment.
+   * Runs `work` holding the lock file (lock.ts: best effort, it keeps honest writers from colliding; the
+   * commit in commit.ts is what refuses a lost update). Out of wait is 503: retry in a moment.
    */
   private async locked<T>(work: (lease: Lease) => Promise<T>): Promise<T> {
     mkdirSync(this.dataDir, { recursive: true });
     try { return await withFileLock(this.lock, { waitMs: LOCK_WAIT_MS, staleMs: LOCK_STALE_MS, ...this.lockOptions }, work); }
     catch (err) {
-      if (err instanceof FileLockError) throw new HarnessError(err.code === 'timeout' ? 'Another office is saving harness profiles. Try again in a moment.' : 'Another office took over the save lock while this save waited; nothing was written. Try again.', 503);
+      if (err instanceof FileLockError) throw new HarnessError(err.code === 'timeout' ? 'Another office is saving harness profiles. Try again in a moment.' : err.message, 503);
       throw err;
     }
   }
   /**
    * Replaces one level's own layer down `target`, when `revision` is still the store's (else 409: reload
    * and merge). An empty layer removes the level's layer, so everything inherits again. `recheck` runs
-   * under the lock, right before the write, for what the caller validated before waiting for it (the
-   * target's place on the canvas); it throws to refuse the save. Returns the profile as committed.
+   * under the lock, after the store is read and before anything is written, for what the caller validated
+   * before waiting for it (the target's place on the canvas); it throws to refuse the save, and may return
+   * the target's path as it is now, which the returned profile then carries. The commit is an exclusive
+   * publish of the next revision (commit.ts): a writer that loses it gets 409 and nothing is written.
+   * Returns the profile as committed.
    */
-  async save(repo: string, target: HarnessTarget, scope: unknown, layer: unknown, revision: unknown, by = '', recheck?: () => void | Promise<void>): Promise<HarnessProfile> {
+  async save(repo: string, target: HarnessTarget, scope: unknown, layer: unknown, revision: unknown, by = '', recheck?: () => void | HarnessPath | Promise<void | HarnessPath>): Promise<HarnessProfile> {
     const level = harnessLevel(scope);
-    const path = asPath(target);
+    let path = asPath(target);
     if (!level) throw new HarnessError('Choose a level: ' + [...HARNESS_LEVELS, 'repository'].join(', ') + '.');
     const key = this.key(repo, path, level);
     if (!key) throw new HarnessError(level === 'task' ? 'Choose a scope and a task ID for task overrides.' : `This target has no ${level} above it: load a node that does before saving at ${level}.`);
     const next = parseHarnessLayer(layer);
     return this.locked(async (lease) => {
       // Read-check-write, all under the lock: the revision is compared against what the file says now.
-      const data = this.read();
-      if (revision !== data.revision) throw new HarnessError('Profiles changed elsewhere. Reload before saving.', 409);
-      await recheck?.();
+      const { data, base } = this.committed();
+      if (revision !== data.revision) throw new HarnessError(CHANGED, 409);
+      path = (await recheck?.()) ?? path;
       // The save that makes a version 1 file version 2 remembers which task: keys the 3-level store wrote.
       if (data.version === undefined) data.legacyTasks = Object.keys(data.layers).filter((k) => k.startsWith('task:'));
       const legacy = this.legacyKey(data, repo, path, level);
@@ -217,9 +207,15 @@ export class HarnessProfiles {
       data.audit = [...(data.audit ?? []).slice(-(AUDIT_KEEP - 1)), entry];
       const text = JSON.stringify(data, null, 2);
       if (Buffer.byteLength(text) > 2 * 1024 * 1024) throw new HarnessError('Harness profile storage is full.');
-      // Fencing: a holder whose lock was taken over (it waited too long) must not commit over the taker's write.
-      lease.verify();
-      await this.replace(text);
+      // The lock is checked right before the publish (a holder whose lock was taken over stops here, 503); the
+      // publish itself refuses a successor of this revision when another writer got there first (409).
+      const revisionOf = (raw: string) => { try { return this.parse(raw).revision; } catch { return undefined; } };
+      try { await publishRevision(this.file, data.revision, base, text, { fence: () => { lease.verify(); this.lockOptions.hooks?.verified?.(); }, revisionOf }); }
+      catch (err) {
+        if (err instanceof RevisionConflict) throw new HarnessError(CHANGED, 409);
+        if (err instanceof DamagedRevision) throw new HarnessError(err.message, 503);
+        throw err;
+      }
       return this.assemble(data, repo, path);
     });
   }

@@ -6,6 +6,8 @@ interface View extends HarnessProfile {
   tasks: { id: string; title: string }[];
   audit: { at: string; revision: number; level: string; node: string; repo?: string; by: string; slots: string[] }[];
   writable: boolean; globalWrite: boolean; preview: string; warning: string;
+  /** A save that committed but whose response couldn't be finished: `warning` says so, and `tasks` and `audit` are not the floor's. */
+  incomplete?: boolean;
 }
 /** Independent editor: an exported ad-hoc pack never silently changes persistent assignments. */
 export function cascadePanel(floor: string, signal: AbortSignal) {
@@ -14,6 +16,8 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
   let ticket = 0;
   let saving = false;
   let loading = false;
+  /** Whether the view on show is the answer to a save (it says "Saved as revision N"). */
+  let saved = false;
   const scope = h('select', { 'aria-label': 'Harness scope' }, ...HARNESS_LEVELS.map((s) => h('option', { value: s }, s === 'project' ? 'project (repository)' : s)));
   scope.value = 'project';
   const task = h('input', { placeholder: 'Task or node ID (from Opora, or custom)', 'aria-label': 'Harness task', list: 'harness-tasks' });
@@ -51,9 +55,12 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
     const rows = Object.entries(view.effective).map(([slot, e]) => h('tr', {}, h('td', {}, slot), h('td', {}, e.binding === null ? 'null (disabled)' : 'resource' in e.binding ? 'resource ' + e.binding.resource : JSON.stringify(e.binding.value)), h('td', {}, e.scope), h('td', { title: e.node ?? '' }, e.node ? named(e.node, e.nodeName) : '—')));
     effective.querySelector('tbody')!.replaceChildren(...(rows.length ? rows : [h('tr', {}, h('td', { colspan: '4' }, 'No slots are set at any level.'))]));
     noArea.hidden = !view.path.length || view.path.some((p) => p.level === 'area');
-    audit.textContent = view.audit.map((a) => `${a.at} r${a.revision} ${a.level}${a.node ? ' ' + (names.get(a.node) || a.node) : ''} by ${a.by || '—'}: ${a.slots.length ? a.slots.join(', ') : 'removed'}`).join('\n') || 'No saves yet.';
+    const lines = view.audit.map((a) => `${a.at} r${a.revision} ${a.level}${a.node ? ' ' + (names.get(a.node) || a.node) : ''} by ${a.by || '—'}: ${a.slots.length ? a.slots.join(', ') : 'removed'}`);
+    audit.textContent = view.incomplete ? ['The latest saves could not be loaded with this save: reload to see them.', ...lines].join('\n') : lines.join('\n') || 'No saves yet.';
     preview.textContent = view.preview || view.warning;
-    status.textContent = `Revision ${view.revision}. ` + (view.warning ? 'Handoff blocked: ' + view.warning : 'Saved configuration ready.') + (view.writable ? '' : ' Read-only.');
+    // A committed save whose response couldn't be finished says so in its warning ("Saved as revision N, but…"): saved, not blocked.
+    const outcome = view.incomplete ? view.warning : view.warning ? 'Handoff blocked: ' + view.warning : 'Saved configuration ready.';
+    status.textContent = (view.incomplete ? '' : saved ? `Saved as revision ${view.revision}. ` : `Revision ${view.revision}. `) + outcome + (view.writable ? '' : ' Read-only.');
     tasks.replaceChildren(...view.tasks.map((t) => h('option', { value: t.id, label: t.title })));
   }
   async function load(write = false) {
@@ -73,7 +80,9 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Could not load profiles');
       if (seq !== ticket || signal.aborted) return;
-      view = data; loadedTask = target; render();
+      // An incomplete answer to a save keeps the task list and audit on show rather than blanking them.
+      view = data.incomplete && view ? { ...data, tasks: view.tasks, audit: view.audit } : data;
+      loadedTask = target; saved = write; render();
     } catch (err) { if (!signal.aborted && seq === ticket) status.textContent = (err as Error).message; }
     finally { if (seq === ticket) { saving = false; loading = false; save.disabled = !canSave(); } }
   }
