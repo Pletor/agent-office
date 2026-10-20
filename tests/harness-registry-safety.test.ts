@@ -228,7 +228,7 @@ test('OpenViking may be bound globally only when AGENT_OFFICE_OPENVIKING_DIR pin
   assert.equal((await pinned.read(ep.id))?.text, 'Viking A');
   // The handoff applies the same rule to a global binding already in the store.
   const profiles = new HarnessProfiles(data);
-  profiles.save(at('a'), '', 'global', { 'memory.recall': { resource: ea.id } }, 0);
+  await profiles.save(at('a'), '', 'global', { 'memory.recall': { resource: ea.id } }, 0);
   const env = process.env.AGENT_OFFICE_OPENVIKING_DIR;
   t.after(async () => { if (env === undefined) delete process.env.AGENT_OFFICE_OPENVIKING_DIR; else process.env.AGENT_OFFICE_OPENVIKING_DIR = env; });
   delete process.env.AGENT_OFFICE_OPENVIKING_DIR;
