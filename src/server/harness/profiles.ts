@@ -16,10 +16,11 @@
 // writes the node: key, takes the key off `legacyTasks` and leaves the task: key as it was for a
 // rollback to version 1 (docs/harness.md "Store format and rollback").
 // `version`, `audit` and `legacyTasks` are new in version 2; a reader that doesn't know them ignores them.
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { FileLockError, withFileLock, type Lease, type LockOptions } from './lock.js';
 import { emptyLayers, harnessLevel, pathNode, resolveHarness, HARNESS_LEVELS, type HarnessLayer, type HarnessLevel, type HarnessPath, type HarnessProfile } from '../../shared/harness-cascade.js';
 
 export class HarnessError extends Error {
@@ -60,9 +61,8 @@ export const HARNESS_STORE_VERSION = 2;
 /** Audit entries kept, oldest dropped first. */
 const AUDIT_KEEP = 200;
 /**
- * How long a save waits for another office process's lock before giving up (ms), and how old a lock is
- * stale (a crashed holder's). A save holds the lock for one read and one write, milliseconds; the stale
- * age must stay far above that, or a slow holder's lock would be taken over under it.
+ * How long a save waits for another office process's lock before giving up (ms), and how long a lock may
+ * go unrenewed before it is a crashed holder's (lock.ts: a live holder renews it every quarter of that).
  */
 const LOCK_WAIT_MS = 3000, LOCK_STALE_MS = 10_000;
 interface Stored { version?: number; revision: number; layers: Record<string, HarnessLayer>; audit?: HarnessAudit[]; legacyTasks?: string[] }
@@ -75,13 +75,14 @@ function asPath(target: HarnessTarget): HarnessPath {
 }
 
 /**
- * Reads are plain reads of the file; a save is read-check-write under an exclusive lock file, so two
- * office processes on one data directory never lose each other's writes; atomic replacement survives restarts.
+ * Reads are plain reads of the file; a save is read-check-write under an exclusive lock file (lock.ts),
+ * so two office processes on one data directory never lose each other's writes; atomic replacement
+ * survives restarts. `lockOptions` are for tests (time, sleeping, file system calls and interleaving hooks).
  */
 export class HarnessProfiles {
   private file: string;
   private lock: string;
-  constructor(private dataDir: string) { this.file = path.join(dataDir, 'harness-profiles.json'); this.lock = this.file + '.lock'; }
+  constructor(private dataDir: string, private lockOptions: LockOptions = {}) { this.file = path.join(dataDir, 'harness-profiles.json'); this.lock = this.file + '.lock'; }
   private read(): Stored {
     let text: string;
     // Windows refuses a read for a moment while another process replaces the file. The read is synchronous,
@@ -172,48 +173,35 @@ export class HarnessProfiles {
     }
   }
   /**
-   * Runs `work` holding the lock file: created exclusively, waited for briefly, taken over when stale (a
-   * crashed process left it). A stale lock is taken over by renaming it away, so of two waiters that both
-   * found it stale only the one whose rename succeeds removes it, and neither can remove the fresh lock
-   * the other creates right after.
+   * Runs `work` holding the lock file (lock.ts: created exclusively, renewed while held, waited for while
+   * fresh, taken over when stale, released only when still ours). Out of wait is 503: retry in a moment.
    */
-  private async locked<T>(work: () => Promise<T>): Promise<T> {
+  private async locked<T>(work: (lease: Lease) => Promise<T>): Promise<T> {
     mkdirSync(this.dataDir, { recursive: true });
-    const until = Date.now() + LOCK_WAIT_MS;
-    for (;;) {
-      let fd: number;
-      try { fd = openSync(this.lock, 'wx', 0o600); }
-      catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-        try {
-          if (Date.now() - statSync(this.lock).mtimeMs > LOCK_STALE_MS) {
-            const gone = this.lock + '.stale.' + randomUUID();
-            renameSync(this.lock, gone);
-            unlinkSync(gone);
-          }
-        } catch { /* gone already, or still someone's */ }
-        if (Date.now() > until) throw new HarnessError('Another office is saving harness profiles. Try again in a moment.', 503);
-        await sleep(5 + Math.random() * 20);
-        continue;
-      }
-      try { writeFileSync(fd, String(process.pid)); return await work(); }
-      finally { closeSync(fd); try { unlinkSync(this.lock); } catch { /* taken over as stale */ } }
+    try { return await withFileLock(this.lock, { waitMs: LOCK_WAIT_MS, staleMs: LOCK_STALE_MS, ...this.lockOptions }, work); }
+    catch (err) {
+      if (err instanceof FileLockError) throw new HarnessError(err.code === 'timeout' ? 'Another office is saving harness profiles. Try again in a moment.' : 'Another office took over the save lock while this save waited; nothing was written. Try again.', 503);
+      throw err;
     }
   }
   /**
    * Replaces one level's own layer down `target`, when `revision` is still the store's (else 409: reload
-   * and merge). An empty layer removes the level's layer, so everything inherits again.
+   * and merge). An empty layer removes the level's layer, so everything inherits again. `recheck` runs
+   * under the lock, right before the write, for what the caller validated before waiting for it (the
+   * target's place on the canvas); it throws to refuse the save. Returns the profile as committed.
    */
-  async save(repo: string, target: HarnessTarget, scope: unknown, layer: unknown, revision: unknown, by = ''): Promise<HarnessProfile> {
+  async save(repo: string, target: HarnessTarget, scope: unknown, layer: unknown, revision: unknown, by = '', recheck?: () => void | Promise<void>): Promise<HarnessProfile> {
     const level = harnessLevel(scope);
     const path = asPath(target);
     if (!level) throw new HarnessError('Choose a level: ' + [...HARNESS_LEVELS, 'repository'].join(', ') + '.');
     const key = this.key(repo, path, level);
     if (!key) throw new HarnessError(level === 'task' ? 'Choose a scope and a task ID for task overrides.' : `This target has no ${level} above it: load a node that does before saving at ${level}.`);
     const next = parseHarnessLayer(layer);
-    return this.locked(async () => {
+    return this.locked(async (lease) => {
+      // Read-check-write, all under the lock: the revision is compared against what the file says now.
       const data = this.read();
       if (revision !== data.revision) throw new HarnessError('Profiles changed elsewhere. Reload before saving.', 409);
+      await recheck?.();
       // The save that makes a version 1 file version 2 remembers which task: keys the 3-level store wrote.
       if (data.version === undefined) data.legacyTasks = Object.keys(data.layers).filter((k) => k.startsWith('task:'));
       const legacy = this.legacyKey(data, repo, path, level);
@@ -229,6 +217,8 @@ export class HarnessProfiles {
       data.audit = [...(data.audit ?? []).slice(-(AUDIT_KEEP - 1)), entry];
       const text = JSON.stringify(data, null, 2);
       if (Buffer.byteLength(text) > 2 * 1024 * 1024) throw new HarnessError('Harness profile storage is full.');
+      // Fencing: a holder whose lock was taken over (it waited too long) must not commit over the taker's write.
+      lease.verify();
       await this.replace(text);
       return this.assemble(data, repo, path);
     });
