@@ -77,7 +77,7 @@ export function harnessSources(project: string, local: boolean, env: NodeJS.Proc
   if (!local) return sources;
   if (env.AGENT_OFFICE_HARNESS_DIR) sources.push({ name: 'Published machine harness', dir: path.resolve(env.AGENT_OFFICE_HARNESS_DIR), ns: 'published', prefix: '', pinned: true });
   for (const p of ['.agents/skills', '.codex/skills', '.claude/skills', '.claude/commands']) sources.push({ name: 'Machine / ' + p, dir: path.join(os.homedir(), p), category: p.endsWith('commands') ? 'commands' : 'skills', ns: 'machine', prefix: p });
-  let viking = env.AGENT_OFFICE_OPENVIKING_DIR;
+  let viking = env.AGENT_OFFICE_OPENVIKING_DIR ? path.resolve(env.AGENT_OFFICE_OPENVIKING_DIR) : undefined;
   const pinned = !!viking;
   if (!viking) {
     let parent = path.resolve(project);

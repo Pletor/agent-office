@@ -56,7 +56,8 @@ export class DigestCache {
   }
   set(file: string, key: string, digest: string) {
     if (!this.loaded) this.load();
-    if (!this.entries.has(file) && this.entries.size >= MAX_ENTRIES) this.entries.delete(this.entries.keys().next().value!);
+    this.entries.delete(file); // a re-hashed file is the most recently used
+    if (this.entries.size >= MAX_ENTRIES) this.entries.delete(this.entries.keys().next().value!);
     this.entries.set(file, { key, digest });
     this.dirty = true;
   }

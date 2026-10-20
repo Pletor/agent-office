@@ -274,3 +274,35 @@ test(`the revision history keeps ${MAX_VERSIONS} digests: content evicted from i
   assert.equal((await registry.observe([seen(2)], new Set())).get(seen(2).id), 2, 'a digest kept in the history keeps its number');
   assert.equal((await registry.observe([seen(1)], new Set())).get(seen(1).id), MAX_VERSIONS + 2, 'the lowest-numbered digest was evicted: its content returns as new content');
 });
+
+test('lookup() follows another process\'s write between listings (one stat per lookup), and a re-hashed file is the most recently used cache entry', async (t) => {
+  const { at, put, data } = await fixture(t);
+  await put('p/.harness/rules/x.md', 'x');
+  const reader = lib(at('p'), data);
+  const x = (await reader.list()).entries.find((e) => e.path === 'rules/x.md')!;
+  assert.equal(reader.registry!.lookup(x.id)?.missingSince, '');
+  // Another process (here: a second library over the same data dir) sees the file gone and records the tombstone.
+  await rm(at('p/.harness/rules/x.md'));
+  await lib(at('p'), data).list();
+  const known = reader.registry!.lookup(x.id);
+  assert.ok(known?.missingSince, 'the reader sees the other writer\'s tombstone without listing again');
+  const cache = DigestCache.at(at('lru.json'));
+  for (let i = 0; i < 4000; i++) cache.set('f' + i, '1:2:3:4:5', 'a'.repeat(64));
+  cache.set('f0', '1:2:3:4:6', 'b'.repeat(64)); // re-hashed: moves to the end instead of keeping its old, first-to-go position
+  cache.set('extra', '1:2:3:4:5', 'c'.repeat(64));
+  assert.equal(cache.get('f0', '1:2:3:4:6'), 'b'.repeat(64));
+  assert.equal(cache.get('f1', '1:2:3:4:5'), undefined, 'the least recently used entry went instead');
+});
+
+test('a lock that cannot be renamed on release (a scanner holds it) is still removed once it is verified as ours; a transient EPERM on create is contention, not a refusal', async (t) => {
+  const { put, data, lock } = await fixture(t);
+  await put('data/.keep', '');
+  const held = await acquireLock(lock, timing);
+  assert.ok(held);
+  await stubbed('renameSync', (original) => ((from, to) => {
+    if (String(from) === lock) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' });
+    return original(from, to);
+  }) as typeof fs.renameSync, async () => { held.release(); });
+  assert.equal(fs.existsSync(lock), false, 'not left behind to block the next writer');
+  assert.deepEqual(await leftovers(data), []);
+});

@@ -64,8 +64,9 @@ const seeDir = (dir: string): 'present' | 'gone' | 'unknown' => {
  * Whether the place (the checkout a published folder belongs to) is deleted: gone with ENOENT while some
  * folder above it, other than the volume root, is still there (a deleted worktree or clone). Anything
  * else keeps it: a permission or I/O error on it or on a folder above it, a UNC path (never checked), a
- * volume root that cannot be reached (an unmounted disk, a mapped network drive that is offline), or
- * nothing above it down to the volume root (a checkout that sat directly under the drive root).
+ * volume root that cannot be reached (a disk that is not mounted or a mapped network drive that is offline: on
+ * Windows its drive letter), or nothing above it down to the volume root (a checkout that sat directly
+ * under the drive root). On POSIX an unmounted disk leaves its mount-point parent behind, so it is only protected by the two-save rule.
  */
 export const rootGone = (dir: string): boolean => {
   if (!path.isAbsolute(dir) || /^[\\/]{2}/.test(dir)) return false;
@@ -92,8 +93,9 @@ export class HarnessRegistry {
   private readonly timing: LockTiming;
   private unreadable = false;
   private warned = false;
-  /** The file as last read or written by this instance, for lookups between saves (one parse per batch). */
+  /** The file as last read or written by this instance, with its stat signature, for lookups (one parse per batch; a changed file is re-read). */
   private cached?: Stored;
+  private cachedSig = '';
   constructor(dataDir: string, timing: Partial<LockTiming> = {}) {
     this.file = path.join(dataDir, 'harness-registry.json');
     this.digests = DigestCache.at(path.join(dataDir, 'harness-digests.json'));
@@ -107,6 +109,7 @@ export class HarnessRegistry {
   private read(): Stored {
     const empty: Stored = { schema: 1, elements: {}, roots: {}, rootsMissing: {} };
     this.cached = undefined;
+    this.cachedSig = this.signature();
     let raw: string;
     try { raw = readFileSync(this.file, 'utf8'); }
     catch (err) {
@@ -152,8 +155,14 @@ export class HarnessRegistry {
     if (!Object.keys(versions).length || !Object.keys(instances).length) return;
     return { ns: x.ns, key: x.key, title: x.title, path: x.path, source: x.source, category: x.category as HarnessCategory, versions, firstSeenAt: x.firstSeenAt, instances };
   }
-  /** Atomic replacement; when the file would pass the size cap, tombstoned records are pruned first, then the write is refused. */
-  private write(data: Stored): boolean {
+  private signature(): string {
+    try { const s = statSync(this.file, { bigint: true }); return [s.ino, s.size, s.mtimeNs].join(':'); } catch { return ''; }
+  }
+  /**
+   * Atomic replacement; when the file would pass the size cap, tombstoned records are pruned first, then the write is refused.
+   * `fence` is asked once more after the temporary file is written and just before it replaces the registry.
+   */
+  private write(data: Stored, fence: () => boolean): boolean {
     let json = JSON.stringify(data, null, 1);
     if (Buffer.byteLength(json) > MAX_BYTES) {
       this.pruneTombstones(data, 0);
@@ -164,8 +173,10 @@ export class HarnessRegistry {
     try {
       mkdirSync(path.dirname(this.file), { recursive: true });
       writeFileSync(temp, json, { mode: 0o600 });
+      if (!fence()) { try { unlinkSync(temp); } catch { /* gone */ } this.warn('lock was taken over during this update; this listing is not recorded'); return false; }
       renameSync(temp, this.file);
       this.cached = data;
+      this.cachedSig = this.signature();
       return true;
     } catch {
       try { unlinkSync(temp); } catch { /* never written */ }
@@ -240,7 +251,7 @@ export class HarnessRegistry {
         // Fencing: a lock claimed from this writer meanwhile (it looked stale) means another writer owns the file now.
         if (!held.valid()) { this.warn('lock was taken over during this update; this listing is not recorded'); this.cached = undefined; for (const id of fresh) versions.set(id, 0); return versions; }
         // A revision assigned in this listing but not persisted is not a revision anyone can rely on.
-        if (!this.write(data)) { this.cached = undefined; for (const id of fresh) versions.set(id, 0); }
+        if (!this.write(data, () => held.valid())) { this.cached = undefined; for (const id of fresh) versions.set(id, 0); }
       }
       return versions;
     } finally { held.release(); }
@@ -276,8 +287,8 @@ export class HarnessRegistry {
     const tombstones = ids.filter((id) => gone(data.elements[id])).sort((a, b) => since(data.elements[a]) - since(data.elements[b]));
     for (const id of tombstones.slice(0, ids.length - keep)) delete data.elements[id];
   }
-  /** The file as last read or written here, parsed once per batch of lookups; re-read by the next observe(). */
-  private current(): Stored { return this.cached ?? this.read(); }
+  /** The file as last read or written here, parsed once per batch of lookups; one stat per lookup tells whether another process wrote it since. */
+  private current(): Stored { return this.cached && this.signature() === this.cachedSig ? this.cached : this.read(); }
   /**
    * Whether the registry has recorded `digest` for `id`: what a cached digest must pass before a listing
    * may reuse it. False when the registry cannot be read (nothing can be verified against it).
