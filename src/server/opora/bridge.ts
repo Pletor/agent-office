@@ -32,9 +32,19 @@ export interface BridgeFloor {
   orchestrator?(): { by: string; owner?: string } | undefined;
 }
 
+/** Task context for a card's worker, and the run snapshot it was pinned to (harness/run.ts), when there is one. */
+export interface PreparedTask {
+  context: string;
+  snapshot?: RunRef;
+  /** Drops what was prepared when the card is not taken after all (the claim or the seat failed). */
+  discard?(): void;
+}
+/** A run snapshot's id and digest (docs/harness.md "Run snapshot and lazy reads"). */
+export interface RunRef { runId: string; digest: string }
+
 export interface BridgeEvents {
   /** Optional task context, prepared before claiming a lease from the canvas as last read; failure prevents dispatch. */
-  prepareTask?(project: string, workspace: string, card: string, owner: string | undefined, nodes: readonly CanvasNode[]): Promise<string>;
+  prepareTask?(project: string, workspace: string, card: string, owner: string | undefined, nodes: readonly CanvasNode[]): Promise<string | PreparedTask>;
   update(state: OporaState): void;
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
   prompt(id: PromptId): string;
@@ -44,6 +54,8 @@ export interface BridgeEvents {
 interface Held extends OporaRun {
   token?: string;
   owner?: string;
+  /** The run snapshot the worker was seated with: the only one its lazy reads may come from. */
+  snapshot?: RunRef;
 }
 
 const POLL_MS = 20_000;
@@ -116,7 +128,7 @@ export class OporaBridge {
 
   view(): OporaState {
     const focus = this.state.scope.length ? cleanFocus(this.state.scope, this.focus) : [...this.focus];
-    return { ...this.state, focus, activity: this.live.list(), handOutWaiting: [...this.handed.keys()], runs: this.runs.map(({ token: _t, owner: _o, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
+    return { ...this.state, focus, activity: this.live.list(), handOutWaiting: [...this.handed.keys()], runs: this.runs.map(({ token: _t, owner: _o, snapshot: _s, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
   }
 
   /** Reads the canvas again: the floor's Opora project, its sectors and their cards. */
@@ -202,6 +214,12 @@ export class OporaBridge {
     return 'What the cell works on isn’t in the project’s architecture any more, or not where it was: switch it again at the 🎚️ switchboard';
   }
 
+  /** The run snapshot of the worker's card while it works on it (not after it went home), for its lazy reads. */
+  snapshotOf(workerId: string): RunRef | undefined {
+    const run = this.runs.find((r) => r.workerId === workerId && r.state !== 'gone');
+    return run?.snapshot ? { ...run.snapshot } : undefined;
+  }
+
   /** The canvas's nodes as last read (docs/opora-identity.md): what places a node in the hierarchy. */
   canvasNodes(): readonly CanvasNode[] {
     return this.canvas;
@@ -253,13 +271,17 @@ export class OporaBridge {
     const desk = deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
     if (!desk) return 'Every desk is taken: send someone home, or build the back office out';
     const agent = oporaAgentName(this.floor.id, card.id);
-    let context = '';
-    try { context = await this.events.prepareTask?.(project.id, workspace, card.id, owner, this.canvas) ?? ''; }
-    catch (err) { return 'Task context: ' + (err as Error).message; }
+    let context = '', snapshot: RunRef | undefined, discard: (() => void) | undefined;
+    try {
+      const prepared = await this.events.prepareTask?.(project.id, workspace, card.id, owner, this.canvas) ?? '';
+      if (typeof prepared === 'string') context = prepared;
+      else ({ context, snapshot, discard } = prepared);
+    } catch (err) { return 'Task context: ' + (err as Error).message; }
     let lease;
     try {
       lease = await this.client.claim(project.id, workspace, card.id, agent, LEASE_TTL);
     } catch (err) {
+      discard?.();
       return err instanceof OporaError && err.status === 409 ? `Someone else holds “${card.name}” on Opora` : (err as Error).message;
     }
     // What the person sketched for the card (its drawing, its storyboard), and the Opora pages that show it.
@@ -280,6 +302,7 @@ export class OporaBridge {
     const seated = seatForOpora(() => this.floor.seat(desk, by, withReaBrief(prompt + context, this.events.prompt), owner));
     if (typeof seated === 'string') {
       await this.client.release(project.id, workspace, card.id, lease.token).catch(() => undefined);
+      discard?.();
       return seated;
     }
     this.runs.unshift({
@@ -297,6 +320,7 @@ export class OporaBridge {
       workspace,
       token: lease.token,
       owner: agent,
+      ...(snapshot ? { snapshot: { runId: snapshot.runId, digest: snapshot.digest } } : {}),
     });
     card.status = 'claimed';
     this.changed();
@@ -518,6 +542,8 @@ export class OporaBridge {
       if (!existsSync(this.statePath)) return;
       const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; autopilot?: boolean; maxRuns?: number; autopilotBy?: string; autopilotOwner?: string; linkedTo?: string; workspace?: string; focus?: unknown; focusPlace?: Partial<OporaPlace>; handOut?: boolean };
       if (Array.isArray(saved.runs)) this.runs = saved.runs.filter((r) => r && typeof r.cardId === 'string');
+      // A run's snapshot reference survives a restart only whole: anything else reads as no snapshot, so its reads are refused.
+      for (const r of this.runs) if (r.snapshot && (typeof r.snapshot.runId !== 'string' || typeof r.snapshot.digest !== 'string')) delete r.snapshot;
       for (const r of this.runs) if (r.state !== 'gone' && r.workerId) markForOpora(r.workerId);
       this.state.autopilot = saved.autopilot === true;
       this.state.handOut = saved.handOut !== false;

@@ -23,7 +23,7 @@ import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
 import { PlanningRoom } from './planning.js';
-import { OporaBridge } from './opora/bridge.js';
+import { OporaBridge, type PreparedTask } from './opora/bridge.js';
 import type { CanvasNode } from '../shared/opora-scope.js';
 import { harnessPlannerBrief } from './harness/handoff.js';
 import { PLANNER_SEAT } from '../shared/planning.js';
@@ -37,7 +37,7 @@ type ToastLevel = 'info' | 'warn' | 'error';
 
 /** What a floor needs from the building around it. */
 export interface FloorContext {
-  prepareTask?(dir: string, project: string, workspace: string, card: string, owner: string | undefined, nodes: readonly CanvasNode[]): Promise<string>;
+  prepareTask?(dir: string, project: string, workspace: string, card: string, owner: string | undefined, nodes: readonly CanvasNode[]): Promise<string | PreparedTask>;
   agentCmd: string;
   agentArgs: string[];
   /** The DSH profile DeepSeek Harness workers boot (see server/dsh.ts). */
