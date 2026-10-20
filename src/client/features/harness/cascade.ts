@@ -4,7 +4,7 @@ import type { HarnessText } from '../../../shared/harness';
 
 interface View extends HarnessProfile {
   tasks: { id: string; title: string }[];
-  audit: { at: string; revision: number; level: string; node: string; by: string; slots: string[] }[];
+  audit: { at: string; revision: number; level: string; node: string; repo?: string; by: string; slots: string[] }[];
   writable: boolean; globalWrite: boolean; preview: string; warning: string;
 }
 /** Independent editor: an exported ad-hoc pack never silently changes persistent assignments. */
@@ -23,7 +23,8 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
   const save = h('button.btn.primary', { type: 'button' }, 'Save layer');
   const reload = h('button.btn', { type: 'button' }, 'Load task / reload');
   const status = h('p', { role: 'status' });
-  const effective = h('pre.harness-effective');
+  const effective = h('table.harness-effective-table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Slot'), h('th', {}, 'Value'), h('th', {}, 'Level'), h('th', {}, 'Node'))), h('tbody'));
+  const noArea = h('p.harness-notice', { role: 'note', hidden: '' }, 'No area level: this canvas has no area membership (memberOf).');
   const preview = h('pre.harness-effective');
   const audit = h('pre.harness-effective');
   const where = h('p', { role: 'status' });
@@ -33,7 +34,7 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
     h('label', {}, 'Assignment slot (used by “Assign resource”): ', slot),
     h('p', {}, 'Resource: {"rules.quality":{"resource":"guide:testing"}} · Setting: {"settings.language":{"value":"cs"}}'),
     editor, save, status), h('section', {},
-    h('details', {}, h('summary', {}, 'Effective slots and their origins'), effective),
+    h('details', {}, h('summary', {}, 'Effective slots and their origins'), noArea, effective),
     h('details', {}, h('summary', {}, 'Resolved handoff preview (saved settings)'), preview),
     h('details', {}, h('summary', {}, 'Latest saves (audit)'), audit))));
   /** Whether the loaded node has a level: global and project always, the rest only on its way down. */
@@ -44,8 +45,11 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
     editor.value = JSON.stringify(view.layers[scope.value as HarnessLevel], null, 2);
     editor.disabled = save.disabled = !canSave();
     where.textContent = view.path.length ? 'Path: ' + view.path.map((p) => `${p.level} ${p.name ?? p.node}`).join(' › ') : 'Path: project only (load a task or node to edit the levels below).';
-    effective.textContent = JSON.stringify(view.effective, null, 2);
-    audit.textContent = view.audit.map((a) => `${a.at} r${a.revision} ${a.level}${a.node ? ' ' + a.node : ''} by ${a.by || '—'}: ${a.slots.length ? a.slots.join(', ') : 'removed'}`).join('\n') || 'No saves yet.';
+    const names = new Map(view.path.map((p) => [p.node, p.name ?? '']));
+    const rows = Object.entries(view.effective).map(([slot, e]) => h('tr', {}, h('td', {}, slot), h('td', {}, e.binding === null ? 'null (disabled)' : 'resource' in e.binding ? 'resource ' + e.binding.resource : JSON.stringify(e.binding.value)), h('td', {}, e.scope), h('td', { title: e.node ?? '' }, e.node ? (e.nodeName ?? names.get(e.node) ?? e.node) : '—')));
+    effective.querySelector('tbody')!.replaceChildren(...(rows.length ? rows : [h('tr', {}, h('td', { colspan: '4' }, 'No slots are set at any level.'))]));
+    noArea.hidden = !view.path.length || view.path.some((p) => p.level === 'area');
+    audit.textContent = view.audit.map((a) => `${a.at} r${a.revision} ${a.level}${a.node ? ' ' + (names.get(a.node) || a.node) : ''} by ${a.by || '—'}: ${a.slots.length ? a.slots.join(', ') : 'removed'}`).join('\n') || 'No saves yet.';
     preview.textContent = view.preview || view.warning;
     status.textContent = `Revision ${view.revision}. ` + (view.warning ? 'Handoff blocked: ' + view.warning : 'Saved configuration ready.') + (view.writable ? '' : ' Read-only.');
     tasks.replaceChildren(...view.tasks.map((t) => h('option', { value: t.id, label: t.title })));

@@ -29,6 +29,11 @@
 .harness-cascade textarea { min-height: 150px; font: 12px/1.5 monospace; }
 .harness-cascade .harness-toolbar { padding: 0; }
 .harness-effective { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; }
+.harness-effective-table { width: 100%; border-collapse: collapse; font-size: 13px; overflow-wrap: anywhere; }
+.harness-effective-table th, .harness-effective-table td { text-align: left; vertical-align: top; padding: 4px 8px; border-bottom: 1px solid rgba(50, 168, 154, 0.35); }
+.harness-effective-table th { font-weight: 600; }
+.harness-effective-table th:nth-child(3), .harness-effective-table td:nth-child(3) { white-space: nowrap; }
+.harness-notice { margin: 4px 0 8px; font-size: 13px; opacity: 0.85; }
 @media (max-width: 700px) {
   .harness-profile-grid { grid-template-columns: 1fr; }
   .harness-window .body.harness-body { grid-template-columns: 1fr; grid-template-rows: auto 30% minmax(0, 1fr); }
