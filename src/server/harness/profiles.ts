@@ -1,7 +1,18 @@
+// The harness profiles store, `<dataDir>/harness-profiles.json`: one layer per level of the cascade
+// (shared/harness-cascade.ts), one revision for all of them, and an audit trail of the saves.
+//
+// Format (version 2, docs/harness.md "Store format and rollback"). `layers` is the same map the
+// 3-level store wrote, with the same keys for the levels it had, so a file from before loads as it
+// is and a file from now still loads there:
+//   global                      the global layer
+//   repo:<sha256 of checkout>   the project (repository) layer
+//   task:<repo>:<task key>      a task's layer (the key is the Opora key, or a custom id)
+//   node:<repo>:<node key>      a page's, layer's, area's or sector's layer (new in version 2)
+// `version` and `audit` are new in version 2; a reader that doesn't know them ignores them.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { resolveHarness, type HarnessLayer, type HarnessProfile, type HarnessScope } from '../../shared/harness-cascade.js';
+import { emptyLayers, harnessLevel, pathNode, resolveHarness, HARNESS_LEVELS, type HarnessLayer, type HarnessLevel, type HarnessPath, type HarnessProfile } from '../../shared/harness-cascade.js';
 
 export class HarnessError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -22,7 +33,31 @@ export function parseHarnessLayer(value: unknown): HarnessLayer {
   }
   return structuredClone(value) as HarnessLayer;
 }
-interface Stored { revision: number; layers: Record<string, HarnessLayer> }
+
+/** One save: which level and node changed, into which revision, by whom, and the slots the layer names now. */
+export interface HarnessAudit {
+  at: string;
+  revision: number;
+  level: HarnessLevel;
+  /** The node's key for a level below the project; '' for global and the project. */
+  node: string;
+  by: string;
+  /** The slot names the layer sets after the save; [] when the layer was removed (everything inherits again). */
+  slots: string[];
+}
+/** The store's version this code writes. Version 1 (no field) is the 3-level store. */
+export const HARNESS_STORE_VERSION = 2;
+/** Audit entries kept, oldest dropped first. */
+const AUDIT_KEEP = 200;
+interface Stored { version?: number; revision: number; layers: Record<string, HarnessLayer>; audit?: HarnessAudit[] }
+
+/** What a view or a save addresses: a task id (the 3-level form), or the way down to a node (shared/harness-hierarchy.ts). */
+export type HarnessTarget = string | HarnessPath;
+function asPath(target: HarnessTarget): HarnessPath {
+  if (typeof target !== 'string') return target;
+  return target ? [{ level: 'task', node: target }] : [];
+}
+
 /** Synchronous bounded transactions serialize writes within the office process; atomic replacement survives restarts. */
 export class HarnessProfiles {
   private file: string;
@@ -35,34 +70,67 @@ export class HarnessProfiles {
       if (Buffer.byteLength(text) > 2 * 1024 * 1024) throw new Error('too large');
       const data = JSON.parse(text) as Stored;
       if (!Number.isSafeInteger(data.revision) || data.revision < 0 || !object(data.layers)) throw new Error('invalid schema');
+      if (data.version !== undefined && (!Number.isSafeInteger(data.version) || data.version < 1 || data.version > HARNESS_STORE_VERSION)) throw new Error('unknown store version');
       for (const layer of Object.values(data.layers)) parseHarnessLayer(layer);
+      if (data.audit !== undefined && !Array.isArray(data.audit)) throw new Error('invalid audit');
       return data;
     } catch { throw new HarnessError('Harness profiles are unreadable. Repair the saved file; it has not been overwritten.', 503); }
   }
-  private keys(repo: string, task = '') {
-    if (task.length > 500 || /[\x00-\x1f]/.test(task)) throw new HarnessError('Invalid task ID');
+  private repoKey(repo: string) {
     const dir = path.resolve(repo);
-    const key = createHash('sha256').update(process.platform === 'win32' ? dir.toLowerCase() : dir).digest('hex');
-    return { global: 'global', repository: 'repo:' + key, task: 'task:' + key + ':' + task };
+    return createHash('sha256').update(process.platform === 'win32' ? dir.toLowerCase() : dir).digest('hex');
   }
-  view(repo: string, task = ''): HarnessProfile {
-    const data = this.read(), keys = this.keys(repo, task);
-    const layers = { global: data.layers.global ?? {}, repository: data.layers[keys.repository] ?? {}, task: task ? data.layers[keys.task] ?? {} : {} };
-    return { revision: data.revision, layers, effective: resolveHarness(layers) };
+  /** The store key of a level on the path; undefined for a level below the project the path doesn't go through. */
+  private key(repo: string, path: HarnessPath, level: HarnessLevel): string | undefined {
+    if (level === 'global') return 'global';
+    const repoKey = this.repoKey(repo);
+    if (level === 'project') return 'repo:' + repoKey;
+    const node = pathNode(path, level)?.node;
+    if (node === undefined) return undefined;
+    if (node.length > 500 || /[\x00-\x1f]/.test(node)) throw new HarnessError('Invalid task ID');
+    return (level === 'task' ? 'task:' : 'node:') + repoKey + ':' + node;
   }
-  save(repo: string, task: string, scope: HarnessScope, layer: unknown, revision: unknown): HarnessProfile {
-    if (!['global', 'repository', 'task'].includes(scope) || (scope === 'task' && !task.trim())) throw new HarnessError('Choose a scope and a task ID for task overrides.');
+  private assemble(data: Stored, repo: string, path: HarnessPath): HarnessProfile {
+    const layers = emptyLayers();
+    for (const level of HARNESS_LEVELS) {
+      const key = this.key(repo, path, level);
+      if (key && data.layers[key]) layers[level] = data.layers[key];
+    }
+    return { revision: data.revision, path, layers, effective: resolveHarness(layers, path) };
+  }
+  /** The levels' own views and the effective result down `target`. */
+  view(repo: string, target: HarnessTarget = ''): HarnessProfile {
+    const path = asPath(target);
+    for (const level of HARNESS_LEVELS) this.key(repo, path, level);
+    return this.assemble(this.read(), repo, path);
+  }
+  /** The latest saves, newest first. */
+  audit(limit = 20): HarnessAudit[] {
+    return (this.read().audit ?? []).slice(-Math.max(0, limit)).reverse();
+  }
+  /**
+   * Replaces one level's own layer down `target`, when `revision` is still the store's (else 409: reload
+   * and merge). An empty layer removes the level's layer, so everything inherits again.
+   */
+  save(repo: string, target: HarnessTarget, scope: unknown, layer: unknown, revision: unknown, by = ''): HarnessProfile {
+    const level = harnessLevel(scope);
+    const path = asPath(target);
+    if (!level) throw new HarnessError('Choose a level: ' + [...HARNESS_LEVELS, 'repository'].join(', ') + '.');
+    const key = this.key(repo, path, level);
+    if (!key) throw new HarnessError(level === 'task' ? 'Choose a scope and a task ID for task overrides.' : `This target has no ${level} above it: load a node that does before saving at ${level}.`);
     const next = parseHarnessLayer(layer), data = this.read();
     if (revision !== data.revision) throw new HarnessError('Profiles changed elsewhere. Reload before saving.', 409);
-    const key = this.keys(repo, task)[scope];
     if (Object.keys(next).length) data.layers[key] = next; else delete data.layers[key];
     data.revision++;
+    data.version = HARNESS_STORE_VERSION;
+    const entry: HarnessAudit = { at: new Date().toISOString(), revision: data.revision, level, node: pathNode(path, level)?.node ?? '', by: String(by).slice(0, 120), slots: Object.keys(next) };
+    data.audit = [...(data.audit ?? []).slice(-(AUDIT_KEEP - 1)), entry];
     const text = JSON.stringify(data, null, 2);
     if (Buffer.byteLength(text) > 2 * 1024 * 1024) throw new HarnessError('Harness profile storage is full.');
     mkdirSync(this.dataDir, { recursive: true });
     const temp = this.file + '.' + randomUUID() + '.tmp';
     writeFileSync(temp, text, { mode: 0o600 });
     renameSync(temp, this.file);
-    return this.view(repo, task);
+    return this.assemble(data, repo, path);
   }
 }

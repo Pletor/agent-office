@@ -29,6 +29,6 @@ export const harnessProfileRoute: Route = {
     if (!floor) return send(res, 404, { error: 'No such floor' });
     if (req.method === 'POST' && !sameOrigin(req, ctx.cfg)) return send(res, 403, { error: 'Same-origin request required' });
     const admin = !session.account || session.account.role === 'admin';
-    return harnessProfileRequest(ctx, floor, req, res, url, admin, admin, admin);
+    return harnessProfileRequest(ctx, floor, req, res, url, admin, admin, admin, session.account ? 'account:' + session.account.id : 'shared-password');
   },
 };

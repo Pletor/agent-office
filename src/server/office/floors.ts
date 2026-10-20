@@ -2,8 +2,7 @@ import { existsSync } from 'node:fs';
 import { WebSocket } from 'ws';
 import type { FloorDef } from '../building.js';
 import { Floor, type FloorContext } from '../floor.js';
-import { harnessHandoff } from '../harness/handoff.js';
-import { oporaHarnessTask } from '../../shared/harness-cascade.js';
+import { harnessCardHandoff } from '../harness/handoff.js';
 import { ROOF } from '../../shared/rooftop.js';
 import type { FloorInfo, ServerMsg } from '../../shared/protocol.js';
 import type { Ctx, FloorHelpers, FloorsOpen } from './context.js';
@@ -72,7 +71,7 @@ export function floorHelpers(ctx: Ctx): FloorHelpers {
 export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen> {
   const { cfg, floors, clients } = ctx;
   const floorContext: FloorContext = {
-    prepareTask: (dir, project, workspace, card, owner) => harnessHandoff(cfg.dataDir, dir, oporaHarnessTask(project, workspace, card), !owner || ctx.accounts.get(owner)?.role === 'admin'),
+    prepareTask: (dir, project, workspace, card, owner, nodes) => harnessCardHandoff(cfg.dataDir, dir, { project, workspace }, card, nodes, !owner || ctx.accounts.get(owner)?.role === 'admin'),
     agentCmd: cfg.agentCmd,
     agentArgs: cfg.agentArgs,
     dshProfile: cfg.dshProfile,

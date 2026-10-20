@@ -1,9 +1,10 @@
 import { h } from '../../ui/dom';
-import type { HarnessProfile, HarnessScope } from '../../../shared/harness-cascade';
+import { HARNESS_LEVELS, type HarnessLevel, type HarnessProfile } from '../../../shared/harness-cascade';
 import type { HarnessText } from '../../../shared/harness';
 
 interface View extends HarnessProfile {
   tasks: { id: string; title: string }[];
+  audit: { at: string; revision: number; level: string; node: string; by: string; slots: string[] }[];
   writable: boolean; globalWrite: boolean; preview: string; warning: string;
 }
 /** Independent editor: an exported ad-hoc pack never silently changes persistent assignments. */
@@ -13,9 +14,9 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
   let ticket = 0;
   let saving = false;
   let loading = false;
-  const scope = h('select', { 'aria-label': 'Harness scope' }, ...['global', 'repository', 'task'].map((s) => h('option', { value: s }, s)));
-  scope.value = 'repository';
-  const task = h('input', { placeholder: 'Task ID (from Opora, or custom)', 'aria-label': 'Harness task', list: 'harness-tasks' });
+  const scope = h('select', { 'aria-label': 'Harness scope' }, ...HARNESS_LEVELS.map((s) => h('option', { value: s }, s === 'project' ? 'project (repository)' : s)));
+  scope.value = 'project';
+  const task = h('input', { placeholder: 'Task or node ID (from Opora, or custom)', 'aria-label': 'Harness task', list: 'harness-tasks' });
   const tasks = h('datalist', { id: 'harness-tasks' });
   const slot = h('input', { placeholder: 'rules.quality', value: 'rules.quality', 'aria-label': 'Harness slot' });
   const editor = h('textarea', { rows: 7, spellcheck: false, 'aria-label': 'Harness layer JSON' });
@@ -24,19 +25,26 @@ export function cascadePanel(floor: string, signal: AbortSignal) {
   const status = h('p', { role: 'status' });
   const effective = h('pre.harness-effective');
   const preview = h('pre.harness-effective');
-  const el = h('details.harness-cascade', {}, h('summary', {}, 'Inheritance: Global → Repository → Task'),
-    h('p', {}, 'Named slots work like CSS: task overrides repository, which overrides global. Missing key = inherit; null = disable. Delete an override to inherit again. Save explicitly; changing task/scope discards unsaved edits.'),
-    h('div.harness-profile-grid', {}, h('section', {}, h('div.harness-toolbar', {}, scope, task, tasks, reload),
+  const audit = h('pre.harness-effective');
+  const where = h('p', { role: 'status' });
+  const el = h('details.harness-cascade', {}, h('summary', {}, 'Inheritance: ' + HARNESS_LEVELS.map((l) => l[0].toUpperCase() + l.slice(1)).join(' → ')),
+    h('p', {}, 'Named slots work like CSS: each level overrides the ones above it, down to the task. Missing key = inherit; null = disable. Delete an override to inherit again. A level sets only its own slots; siblings never see each other. Save explicitly; changing task/scope discards unsaved edits.'),
+    h('div.harness-profile-grid', {}, h('section', {}, h('div.harness-toolbar', {}, scope, task, tasks, reload), where,
     h('label', {}, 'Assignment slot (used by “Assign resource”): ', slot),
     h('p', {}, 'Resource: {"rules.quality":{"resource":"guide:testing"}} · Setting: {"settings.language":{"value":"cs"}}'),
     editor, save, status), h('section', {},
     h('details', {}, h('summary', {}, 'Effective slots and their origins'), effective),
-    h('details', {}, h('summary', {}, 'Resolved handoff preview (saved settings)'), preview))));
+    h('details', {}, h('summary', {}, 'Resolved handoff preview (saved settings)'), preview),
+    h('details', {}, h('summary', {}, 'Latest saves (audit)'), audit))));
+  /** Whether the loaded node has a level: global and project always, the rest only on its way down. */
+  const onPath = (level: string) => level === 'global' || level === 'project' || view!.path.some((p) => p.level === level);
   function render() {
     if (!view) return;
-    editor.value = JSON.stringify(view.layers[scope.value as HarnessScope], null, 2);
-    editor.disabled = save.disabled = !view.writable || (scope.value === 'global' && !view.globalWrite);
+    editor.value = JSON.stringify(view.layers[scope.value as HarnessLevel], null, 2);
+    editor.disabled = save.disabled = !view.writable || (scope.value === 'global' && !view.globalWrite) || !onPath(scope.value);
+    where.textContent = view.path.length ? 'Path: ' + view.path.map((p) => `${p.level} ${p.name ?? p.node}`).join(' › ') : 'Path: project only (load a task or node to edit the levels below).';
     effective.textContent = JSON.stringify(view.effective, null, 2);
+    audit.textContent = view.audit.map((a) => `${a.at} r${a.revision} ${a.level}${a.node ? ' ' + a.node : ''} by ${a.by || '—'}: ${a.slots.length ? a.slots.join(', ') : 'removed'}`).join('\n') || 'No saves yet.';
     preview.textContent = view.preview || view.warning;
     status.textContent = `Revision ${view.revision}. ` + (view.warning ? 'Handoff blocked: ' + view.warning : 'Saved configuration ready.') + (view.writable ? '' : ' Read-only.');
     tasks.replaceChildren(...view.tasks.map((t) => h('option', { value: t.id, label: t.title })));

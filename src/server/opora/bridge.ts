@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaAgentName, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
-import { buildScope, cleanFocus, focusLine, inFocus, toggleFocus } from '../../shared/opora-scope.js';
+import { buildScope, cleanFocus, focusLine, inFocus, toggleFocus, type CanvasNode } from '../../shared/opora-scope.js';
 import { focusIntact, samePlace, type OporaPlace } from '../../shared/opora-identity.js';
 import { fillPrompt, type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
@@ -33,8 +33,8 @@ export interface BridgeFloor {
 }
 
 export interface BridgeEvents {
-  /** Optional task context, prepared before claiming a lease; failure prevents dispatch. */
-  prepareTask?(project: string, workspace: string, card: string, owner?: string): Promise<string>;
+  /** Optional task context, prepared before claiming a lease from the canvas as last read; failure prevents dispatch. */
+  prepareTask?(project: string, workspace: string, card: string, owner: string | undefined, nodes: readonly CanvasNode[]): Promise<string>;
   update(state: OporaState): void;
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
   prompt(id: PromptId): string;
@@ -86,6 +86,8 @@ export class OporaBridge {
   private live: ActivityFeed;
   /** The project whose folder is this floor's checkout, as of the last read. */
   private byFolder?: string;
+  /** The canvas as last read, every node with its parent and area, for what resolves a card's place in it (the Harness cascade). */
+  private canvas: CanvasNode[] = [];
   private client: OporaClient;
   private statePath: string;
   private pollTimer: NodeJS.Timeout;
@@ -198,6 +200,11 @@ export class OporaBridge {
     return 'What the cell works on isn’t in the project’s architecture any more, or not where it was: switch it again at the 🎚️ switchboard';
   }
 
+  /** The canvas's nodes as last read (docs/opora-identity.md): what places a node in the hierarchy. */
+  canvasNodes(): readonly CanvasNode[] {
+    return this.canvas;
+  }
+
   /** The focus in words for a brief, or '' for the whole project. */
   focusLine(): string {
     return focusLine(this.state.scope, this.focus);
@@ -235,7 +242,7 @@ export class OporaBridge {
     if (!desk) return 'Every desk is taken: send someone home, or build the back office out';
     const agent = oporaAgentName(this.floor.id, card.id);
     let context = '';
-    try { context = await this.events.prepareTask?.(project.id, workspace, card.id, owner) ?? ''; }
+    try { context = await this.events.prepareTask?.(project.id, workspace, card.id, owner, this.canvas) ?? ''; }
     catch (err) { return 'Task context: ' + (err as Error).message; }
     let lease;
     try {
@@ -368,6 +375,7 @@ export class OporaBridge {
       // Another project (its folder's, as the one picked left Opora) has another architecture: the whole of it.
       if (s.project && s.project.id !== project.id) this.focus = [];
       const nodes = await this.client.nodes(project.id, workspace);
+      this.canvas = nodes;
       const byId = new Map(nodes.map((n) => [n.id, n]));
       const isCard = (id: string) => byId.get(id)?.kind === 'node';
       const sectors = nodes.filter((n) => n.kind === 'sector').slice(0, MAX_SECTORS);

@@ -5,12 +5,23 @@ import { readBody, send } from '../http/util.js';
 import { HarnessProfiles, HarnessError, parseHarnessLayer } from './profiles.js';
 import { harnessHandoff } from './handoff.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
-import { oporaHarnessTask } from '../../shared/harness-cascade.js';
+import { HARNESS_LEVELS, oporaHarnessTask } from '../../shared/harness-cascade.js';
+import { harnessTarget } from '../../shared/harness-hierarchy.js';
 
-export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean) {
+/**
+ * Reads or saves profiles down to what `?task=` or `?node=` addresses: an Opora key of the floor's
+ * project is placed on the canvas (its page, layer, area and sector resolve with it), a key of another
+ * project or workspace is refused, and anything else is a custom task id. `by` goes into the audit.
+ */
+export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean, by = '') {
   try {
     const store = new HarnessProfiles(ctx.cfg.dataDir);
-    const task = url.searchParams.get('task') ?? '';
+    const id = url.searchParams.get('node') ?? url.searchParams.get('task') ?? '';
+    const opora = floor.opora.view();
+    const place = opora.project && opora.workspace ? { project: opora.project.id, workspace: opora.workspace } : undefined;
+    let path;
+    try { path = harnessTarget(floor.opora.canvasNodes(), place, id); }
+    catch (err) { throw new HarnessError((err as Error).message, 400); }
     if (req.method === 'POST') {
       if (!writable) return send(res, 403, { error: 'Only administrators and their active orchestrator can assign harness profiles.' });
       const body = JSON.parse(await readBody(req, 300_000));
@@ -23,21 +34,20 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
         const catalog = await lib.list();
         for (const id of ids) if (!catalog.entries.some((entry) => entry.id === id)) throw new HarnessError('Unknown or inaccessible resource: ' + id);
       }
-      store.save(floor.dir, task, body.scope, layer, body.revision);
+      store.save(floor.dir, path, body.scope, layer, body.revision, by);
     } else if (req.method !== 'GET') return send(res, 405, { error: 'Use GET or POST' });
-    const view = store.view(floor.dir, task);
-    const opora = floor.opora.view();
-    const tasks = opora.project && opora.workspace ? opora.cards.map((card) => ({ id: oporaHarnessTask(opora.project!.id, opora.workspace!, card.id), title: card.name })) : [];
+    const view = store.view(floor.dir, path);
+    const tasks = place ? opora.cards.map((card) => ({ id: oporaHarnessTask(place.project, place.workspace, card.id), title: card.name })) : [];
     let preview = '', warning = '';
-    try { preview = await harnessHandoff(ctx.cfg.dataDir, floor.dir, task, local, view); }
+    try { preview = await harnessHandoff(ctx.cfg.dataDir, floor.dir, path, local, view); }
     catch (err) { warning = (err as Error).message; }
-    send(res, 200, { ...view, tasks, writable, globalWrite, preview, warning });
+    send(res, 200, { ...view, levels: HARNESS_LEVELS, tasks, audit: store.audit(20), writable, globalWrite, preview, warning });
   } catch (err) {
     send(res, err instanceof HarnessError ? err.status : 400, { error: (err as Error).message });
   }
 }
 
-/** Worker credentials are floor-scoped. Only the live admin-owned planner may mutate repository/task layers. */
+/** Worker credentials are floor-scoped. Only the live admin-owned planner may mutate the layers below global. */
 export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
   const id = url.searchParams.get('worker') ?? '';
   const floor = ctx.workerFloor(id);
@@ -50,5 +60,5 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   if (req.method === 'GET' && url.searchParams.has('catalog')) {
     return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin)).list());
   }
-  return harnessProfileRequest(ctx, floor, req, res, url, admin, admin, false);
+  return harnessProfileRequest(ctx, floor, req, res, url, admin, admin, false, 'worker:' + id);
 }
