@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Read-only access to the same library from any model's local shell.
+// The same library from any model's local shell: resources are only read; element revisions are recorded in the office data dir.
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { HarnessLibrary, harnessSources } from '../dist/server/server/harness/catalog.js';
@@ -11,19 +11,15 @@ if (process.env.AGENT_OFFICE_HOOK_URL) {
   await remoteHarness(args);
 } else {
 let project = process.cwd();
-if (args[0] === '--project') {
-  args.shift();
-  project = args.shift();
-  if (!project) throw new Error('--project requires a folder');
-}
-// Element revisions live in the office data dir beside the profiles; without one, versions read 0 and no tombstones are kept.
+// Element revisions live in the office data dir beside the profiles (the folder holding config.json, so a floor's own
+// .agent-office is not mistaken for it); without one, versions read 0 and no tombstones are kept.
 let dataDir = process.env.AGENT_OFFICE_DATA_DIR ?? '';
-if (args[0] === '--data-dir') {
-  args.shift();
-  dataDir = args.shift();
-  if (!dataDir) throw new Error('--data-dir requires a folder');
+while (args[0] === '--project' || args[0] === '--data-dir') {
+  const option = args.shift(), value = args.shift();
+  if (!value) throw new Error(option + ' requires a folder');
+  if (option === '--project') project = value; else dataDir = value;
 }
-if (!dataDir && existsSync(path.join(project, '.agent-office'))) dataDir = path.join(project, '.agent-office');
+if (!dataDir && existsSync(path.join(project, '.agent-office', 'config.json'))) dataDir = path.join(project, '.agent-office');
 let action = args.shift();
 if (action === '--catalog') action = undefined;
 if (action && !['--read', '--bundle', '--resolve'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--data-dir folder] [--catalog | --read id | --bundle id ... | --resolve id ...]');

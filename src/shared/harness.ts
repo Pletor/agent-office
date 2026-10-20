@@ -45,7 +45,7 @@ export interface HarnessText extends HarnessEntry { text: string }
  */
 export type HarnessResolution =
   | { status: 'available'; entry: HarnessEntry }
-  | { status: 'missing'; id: string; title: string; path: string; source: string; category: HarnessCategory; version: number; digest: string; lastSeenAt: string; missingSince: string }
+  | { status: 'missing'; id: string; title: string; path: string; source: string; category: HarnessCategory; version: number; revision: number; digest: string; lastSeenAt: string; missingSince: string }
   | { status: 'unknown'; id: string };
 export function harnessBundle(entries: HarnessText[]): string {
   return ['# Harness context pack',

@@ -28,8 +28,10 @@ const READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
 const sameFile = (a: BigIntStats, b: BigIntStats) => a.ino === b.ino && (a.dev === b.dev || !a.dev || !b.dev);
 const sha256 = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 const posix = (p: string) => p.replaceAll('\\', '/');
-/** Content digests keyed by path, reused while size and mtime are unchanged, so a listing re-reads only edited files. */
-const digests = new Map<string, { size: bigint; mtime: bigint; digest: string }>();
+/** Verified content digests keyed by path, reused while the file (by ID, size and mtime) is unchanged, so a listing re-reads only edited files. */
+const digests = new Map<string, { key: string; digest: string }>();
+const MAX_DIGESTS = 4000;
+const fileKey = (s: BigIntStats) => [s.dev, s.ino, s.size, s.mtimeNs].join(':');
 
 const SINGULAR: Record<string, HarnessCategory> = { instruction: 'instructions', skill: 'skills', hook: 'hooks', rule: 'rules', command: 'commands', script: 'scripts', tool: 'tools', plugin: 'plugins', permission: 'permissions', test: 'testing', tests: 'testing', ops: 'operations', runbook: 'operations', runbooks: 'operations' };
 export function sourceCategory(file: string, fallback: HarnessCategory = 'instructions'): HarnessCategory {
@@ -115,12 +117,13 @@ export class HarnessLibrary {
         if (++visits > MAX_VISITS || entries.length >= MAX_FILES || depth > 10) { limited = true; whole = false; return; }
         const file = path.join(source.dir, rel);
         let stat;
-        try { stat = await lstat(file, { bigint: true }); } catch { return; }
+        // A path that vanished is simply absent; any other failure (permissions, a lock) leaves the walk incomplete, so nothing below it is declared missing.
+        try { stat = await lstat(file, { bigint: true }); } catch (err) { if ((err as NodeJS.ErrnoException).code !== 'ENOENT') whole = false; return; }
         // Tested on the slash form, so a nested credential-like name is caught on Windows paths too.
         if (stat.isSymbolicLink() || SECRET.test(posix(rel))) return;
         if (stat.isDirectory()) {
           if (SKIP.test(path.basename(file))) return;
-          const children = await readdir(file).catch(() => []);
+          const children = await readdir(file).catch(() => { whole = false; return []; });
           for (const name of children.sort()) {
             if (visits >= MAX_VISITS || entries.length >= MAX_FILES) { limited = true; whole = false; break; }
             await walk(path.join(rel, name), depth + 1);
@@ -128,12 +131,14 @@ export class HarnessLibrary {
         } else if (stat.isFile() && TEXT.test(rel) && stat.size <= MAX_BYTES) {
           const { id, ns, key } = elementId(source, rel);
           if (this.locations.has(id)) return;
-          const digest = await this.digest(file, stat);
-          if (!digest) return; // binary, grown past the limit or swapped meanwhile: not an element
           const alias = legacyId(file);
           const category = sourceCategory(rel, source.category);
-          const entry: HarnessEntry = { id, title: this.title(rel), category, group: sourceGroup(rel, category, source.name), source: source.name, path: posix(rel), version: 0, digest, aliases: [alias] };
-          this.locations.set(id, { source, file, rel, root: verified, boundary, entry });
+          const entry: HarnessEntry = { id, title: this.title(rel), category, group: sourceGroup(rel, category, source.name), source: source.name, path: posix(rel), version: 0, digest: '', aliases: [alias] };
+          const located: Located = { source, file, rel, root: verified, boundary, entry };
+          const digest = await this.digest(located, stat);
+          if (!digest) return; // binary, grown past the limit, swapped meanwhile or no longer within the boundary: not an element
+          entry.digest = digest;
+          this.locations.set(id, located);
           this.aliases.set(alias, id);
           observed.push({ id, ns, key, root: instance, title: entry.title, path: entry.path, source: source.name, category, digest });
           entries.push(entry);
@@ -147,28 +152,37 @@ export class HarnessLibrary {
     for (const entry of entries) entry.version = this.versions.get(entry.id) ?? 0;
     return { entries, sources, limited };
   }
-  /** SHA-256 of a listed file, read through the same verified-handle discipline as read(); cached by size and mtime. */
-  private async digest(file: string, before: BigIntStats): Promise<string | undefined> {
-    const cached = digests.get(file);
-    if (cached && cached.size === before.size && cached.mtime === before.mtimeNs) return cached.digest;
-    const content = await this.content(file, before);
-    if (!content) return undefined;
-    if (digests.size >= 4000) digests.clear();
-    const digest = sha256(content);
-    digests.set(file, { size: before.size, mtime: before.mtimeNs, digest });
+  /** SHA-256 of a listed file, read with the same verification as read(); the cache is keyed by the file ID, size and mtime the walk saw. */
+  private async digest(located: Located, seen: BigIntStats): Promise<string | undefined> {
+    const key = fileKey(seen), cached = digests.get(located.file);
+    if (cached?.key === key) { digests.delete(located.file); digests.set(located.file, cached); return cached.digest; }
+    const content = await this.content(located);
+    if (!content || !sameFile(content.stat, seen)) return undefined;
+    if (digests.size >= MAX_DIGESTS) digests.delete(digests.keys().next().value!);
+    const digest = sha256(content.bytes);
+    digests.set(located.file, { key, digest });
     return digest;
   }
-  /** The bytes of `file`, provided the opened handle is still the regular text file `before` described. */
-  private async content(file: string, before: BigIntStats): Promise<Buffer | undefined> {
+  /**
+   * The bytes of a located file, or nothing. The path is verified against the boundary before the
+   * open, the opened handle must be the file just verified (not whatever a swapped path now points
+   * at), and the path is verified again after reading, so a path swapped out and back around the
+   * open is caught too. Binary content and content past the size limit are refused.
+   */
+  private async content(located: Located): Promise<{ bytes: Buffer; stat: BigIntStats } | undefined> {
+    const before = await this.verify(located);
+    if (!before) return undefined;
     let handle: FileHandle;
-    try { handle = await open(file, READ_FLAGS); } catch { return undefined; }
+    try { handle = await open(before.real, READ_FLAGS); } catch { return undefined; }
     try {
       const stat = await handle.stat({ bigint: true });
-      if (!stat.isFile() || !sameFile(stat, before) || stat.size > MAX_BYTES) return undefined;
+      if (!stat.isFile() || !sameFile(stat, before.stat) || stat.size > MAX_BYTES) return undefined;
       const buffer = Buffer.alloc(MAX_BYTES + 1);
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
       if (bytesRead > MAX_BYTES || buffer.subarray(0, bytesRead).includes(0)) return undefined;
-      return buffer.subarray(0, bytesRead);
+      const after = await this.verify(located);
+      if (!after || !sameFile(stat, after.stat)) return undefined;
+      return { bytes: buffer.subarray(0, bytesRead), stat };
     } catch { return undefined; } finally { await handle.close(); }
   }
   private title(file: string): string {
@@ -182,8 +196,8 @@ export class HarnessLibrary {
     const found = this.locations.get(canonical);
     if (found) return { status: 'available', entry: found.entry };
     // Known to this installation but not listed here: gone from where it lived (missingSince set), or published in another project only.
-    const record = this.registry?.lookup(canonical);
-    if (record) return { status: 'missing', id: canonical, title: record.title, path: record.path, source: record.source, category: record.category, version: record.revision, digest: record.digest, lastSeenAt: record.lastSeenAt, missingSince: record.missingSince ?? '' };
+    const known = this.registry?.lookup(canonical);
+    if (known) return { status: 'missing', id: canonical, ...known, version: known.revision };
     return { status: 'unknown', id };
   }
   async read(id: string): Promise<HarnessText | undefined> {
@@ -192,26 +206,10 @@ export class HarnessLibrary {
     if (guide) return { ...guide, version: this.versions.get(id) ?? 0 };
     const found = this.locations.get(id);
     if (!found) return undefined;
-    const { entry } = found;
-    try {
-      const before = await this.verify(found);
-      if (!before) return undefined;
-      const handle = await open(before.real, READ_FLAGS);
-      try {
-        // The opened file must be the one just verified, not whatever a swapped path now points at.
-        const stat = await handle.stat({ bigint: true });
-        if (!stat.isFile() || !sameFile(stat, before.stat) || stat.size > MAX_BYTES) return undefined;
-        const buffer = Buffer.alloc(MAX_BYTES + 1);
-        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-        if (bytesRead > MAX_BYTES || buffer.subarray(0, bytesRead).includes(0)) return undefined;
-        // Verify again after reading, so a path swapped out and back around the open is caught too.
-        const after = await this.verify(found);
-        if (!after || !sameFile(stat, after.stat)) return undefined;
-        const content = buffer.subarray(0, bytesRead);
-        // The digest is of the bytes just read; the version stays the one listed (a new revision is assigned by the next listing).
-        return { ...entry, digest: sha256(content), text: content.toString('utf8') };
-      } finally { await handle.close(); }
-    } catch { return undefined; }
+    const content = await this.content(found);
+    if (!content) return undefined;
+    // The digest is of the bytes just read; the version stays the one listed (a new revision is assigned by the next listing).
+    return { ...found.entry, digest: sha256(content.bytes), text: content.bytes.toString('utf8') };
   }
   /**
    * A successful list() is not a standing grant: every read re-checks, against the disk as it is now,
@@ -221,14 +219,16 @@ export class HarnessLibrary {
    * These are path checks, so they narrow a concurrent rename race rather than rule it out at the OS level.
    */
   private async verify({ source, file, rel, root, boundary }: Located) {
-    if (boundary !== undefined && (!source.boundary || (await realpath(source.boundary)) !== boundary || !inside(boundary, root))) return;
-    for (let at = source.dir, parts = rel.split(path.sep); ; at = path.join(at, parts.shift()!)) {
-      if ((await lstat(at)).isSymbolicLink()) return;
-      if (!parts.length) break;
-    }
-    const real = await realpath(file);
-    if ((await realpath(source.dir)) !== root || !inside(root, real) || !samePath(path.relative(root, real), rel)) return;
-    const stat = await lstat(real, { bigint: true });
-    return stat.isFile() ? { real, stat } : undefined;
+    try {
+      if (boundary !== undefined && (!source.boundary || (await realpath(source.boundary)) !== boundary || !inside(boundary, root))) return;
+      for (let at = source.dir, parts = rel.split(path.sep); ; at = path.join(at, parts.shift()!)) {
+        if ((await lstat(at)).isSymbolicLink()) return;
+        if (!parts.length) break;
+      }
+      const real = await realpath(file);
+      if ((await realpath(source.dir)) !== root || !inside(root, real) || !samePath(path.relative(root, real), rel)) return;
+      const stat = await lstat(real, { bigint: true });
+      return stat.isFile() ? { real, stat } : undefined;
+    } catch { return undefined; }
   }
 }

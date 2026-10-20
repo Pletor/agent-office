@@ -2,7 +2,7 @@
 // content, tombstones for elements that disappear, and compatibility with the IDs profiles saved before.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rename, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rename, rm, readFile, utimes, stat } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
@@ -112,15 +112,17 @@ test('a vanished element leaves a tombstone: it resolves as missing, is never re
   assert.equal(back.id, review.id);
   assert.equal(back.version, 2);
   assert.equal(lib.resolve(review.id).status, 'available');
-  // A truncated listing does not tombstone what it did not get to.
-  const limitedDir = at('big');
-  for (let i = 0; i < 1210; i++) await put('big/.harness/notes/n' + String(i).padStart(4, '0') + '.md', 'n' + i);
-  const bigLib = new HarnessLibrary(harnessSources(limitedDir, false), new HarnessRegistry(data));
+  // A truncated listing does not tombstone what it did not get to: `zz.md` is listed first, then 1,200 files that
+  // sort before it push it past the bound, and it must not be declared missing.
+  await put('big/.harness/zz.md', 'last');
+  const bigLib = new HarnessLibrary(harnessSources(at('big'), false), new HarnessRegistry(data));
+  const zz = (await bigLib.list()).entries.find((e) => e.path === 'zz.md')!;
+  for (let i = 0; i < 1200; i++) await put('big/.harness/notes/n' + String(i).padStart(4, '0') + '.md', 'n' + i);
   const big = await bigLib.list();
   assert.equal(big.limited, true);
-  const last = elementId({ name: '', dir: '', ns: 'project', prefix: '.harness' }, 'notes/n1209.md').id;
-  await bigLib.list();
-  assert.equal(bigLib.resolve(last).status, 'unknown', 'not listed because of the bound, and not declared missing either');
+  assert.equal(big.entries.some((e) => e.id === zz.id), false, 'pushed past the bound');
+  const cut = bigLib.resolve(zz.id);
+  assert.ok(cut.status === 'missing' && cut.missingSince === '', 'known, not listed, but not tombstoned by a listing that was cut short');
 });
 
 test('a shared machine element has one ID in every project, and one project\'s assignment never moves another\'s', async (t) => {
@@ -160,6 +162,60 @@ test('a shared machine element has one ID in every project, and one project\'s a
   assert.ok(gone.status === 'missing' && gone.missingSince, 'its own source instance tombstones it');
 });
 
+test('the same relative path in two projects shares one ID but keeps its own content, revision and tombstone per place', async (t) => {
+  const { at, put, data } = await fixture(t);
+  await put('a/AGENTS.md', 'rules of A');
+  await put('b/AGENTS.md', 'rules of B');
+  const libA = new HarnessLibrary(harnessSources(at('a'), false), new HarnessRegistry(data));
+  const libB = new HarnessLibrary(harnessSources(at('b'), false), new HarnessRegistry(data));
+  const agentsA = (await libA.list()).entries.find((e) => e.path === 'AGENTS.md')!;
+  const agentsB = (await libB.list()).entries.find((e) => e.path === 'AGENTS.md')!;
+  assert.equal(agentsA.id, agentsB.id);
+  assert.equal(agentsA.version, 1);
+  assert.equal(agentsB.version, 2, 'different content, next number');
+  assert.equal((await libA.list()).entries.find((e) => e.path === 'AGENTS.md')!.version, 1, 'A keeps its number after B listed');
+  assert.equal((await libB.list()).entries.find((e) => e.path === 'AGENTS.md')!.version, 2);
+  const registry = new HarnessRegistry(data);
+  assert.equal(registry.lookup(agentsA.id)?.missingSince, '');
+  // B loses its copy: only B's instance is tombstoned; from A it is still available, and the record is not "missing everywhere".
+  await rm(at('b/AGENTS.md'));
+  await libB.list();
+  assert.equal(libA.resolve(agentsA.id).status, 'available');
+  const fromB = libB.resolve(agentsB.id);
+  assert.ok(fromB.status === 'missing' && fromB.missingSince === '', 'gone here, still published in A');
+  await libA.list();
+  assert.equal(libA.resolve(agentsA.id).status, 'available', 'A listing does not revive or disturb B');
+  await rm(at('a/AGENTS.md'));
+  await libA.list();
+  const everywhere = libA.resolve(agentsA.id);
+  assert.ok(everywhere.status === 'missing' && everywhere.missingSince, 'gone from every place it was listed');
+});
+
+test('registry writes never break a listing: a held lock skips recording, a stale lock is taken over, an unwritable file is left alone', async (t) => {
+  const { at, put, data } = await fixture(t);
+  await put('p/.harness/rules/x.md', 'x');
+  const lock = path.join(data, 'harness-registry.json.lock');
+  await put('data/harness-registry.json.lock', '');
+  const lib = new HarnessLibrary(harnessSources(at('p'), false), new HarnessRegistry(data));
+  const held = (await lib.list()).entries.find((e) => e.path === 'rules/x.md')!;
+  assert.equal(held.version, 0, 'another writer holds the lock: listed, unversioned');
+  assert.equal(held.digest.length, 64);
+  await assert.rejects(stat(path.join(data, 'harness-registry.json')), 'nothing written while locked');
+  const old = new Date(Date.now() - 60_000);
+  await utimes(lock, old, old);
+  assert.equal((await lib.list()).entries.find((e) => e.path === 'rules/x.md')!.version, 1, 'a stale lock is taken over');
+  await assert.rejects(stat(lock), 'the lock is released');
+  // The registry path occupied by a folder: unreadable, so nothing is versioned and nothing is replaced.
+  const { at: at2, put: put2, data: data2 } = await fixture(t);
+  await put2('p/.harness/rules/y.md', 'y');
+  await mkdir(path.join(data2, 'harness-registry.json'), { recursive: true });
+  const lib2 = new HarnessLibrary(harnessSources(at2('p'), false), new HarnessRegistry(data2));
+  assert.equal((await lib2.list()).entries.find((e) => e.path === 'rules/y.md')!.version, 0);
+  assert.ok((await stat(path.join(data2, 'harness-registry.json'))).isDirectory());
+  assert.equal(lib2.resolve('constructor').status, 'unknown');
+  assert.equal(lib2.resolve('__proto__').status, 'unknown');
+});
+
 test('old resource IDs (hash of the absolute path) keep resolving as aliases', async (t) => {
   const { at, put, data } = await fixture(t);
   await put('p/.harness/rules/review.md', 'review');
@@ -179,7 +235,7 @@ test('old resource IDs (hash of the absolute path) keep resolving as aliases', a
   assert.match(handoff, new RegExp('Element: ' + entry.id + ' · revision 1'));
 });
 
-test('credential-like files are excluded from the registry and digests are read only through verified handles', async (t) => {
+test('credential-like, binary and nested credential-like files are excluded from the registry, which stores digests, never content', async (t) => {
   const { at, put, data } = await fixture(t);
   await put('p/.harness/tools/browser.md', 'ok');
   await put('p/.harness/tools/.env', 'SECRET=1');
