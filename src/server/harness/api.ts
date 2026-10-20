@@ -5,8 +5,8 @@ import { readBody, send } from '../http/util.js';
 import { HarnessProfiles, HarnessError, parseHarnessLayer } from './profiles.js';
 import { harnessHandoff } from './handoff.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
-import { HARNESS_LEVELS, harnessLevel, oporaHarnessTask, pathNode } from '../../shared/harness-cascade.js';
-import { harnessDeadEnd, harnessTarget } from '../../shared/harness-hierarchy.js';
+import { HARNESS_LEVELS, harnessLevel, oporaHarnessTask, pathNode, type HarnessProfile } from '../../shared/harness-cascade.js';
+import { harnessDeadEnd, harnessTarget, type HierarchyNode } from '../../shared/harness-hierarchy.js';
 import { oporaKey, parseOporaKey } from '../../shared/opora-identity.js';
 
 /**
@@ -14,21 +14,30 @@ import { oporaKey, parseOporaKey } from '../../shared/opora-identity.js';
  * project is placed on the canvas (its page, layer, area and sector resolve with it), a key of another
  * project or workspace is refused, and anything else is a custom task id. `by` goes into the audit.
  * A save below the project at a node of the canvas names the node it was edited for (`at`, the node's key
- * on the path the preceding read returned): when the canvas has since moved the target so that level is
- * another node now, it is refused (409) rather than written where the editor never looked. A save at the
+ * on the path the preceding read returned): when the canvas has moved the target so that level is
+ * another node now, it is refused (409) rather than written where the editor never looked. That is
+ * checked twice: on the request, and again under the store's lock right before the write, against the
+ * canvas as it is then, because the save may have waited for another office's lock. A save at the
  * level the canvas gives a card no task's path goes through (a card between the page and the layers) is
  * refused (400): it would reach nothing. The audit a reader gets is the floor's repository's; global saves
  * and other repositories' are the administrator's to see (`auditAll`), never a worker's.
+ * A save that committed is answered 200 with the committed profile even when the rest of the response
+ * (tasks, audit, preview) can't be built: the error goes into `warning`, never into a non-2xx status.
  */
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean, by = '', auditAll = local) {
+  let committed: HarnessProfile | undefined;
+  const rest = { levels: HARNESS_LEVELS, writable, globalWrite };
   try {
     const store = new HarnessProfiles(ctx.cfg.dataDir);
     const id = url.searchParams.get('node') ?? url.searchParams.get('task') ?? '';
     const opora = floor.opora.view();
     const place = opora.project && opora.workspace ? { project: opora.project.id, workspace: opora.workspace } : undefined;
-    let path;
-    try { path = harnessTarget(floor.opora.canvasNodes(), place, id); }
-    catch (err) { throw new HarnessError((err as Error).message, 400); }
+    const target = (nodes: readonly HierarchyNode[]) => {
+      try { return harnessTarget(nodes, place, id); }
+      catch (err) { throw new HarnessError((err as Error).message, 400); }
+    };
+    const path = target(floor.opora.canvasNodes());
+    let view: HarnessProfile;
     if (req.method === 'POST') {
       if (!writable) return send(res, 403, { error: 'Only administrators and their active orchestrator can assign harness profiles.' });
       const body = JSON.parse(await readBody(req, 300_000));
@@ -40,9 +49,15 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       const canvasId = place ? parseOporaKey(id)?.nodeId : undefined;
       if (below && canvasId && at && body.at === undefined) throw new HarnessError(`Send "at": the key of the ${level} node this save was edited for, from the path the preceding read returned.`);
       if (body.at !== undefined && body.at !== (at ?? '')) throw new HarnessError('The canvas moved this node since you loaded it: reload before saving.', 409);
-      // The addressed node itself is the one at this level (its canonical key, however the request spelled it).
-      const deadEnd = below && canvasId && place && at === oporaKey(place, canvasId) ? harnessDeadEnd(floor.opora.canvasNodes(), canvasId) : undefined;
-      if (deadEnd) throw new HarnessError(deadEnd);
+      /** The target's place on the canvas as `nodes` has it: the node at the level must still be `at`, and must not be a dead end. */
+      const placed = (nodes: readonly HierarchyNode[], fresh: boolean) => {
+        if (!below || !canvasId) return;
+        if (fresh && pathNode(target(nodes), level)?.node !== at) throw new HarnessError('The canvas moved this node while the save waited for the store: reload before saving.', 409);
+        // The addressed node itself is the one at this level (its canonical key, however the request spelled it).
+        const deadEnd = place && at === oporaKey(place, canvasId) ? harnessDeadEnd(nodes, canvasId) : undefined;
+        if (deadEnd) throw new HarnessError(deadEnd);
+      };
+      placed(floor.opora.canvasNodes(), false);
       const layer = parseHarnessLayer(body.layer);
       const ids = Object.values(layer).flatMap((b) => b && 'resource' in b ? [b.resource] : []);
       if (ids.length) {
@@ -50,15 +65,16 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
         const catalog = await lib.list();
         for (const id of ids) if (!catalog.entries.some((entry) => entry.id === id)) throw new HarnessError('Unknown or inaccessible resource: ' + id);
       }
-      await store.save(floor.dir, path, body.scope, layer, body.revision, by);
+      view = committed = await store.save(floor.dir, path, body.scope, layer, body.revision, by, () => placed(floor.opora.canvasNodes(), true));
     } else if (req.method !== 'GET') return send(res, 405, { error: 'Use GET or POST' });
-    const view = store.view(floor.dir, path);
+    else view = store.view(floor.dir, path);
     const tasks = place ? opora.cards.map((card) => ({ id: oporaHarnessTask(place.project, place.workspace, card.id), title: card.name })) : [];
     let preview = '', warning = '';
     try { preview = await harnessHandoff(ctx.cfg.dataDir, floor.dir, path, local, view); }
     catch (err) { warning = (err as Error).message; }
-    send(res, 200, { ...view, levels: HARNESS_LEVELS, tasks, audit: store.audit(20, floor.dir, auditAll), writable, globalWrite, preview, warning });
+    send(res, 200, { ...view, ...rest, tasks, audit: store.audit(20, floor.dir, auditAll), preview, warning });
   } catch (err) {
+    if (committed) return send(res, 200, { ...committed, ...rest, tasks: [], audit: [], preview: '', warning: `Saved as revision ${committed.revision}, but the rest of this response could not be built: ${(err as Error).message}` });
     send(res, err instanceof HarnessError ? err.status : 400, { error: (err as Error).message });
   }
 }
