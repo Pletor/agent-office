@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Ctx } from '../src/server/office/context.js';
@@ -25,12 +25,7 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   ];
   /** Set to move Card 1 to Sector 2 after the next canvas read: a move between a client's read and its save. */
   let moveAfterRead = false;
-  /** Set to N to move Card 1 to the other sector on the Nth canvas read from now: a move while a save waits for the store's lock (the third read of a POST is the one under the lock). */
-  let moveOnRead = 0, reads = 0;
-  const moveCard1 = () => { nodes = nodes.map((n) => (n.id === 'c1' ? { ...n, parentId: n.parentId === 'sector' ? 'sector2' : 'sector' } : n)); };
   const canvasNodes = () => {
-    reads++;
-    if (moveOnRead && reads === moveOnRead) { moveOnRead = 0; moveCard1(); }
     const now = nodes;
     if (moveAfterRead) { moveAfterRead = false; nodes = nodes.map((n) => (n.id === 'c1' ? { ...n, parentId: 'sector2' } : n)); }
     return now;
@@ -38,13 +33,13 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   const place = { project: 'p', workspace: 'w' };
   const k = (id: string) => oporaKey(place, id);
   const floor = {
-    id: 'floor', dir, opora: { view: () => ({ connected: true, project: { id: 'p', name: 'P' }, workspace: 'w', cards: [{ id: 'c1', name: 'Card 1' }] }), canvasNodes },
+    id: 'floor', dir, opora: { view: () => ({ connected: true, project: { id: 'p', name: 'P' }, workspace: 'w', cards: [{ id: 'c1', name: 'Card 1' }] }), canvasNodes, freshCanvasNodes: async () => canvasNodes() },
     workers: { authenticate: (id: string, token: string) => token === 'test-token' ? { id } : undefined },
     planning: { state: () => ({ current: { workerId: 'planner', mode: 'opora', owner: 'admin' } }) },
   };
   // Another floor, another checkout, on the same office: its worker must see nothing of the first floor's saves.
   const dirB = mkdtempSync(path.join(tmpdir(), 'harness-api-b-'));
-  const floorB = { ...floor, id: 'floor-b', dir: dirB, opora: { view: () => ({ connected: true, project: { id: 'pb', name: 'PB' }, workspace: 'w', cards: [] }), canvasNodes: () => [] }, planning: { state: () => ({ current: undefined }) } };
+  const floorB = { ...floor, id: 'floor-b', dir: dirB, opora: { view: () => ({ connected: true, project: { id: 'pb', name: 'PB' }, workspace: 'w', cards: [] }), canvasNodes: () => [], freshCanvasNodes: async () => [] }, planning: { state: () => ({ current: undefined }) } };
   const file = path.join(dir, 'harness-profiles.json');
   /** Set to N to make the store unreadable on the Nth read of the floor's checkout from now: in a POST the second one comes right after the commit. */
   let breakOnDirRead = 0, dirReads = 0, preserved = '';
@@ -192,22 +187,8 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   assert.match(((await refused.json()) as { error: string }).error, /missing since .*rules\/review\.md/);
   const node = (id: string) => api + '&node=' + encodeURIComponent(k(id));
   const sectorOf = (view: { path: { level: string; node: string }[] }) => view.path.find((p) => p.level === 'sector')!.node;
-  // A save queued behind another office's lock is checked again under the lock, against the canvas as it is then: a card moved meanwhile is refused and nothing is written.
-  const before = await (await call(node('c1'), 'admin')).json();
-  const lock = file + '.lock';
-  writeFileSync(lock, JSON.stringify({ token: 'other-office', pid: 0, acquiredAt: Date.now(), renewedAt: Date.now() }));
-  reads = 0; moveOnRead = 2;
-  const queued = call(node('c1'), 'admin', { scope: 'sector', layer: { tone: { value: 'late' } }, revision: before.revision, at: sectorOf(before) });
-  await new Promise((r) => setTimeout(r, 300));
-  unlinkSync(lock);
-  const moved = await queued;
-  assert.equal(moved.status, 409);
-  assert.match((await moved.json()).error, /moved this node while the save waited/);
-  assert.equal(moveOnRead, 0, 'the card was moved on the read under the lock');
+  // A save under the lock re-reads the canvas from Opora (tests/harness-fresh-canvas.test.ts moves a card on a fake Opora while the save waits).
   const afterMove = await (await call(node('c1'), 'admin')).json();
-  assert.equal(afterMove.revision, before.revision, 'nothing was written');
-  assert.notEqual(sectorOf(afterMove), sectorOf(before));
-  assert.equal(afterMove.layers.sector.tone, undefined);
   // A save that committed is answered 200 with what was saved, even when the store can't be read again for the rest of the response.
   dirReads = 0; breakOnDirRead = 3;
   const committed = await call(node('c1'), 'admin', { scope: 'sector', layer: { tone: { value: 'kept' } }, revision: afterMove.revision, at: sectorOf(afterMove) });

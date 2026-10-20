@@ -37,9 +37,9 @@ function office(t: test.TestContext) {
   /** Opora as floor A's window reads it; the tests take it down and drift it. */
   const opora: { connected: boolean; error?: string; project: { id: string; name: string } | null; workspace: string | null } = { connected: true, project: { id: 'p', name: 'P' }, workspace: 'w' };
   const workers = { authenticate: (id: string, token: string) => (token === 'tok-' + id ? { id } : undefined) };
-  const floor = { id: 'a', dir, opora: { view: () => ({ ...opora, cards: [{ id: 'c1', name: 'Card 1' }] }), canvasNodes: () => nodes }, workers, planning: { state: () => ({ current: { workerId: 'planner', mode: 'opora', owner: 'admin' } }) } };
-  const floorB = { id: 'b', dir: dirB, opora: { view: () => ({ connected: true, project: { id: 'pb', name: 'PB' }, workspace: 'w', cards: [] }), canvasNodes: () => [] }, workers, planning: { state: () => ({ current: undefined }) } };
-  const floorC = { id: 'c', dir: dirC, opora: { view: () => ({ connected: true, project: { id: 'pc', name: 'PC' }, workspace: 'w', cards: [] }), canvasNodes: () => [] }, workers, planning: { state: () => ({ current: { workerId: 'mplanner', mode: 'router', owner: 'member' } }) } };
+  const floor = { id: 'a', dir, opora: { view: () => ({ ...opora, cards: [{ id: 'c1', name: 'Card 1' }] }), canvasNodes: () => nodes, freshCanvasNodes: async () => nodes }, workers, planning: { state: () => ({ current: { workerId: 'planner', mode: 'opora', owner: 'admin' } }) } };
+  const floorB = { id: 'b', dir: dirB, opora: { view: () => ({ connected: true, project: { id: 'pb', name: 'PB' }, workspace: 'w', cards: [] }), canvasNodes: () => [], freshCanvasNodes: async () => [] }, workers, planning: { state: () => ({ current: undefined }) } };
+  const floorC = { id: 'c', dir: dirC, opora: { view: () => ({ connected: true, project: { id: 'pc', name: 'PC' }, workspace: 'w', cards: [] }), canvasNodes: () => [], freshCanvasNodes: async () => [] }, workers, planning: { state: () => ({ current: { workerId: 'mplanner', mode: 'router', owner: 'member' } }) } };
   const byWorker: Record<string, unknown> = { planner: floor, ordinary: floor, 'worker-b': floorB, mplanner: floorC };
   const ctx = {
     cfg: { dataDir: dir, port: 0 }, floors: new Map([['a', floor], ['b', floorB], ['c', floorC]]),

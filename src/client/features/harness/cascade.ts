@@ -7,6 +7,8 @@ export interface CascadeView extends HarnessProfile {
   tasks: { id: string; title: string }[];
   audit: AuditEntry[];
   writable: boolean; globalWrite: boolean; preview: string; warning: string;
+  /** A save that committed but whose response couldn't be finished: `warning` says so, and `tasks` and `audit` are not the floor's. */
+  incomplete?: boolean;
 }
 
 /**
@@ -25,6 +27,8 @@ export function cascadePanel(opts: { opened: string; signal: AbortSignal; label(
   /** The editor's text as it was loaded or saved: anything else is an unsaved edit. */
   let loadedText = '';
   let saving = false;
+  /** Whether the view on show is the answer to a save (it says "Saved as revision N"). */
+  let saved = false;
   const requests = latest(opts.signal);
   const summary = h('summary', {}, "This level's own settings");
   const heading = h('h3', {}, "This level's own settings");
@@ -64,7 +68,8 @@ export function cascadePanel(opts: { opened: string; signal: AbortSignal; label(
   function renderAudit() {
     if (!view || !ctx) return;
     const names = new Map(view.path.map((p) => [p.node, p.name ?? '']));
-    audit.textContent = ownAudit(view.audit, ctx, opts.repoOf(contextFloor(ctx, opts.opened))).map((a) => `${a.at} r${a.revision} ${a.level}${a.node ? ' ' + (names.get(a.node) || a.node) : ''} by ${a.by || '—'}: ${a.slots.length ? a.slots.join(', ') : 'removed'}`).join('\n') || 'No saves of this level among the latest 20.';
+    const lines = ownAudit(view.audit, ctx, opts.repoOf(contextFloor(ctx, opts.opened))).map((a) => `${a.at} r${a.revision} ${a.level}${a.node ? ' ' + (names.get(a.node) || a.node) : ''} by ${a.by || '—'}: ${a.slots.length ? a.slots.join(', ') : 'removed'}`);
+    audit.textContent = view.incomplete ? ['The latest saves could not be loaded with this save: reload to see them.', ...lines].join('\n') : lines.join('\n') || 'No saves of this level among the latest 20.';
   }
   function render() {
     if (!view || !ctx) return;
@@ -75,8 +80,11 @@ export function cascadePanel(opts: { opened: string; signal: AbortSignal; label(
       : `Editing the ${ctx.level} “${ctx.name}”: its slots override the levels above it, for it and everything under it.`;
     noArea.hidden = ctx.kind !== 'node' || !view.path.length || view.path.some((p) => p.level === 'area');
     renderAudit();
+    // A committed save whose response couldn't be finished says so in its warning ("Saved as revision N, but…"): saved, not blocked.
+    const writable = view.writable && !(level() === 'global' && !view.globalWrite);
     status.textContent = !placed() ? 'This node is no longer at that level on the canvas: choose it again in the context bar.'
-      : `Revision ${view.revision}. ` + (view.writable && !(level() === 'global' && !view.globalWrite) ? '' : 'Read-only here.');
+      : view.incomplete ? view.warning + (writable ? '' : ' Read-only here.')
+      : (saved ? `Saved as revision ${view.revision}. ` : `Revision ${view.revision}. `) + (writable ? '' : 'Read-only here.');
     controls();
   }
   function url(c: HarnessContext) {
@@ -99,10 +107,12 @@ export function cascadePanel(opts: { opened: string; signal: AbortSignal; label(
       const data = await response.json();
       if (!turn.current() || !ctx || !sameContext(c, ctx)) return;
       if (!response.ok) throw new Error(data.error ?? 'Could not load profiles');
-      view = data;
+      // An incomplete answer to a save keeps the audit on show rather than blanking it.
+      view = data.incomplete && view ? { ...data, tasks: view.tasks, audit: view.audit } : data;
+      saved = write;
       saving = false;
       render();
-      opts.onView(data, c);
+      opts.onView(view!, c);
     } catch (err) {
       if (!turn.current() || opts.signal.aborted) return;
       saving = false;

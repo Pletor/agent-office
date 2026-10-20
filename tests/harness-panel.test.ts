@@ -4,7 +4,7 @@
 // whole canvas. Layout and the real browser are tests/harness.browser.mjs and tests/harness-context.browser.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { installFakeDom, rows, type FakeNode } from './support/fake-dom.js';
+import { byText, installFakeDom, rows, type FakeNode } from './support/fake-dom.js';
 import { HARNESS_LEVELS, type HarnessPath, type HarnessProfile } from '../src/shared/harness-cascade.js';
 
 installFakeDom();
@@ -63,4 +63,44 @@ test('the no-area notice is about the loaded specialization\'s path: shown for a
   assert.equal(withArea.hidden, true);
   const project = await editor(view([], {}), { kind: 'project', floor: 'f' });
   assert.equal(project.hidden, true, 'the project alone has no path to speak of');
+});
+
+/** The editor on the project, its profile replies handed out from `answers` in order. */
+async function savingEditor(answers: unknown[]) {
+  globalThis.fetch = (async () => ({ ok: true, json: async () => answers.shift() })) as unknown as typeof fetch;
+  const panel = cascadePanel({ opened: 'f', signal: new AbortController().signal, label: () => 'Project f', repoOf: () => 'r', onView: () => {} });
+  const el = panel.el as unknown as FakeNode;
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
+  panel.show({ kind: 'project', floor: 'f' });
+  await settle();
+  const save = async () => {
+    el.querySelector('textarea')!.value = '{"tone":{"value":"' + Math.random() + '"}}';
+    (byText(el, 'Save layer') as unknown as { onclick(): void }).onclick();
+    await settle();
+  };
+  return { el, save, status: () => el.querySelector('p.harness-save-status')!.textContent, audit: () => el.querySelector('pre.harness-audit')!.textContent };
+}
+const entry = { at: '2026-10-20T10:00:00.000Z', revision: 3, level: 'project', node: '', repo: 'r', by: 'account:ana', slots: ['tone'] };
+
+test('a committed save says "Saved as revision N"; one whose response could not be finished says why and keeps the audit on show', async () => {
+  const loaded = { ...view([], {}), audit: [entry] };
+  const editor = await savingEditor([
+    loaded,
+    { ...loaded, revision: 4, audit: [], warning: 'missing resource guide:x' },
+    { ...loaded, revision: 5, audit: [], preview: '', incomplete: true, warning: 'Saved as revision 5, but the rest of this response could not be built: store unreadable' },
+  ]);
+  assert.equal(editor.status(), 'Revision 3. ');
+  await editor.save();
+  assert.equal(editor.status(), 'Saved as revision 4. ', 'a save whose handoff is blocked is still a save (the preview panel says it is blocked)');
+  await editor.save();
+  assert.equal(editor.status(), 'Saved as revision 5, but the rest of this response could not be built: store unreadable');
+  assert.match(editor.audit(), /could not be loaded with this save/);
+  assert.doesNotMatch(editor.audit(), /No saves/);
+});
+
+test('an incomplete answer to a save keeps the audit it had', async () => {
+  const loaded = { ...view([], {}), audit: [entry] };
+  const editor = await savingEditor([loaded, { ...loaded, revision: 4, audit: [], preview: '', incomplete: true, warning: 'Saved as revision 4, but the rest of this response could not be built: x' }]);
+  await editor.save();
+  assert.match(editor.audit(), /r3 project by account:ana: tone/, 'the audit it had stays');
 });

@@ -51,7 +51,7 @@ export async function contextOffice(opts: { port?: number; session?: (req: http.
     const w = windows[id];
     floors.set(id, {
       id, dir, info: () => ({ name }),
-      opora: { view: () => ({ connected: w.connected, error: w.error, project: w.project, workspace: w.workspace, projects: all, cards: w.nodes.filter((n) => n.kind === 'node').map((n) => ({ id: n.id, name: n.name })) }), canvasNodes: () => w.nodes },
+      opora: { view: () => ({ connected: w.connected, error: w.error, project: w.project, workspace: w.workspace, projects: all, cards: w.nodes.filter((n) => n.kind === 'node').map((n) => ({ id: n.id, name: n.name })) }), canvasNodes: () => w.nodes, freshCanvasNodes: async () => w.nodes },
       workers: { authenticate: () => undefined }, planning: { state: () => ({ current: undefined }) },
     });
     return dir;
