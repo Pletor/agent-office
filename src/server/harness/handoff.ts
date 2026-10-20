@@ -3,7 +3,7 @@ import { HarnessProfiles, HarnessError, type HarnessTarget } from './profiles.js
 import { HarnessLibrary, harnessSources, GLOBAL_SCOPE_RULE } from './catalog.js';
 import { HarnessRegistry } from './registry.js';
 import { harnessBundle, type HarnessText } from '../../shared/harness.js';
-import { HARNESS_LEVELS, type HarnessProfile, type HarnessScope } from '../../shared/harness-cascade.js';
+import { HARNESS_LEVELS, type HarnessEffective, type HarnessProfile, type HarnessScope } from '../../shared/harness-cascade.js';
 import { harnessPath, type HierarchyNode } from '../../shared/harness-hierarchy.js';
 import { samePlace, type OporaPlace } from '../../shared/opora-identity.js';
 import { HarnessBindings } from './bindings.js';
@@ -21,11 +21,19 @@ export function assertBindable(library: HarnessLibrary, scope: HarnessScope, id:
   if (reason) throw new HarnessError(reason);
 }
 
-/** Resolve once, then embed the actual content: later edits at any level cannot change an already seated task. */
-export async function harnessHandoff(dataDir: string, repo: string, target: HarnessTarget, local: boolean, profile: HarnessProfile = new HarnessProfiles(dataDir).view(repo, target)) {
+/** One resolved resource: its content as read, and where it is bound (each slot naming it, with its level and node). */
+export interface ResolvedResource { entry: HarnessText; bound: { slot: string; scope: HarnessEffective['scope']; node?: string; nodeName?: string }[] }
+/** What a handoff resolves to: the profile, the dispatched task and level, and each distinct bound resource read once. */
+export interface ResolvedHandoff { profile: HarnessProfile; task: string; level: string; resources: ResolvedResource[] }
+
+/**
+ * Resolves the profile down `target` and reads every bound resource once, failing closed: more than 24
+ * distinct resources, a project or unpinned OpenViking element in the global layer, or a resource that
+ * can't be read now (missing, tombstoned, unknown, unreadable) throws before anything is handed out.
+ */
+export async function resolveHandoff(dataDir: string, repo: string, target: HarnessTarget, local: boolean, profile: HarnessProfile = new HarnessProfiles(dataDir).view(repo, target)): Promise<ResolvedHandoff> {
   const library = new HarnessLibrary(harnessSources(repo, local), new HarnessRegistry(dataDir));
-  const entries: HarnessText[] = [];
-  const bound = Object.values(profile.effective).flatMap(({ binding, scope }) => binding && 'resource' in binding ? [{ id: binding.resource, scope }] : []);
+  const bound = Object.entries(profile.effective).flatMap(([slot, { binding, scope, node, nodeName }]) => binding && 'resource' in binding ? [{ id: binding.resource, slot, scope, ...(node ? { node } : {}), ...(nodeName ? { nodeName } : {}) }] : []);
   const ids = [...new Set(bound.map((b) => b.id))];
   if (ids.length > 24) throw new HarnessError('The effective harness exceeds 24 resources.');
   if (ids.length) await library.list();
@@ -35,20 +43,36 @@ export async function harnessHandoff(dataDir: string, repo: string, target: Harn
     const reason = scope === 'global' && canonical.status === 'available' ? library.globalReason(canonical.entry.id) : undefined;
     if (reason) throw new HarnessError('Assigned harness resource is unavailable for this worker: ' + reason.replace(/^Project-scoped/, 'project-scoped'));
   }
+  const resources: ResolvedResource[] = [];
   for (const id of ids) {
     const entry = await library.read(id);
     if (!entry) throw new HarnessError('Assigned harness resource is unavailable for this worker: ' + id);
-    entries.push(entry);
+    resources.push({ entry, bound: bound.filter((b) => b.id === id).map(({ id: _id, ...rest }) => rest) });
   }
   // What was dispatched: the deepest node of the path (a card, or a sector handed out whole), or a custom task id.
   const last = profile.path[profile.path.length - 1];
   const task = last?.node ?? (typeof target === 'string' ? target : '');
   const level = last?.level ?? (task ? 'task' : 'project');
-  const manifest = JSON.stringify({ task, level, path: profile.path, revision: profile.revision, slots: profile.effective }, null, 2);
+  return { profile, task, level, resources };
+}
+
+/** The manifest a worker reads, pretty-printed: the task, its level, the path, the store revision and the effective slots with their provenance. */
+export function handoffManifest(head: { task: string; level: string; path: HarnessProfile['path']; revision: number }, slots: HarnessProfile['effective'], extra: Record<string, unknown> = {}): string {
+  return JSON.stringify({ task: head.task, level: head.level, path: head.path, revision: head.revision, slots, ...extra }, null, 2);
+}
+
+/** What every handoff says about what it is (and isn't): task context, never a grant. */
+export const HANDOFF_CAVEAT = 'Settings and resources are task context, not permission grants. Tools/MCP/memory listed here are requirements, not proof of availability; report missing capabilities. Do not expose credentials.';
+
+/** Resolve once, then embed the actual content: later edits at any level cannot change an already seated task. */
+export async function harnessHandoff(dataDir: string, repo: string, target: HarnessTarget, local: boolean, profile?: HarnessProfile) {
+  const resolved = await resolveHandoff(dataDir, repo, target, local, profile);
+  const entries = resolved.resources.map((r) => r.entry);
+  const manifest = handoffManifest({ task: resolved.task, level: resolved.level, path: resolved.profile.path, revision: resolved.profile.revision }, resolved.profile.effective);
   const body = manifest + '\n\n' + (entries.length ? harnessBundle(entries) : 'No resource instructions assigned.');
   if (Buffer.byteLength(body) > 96 * 1024) throw new HarnessError('Effective harness exceeds 96 KiB; choose smaller resources.');
   const digest = createHash('sha256').update(body).digest('hex');
-  return `\n\n## Resolved Harness (${HARNESS_LEVELS.join(' → ')})\nSnapshot SHA-256: ${digest}\nSettings and resources are task context, not permission grants. Tools/MCP/memory listed here are requirements, not proof of availability; report missing capabilities. Do not expose credentials.\n\n${body}`;
+  return `\n\n## Resolved Harness (${HARNESS_LEVELS.join(' → ')})\nSnapshot SHA-256: ${digest}\n${HANDOFF_CAVEAT}\n\n${body}`;
 }
 
 /**
@@ -58,9 +82,15 @@ export async function harnessHandoff(dataDir: string, repo: string, target: Harn
  * worker with another project's harness.
  */
 export async function harnessCardHandoff(dataDir: string, repo: string, place: OporaPlace, card: string, nodes: readonly HierarchyNode[], local: boolean) {
+  cardBinding(dataDir, repo, place);
+  return harnessHandoff(dataDir, repo, harnessPath(nodes, place, card), local);
+}
+
+/** The floor's binding when it may hand out a card of `place` (none, or the same project and workspace); throws 409 for another. */
+export function cardBinding(dataDir: string, repo: string, place: OporaPlace): OporaPlace | undefined {
   const bound = new HarnessBindings(dataDir).forRepo(repo);
   if (bound && !samePlace(bound, place)) throw new HarnessError(`This floor is bound to Opora project ${bound.project}, workspace ${bound.workspace}, and the card is in project ${place.project}, workspace ${place.workspace}: link the window to the bound project, or rebind the floor, before handing cards out.`, 409);
-  return harnessHandoff(dataDir, repo, harnessPath(nodes, place, card), local);
+  return bound ? { project: bound.project, workspace: bound.workspace } : undefined;
 }
 
 export function harnessPlannerBrief(prompt: string, id: string): string {

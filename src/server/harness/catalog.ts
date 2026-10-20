@@ -29,6 +29,8 @@ const SKIP = /^(?:node_modules|\.git|\.worktrees|worktrees|dist|build|\.venv|__p
  * appear; key files, env files, service-account JSON and kubeconfigs by name. Not a secret scanner.
  */
 const SECRET = /(?:^|[./_-])(?:secrets?|credentials?|auth|ovcli\.conf|ov\.conf)(?:[./_-]|$)|(?:^|\/)(?:id_rsa|id_ed25519|kubeconfig|service-account[^/]*\.json)|tokens?|password|api[_-]?key|\.env(?:\.|$)|\.(?:pem|key|p12)$/i;
+/** Whether a source-relative path has a credential-like name (the rule above, on its slash form): such a file is never listed or embedded. */
+export const credentialLike = (rel: string) => SECRET.test(rel.replaceAll('\\', '/'));
 const TEXT = /\.(?:md|markdown|txt|ts|js|mjs|cjs|py|sh|ps1|yaml|yml|json|toml)$/i;
 const inside = (root: string, file: string) => { const rel = path.relative(root, file); return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel); };
 const CASELESS = process.platform === 'win32' || process.platform === 'darwin';
