@@ -60,3 +60,48 @@ test('the no-area notice is about the loaded target\'s path: shown for a path wi
   const projectOnly = await render(view([], { color: { binding: { value: 'red' }, scope: 'project' } }));
   assert.equal(projectOnly.notice.hidden, true, 'the project alone has no path to speak of');
 });
+
+test('a committed save says "Saved as revision N"; one whose response could not be finished keeps the task list and the audit on show', async () => {
+  const loaded = { ...view([], {}, [{ at: '2026-10-20T10:00:00.000Z', revision: 3, level: 'project', node: '', by: 'account:ana', slots: ['tone'] }]), tasks: [{ id: 'opora:p:w:c1', title: 'Card 1' }] };
+  const answers: unknown[] = [
+    loaded,
+    { ...loaded, revision: 4, audit: [], tasks: [], warning: 'missing resource guide:x' },
+    { ...loaded, revision: 5, tasks: [], audit: [], preview: '', incomplete: true, warning: 'Saved as revision 5, but the rest of this response could not be built: store unreadable' },
+  ];
+  globalThis.fetch = (async () => ({ ok: true, json: async () => answers.shift() })) as unknown as typeof fetch;
+  const panel = cascadePanel('floor', new AbortController().signal);
+  const el = panel.el as unknown as FakeNode;
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
+  const status = () => el.querySelectorAll('p').find((p) => p.getAttribute('role') === 'status' && !p.textContent.startsWith('Path:'))!.textContent;
+  const auditText = () => el.querySelectorAll('pre.harness-effective')[1].textContent;
+  const options = () => el.querySelector('datalist')!.children.length;
+  (byText(el, 'Load task / reload') as unknown as { onclick(): void }).onclick();
+  await settle();
+  assert.equal(status(), 'Revision 3. Saved configuration ready.');
+  const save = byText(el, 'Save layer') as unknown as { onclick(): void };
+  save.onclick();
+  await settle();
+  assert.equal(status(), 'Saved as revision 4. Handoff blocked: missing resource guide:x', 'a save whose handoff is blocked is still a save');
+  save.onclick();
+  await settle();
+  assert.equal(status(), 'Saved as revision 5, but the rest of this response could not be built: store unreadable');
+  assert.doesNotMatch(status(), /Handoff blocked/);
+  assert.equal(options(), 0, 'the save before answered with an empty task list');
+  assert.match(auditText(), /could not be loaded with this save/);
+  assert.doesNotMatch(auditText(), /No saves yet/);
+});
+
+test('an incomplete answer to a save keeps the task list and the audit it had', async () => {
+  const loaded = { ...view([], {}, [{ at: '2026-10-20T10:00:00.000Z', revision: 3, level: 'project', node: '', by: 'account:ana', slots: ['tone'] }]), tasks: [{ id: 'opora:p:w:c1', title: 'Card 1' }] };
+  const answers: unknown[] = [loaded, { ...loaded, revision: 4, tasks: [], audit: [], preview: '', incomplete: true, warning: 'Saved as revision 4, but the rest of this response could not be built: x' }];
+  globalThis.fetch = (async () => ({ ok: true, json: async () => answers.shift() })) as unknown as typeof fetch;
+  const panel = cascadePanel('floor', new AbortController().signal);
+  const el = panel.el as unknown as FakeNode;
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
+  (byText(el, 'Load task / reload') as unknown as { onclick(): void }).onclick();
+  await settle();
+  (byText(el, 'Save layer') as unknown as { onclick(): void }).onclick();
+  await settle();
+  assert.equal(el.querySelector('datalist')!.children.length, 1, 'the task list is not blanked');
+  assert.match(el.querySelectorAll('pre.harness-effective')[1].textContent, /r3 project by account:ana: tone/, 'the audit it had stays');
+});
