@@ -295,6 +295,24 @@ test('a task: key version 2 wrote stays the card’s task layer: a leaf card tha
   assert.deepEqual(fresh.view('/repo', leaf).layers.task, { color: { value: 'lime' } });
 });
 
+test('a listed version 1 task: key the old office edits during a rollback is lifted again, with the edit, until a save at that level or at the task settles it', async (t) => {
+  const { store, dir } = fixture(t);
+  const old = new HarnessProfilesV1(dir);
+  old.save('/repo', key('sector1'), 'task', { color: { value: 'teal' } }, 0);
+  // An unrelated save upgrades the file: the key is listed in legacyTasks and lifted to the sector.
+  await store.save('/repo', '', 'global', { color: { value: 'red' } }, 1);
+  assert.deepEqual(store.view('/repo', PATH).effective.color, { binding: { value: 'teal' }, scope: 'sector', node: key('sector1') });
+  // Rollback: the old office edits that very key (it keeps legacyTasks, which it doesn't know). Upgraded again, the edit is what the sector's cards inherit.
+  old.save('/repo', key('sector1'), 'task', { color: { value: 'navy' } }, 2);
+  assert.deepEqual(store.view('/repo', PATH).effective.color, { binding: { value: 'navy' }, scope: 'sector', node: key('sector1') }, 'the key is still listed as version 1’s, so its new content is lifted too');
+  // A save at the sector settles the key: from then on an old-office edit of it is the card’s own task layer and lifts no more.
+  await store.save('/repo', PATH.filter((p) => p.level !== 'task'), 'sector', { color: { value: 'navy' } }, 3);
+  old.save('/repo', key('sector1'), 'task', { color: { value: 'black' } }, 4);
+  assert.deepEqual(store.view('/repo', PATH).effective.color, { binding: { value: 'navy' }, scope: 'sector', node: key('sector1') }, 'the sector reads its node: key');
+  assert.deepEqual(store.view('/repo', [{ level: 'task', node: key('sector1') }]).layers.task, { color: { value: 'black' } }, 'the edited task: key is read as a task layer only');
+  assert.equal(JSON.parse(readFileSync(path.join(dir, 'harness-profiles.json'), 'utf8')).legacyTasks, undefined);
+});
+
 test('task IDs isolate projects, workspaces and separator-containing IDs', () => {
   const ids = [['p', 'w', 'c'], ['q', 'w', 'c'], ['p', 'other', 'c'], ['p:w', 'x', 'c'], ['p', 'w:x', 'c']].map(([p, w, c]) => oporaHarnessTask(p, w, c));
   assert.equal(new Set(ids).size, ids.length);

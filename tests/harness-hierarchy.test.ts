@@ -83,3 +83,19 @@ test('what a caller addresses: a key of this place is placed on the canvas, a fo
   assert.throws(() => harnessTarget(PLAN, place, oporaKey({ project: 'p', workspace: 'draft' }, 'h02')), /another workspace/);
   assert.deepEqual(harnessTarget(PLAN, undefined, k('h02')), [{ level: 'task', node: k('h02') }], 'with no linked project a key is a task id, as before');
 });
+
+test('a root sector is the project’s domain: its own area membership gives its cards no area, while an area nobody is a member of is still its own area', () => {
+  const canvas: HierarchyNode[] = [
+    { id: 'root', kind: 'sector', name: 'Shop', parentId: null, memberOf: 'root-area' },
+    { id: 'root-area', kind: 'area', name: 'Root area', parentId: null },
+    { id: 'card', kind: 'node', name: 'Card', parentId: 'root' },
+    { id: 'page', kind: 'node', name: 'Page', parentId: 'root' },
+    { id: 'orphan-area', kind: 'area', name: 'Orphan area', parentId: 'page' },
+    { id: 'sector', kind: 'sector', name: 'Sector', parentId: 'page' },
+    { id: 'h1', kind: 'node', name: 'H1', parentId: 'sector' },
+  ];
+  assert.deepEqual(harnessPath(canvas, place, 'card'), [{ level: 'task', node: k('card'), name: 'Card' }], 'a card under a root sector has only the project above it: the root sector’s memberOf sets no area');
+  assert.deepEqual(harnessPath(canvas, place, 'h1').map((p) => p.level), ['page', 'sector', 'task'], 'a sector that is a member of nothing has no area, whatever the root sector is a member of');
+  assert.deepEqual(harnessPath(canvas, place, 'orphan-area'), [{ level: 'page', node: k('page'), name: 'Page' }, { level: 'area', node: k('orphan-area'), name: 'Orphan area' }], 'an area without members is the area of its own path, so a layer can be saved there before any sector joins it');
+  assert.deepEqual(harnessPath(canvas, place, 'root'), [], 'the root sector itself is the project');
+});
