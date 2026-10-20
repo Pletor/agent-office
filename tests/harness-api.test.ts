@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Ctx } from '../src/server/office/context.js';
 import { requestHandler } from '../src/server/http/router.js';
-import { harnessProfileRoute, harnessRoute } from '../src/server/http/routes/harness.js';
+import { harnessBindingRoute, harnessProfileRoute, harnessRoute } from '../src/server/http/routes/harness.js';
 import { officeHarness } from '../src/server/harness/api.js';
+import { officeHarnessBinding } from '../src/server/harness/binding-api.js';
 import { oporaKey } from '../src/shared/opora-identity.js';
 import { remoteHarness } from '../bin/harness-remote.js';
 
@@ -32,21 +33,21 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   const place = { project: 'p', workspace: 'w' };
   const k = (id: string) => oporaKey(place, id);
   const floor = {
-    dir, opora: { view: () => ({ project: { id: 'p', name: 'P' }, workspace: 'w', cards: [{ id: 'c1', name: 'Card 1' }] }), canvasNodes },
+    id: 'floor', dir, opora: { view: () => ({ connected: true, project: { id: 'p', name: 'P' }, workspace: 'w', cards: [{ id: 'c1', name: 'Card 1' }] }), canvasNodes },
     workers: { authenticate: (id: string, token: string) => token === 'test-token' ? { id } : undefined },
     planning: { state: () => ({ current: { workerId: 'planner', mode: 'opora', owner: 'admin' } }) },
   };
   // Another floor, another checkout, on the same office: its worker must see nothing of the first floor's saves.
   const dirB = mkdtempSync(path.join(tmpdir(), 'harness-api-b-'));
-  const floorB = { ...floor, dir: dirB, opora: { view: () => ({ project: { id: 'pb', name: 'PB' }, workspace: 'w', cards: [] }), canvasNodes: () => [] }, planning: { state: () => ({ current: undefined }) } };
+  const floorB = { ...floor, id: 'floor-b', dir: dirB, opora: { view: () => ({ connected: true, project: { id: 'pb', name: 'PB' }, workspace: 'w', cards: [] }), canvasNodes: () => [] }, planning: { state: () => ({ current: undefined }) } };
   const ctx = {
     cfg: { dataDir: dir, port: 0 }, floors: new Map([['floor', floor], ['floor-b', floorB]]),
     accounts: { get: (id: string) => ({ role: id === 'admin' ? 'admin' : 'member' }) },
     auth: { fromRequest: (req: http.IncomingMessage) => req.headers['x-test-session'] === 'admin' ? { account: { id: 'admin', role: 'admin' } } : req.headers['x-test-session'] === 'member' ? { account: { role: 'member' } } : undefined },
     workerFloor: (id: string) => (id === 'worker-b' ? floorB : floor),
   } as unknown as Ctx;
-  const handler = requestHandler(ctx, [harnessProfileRoute, harnessRoute]);
-  const server = http.createServer((req, res) => req.url?.startsWith('/office/') ? void officeHarness(ctx, req, res, new URL(req.url, 'http://x')) : void handler(req, res));
+  const handler = requestHandler(ctx, [harnessProfileRoute, harnessBindingRoute, harnessRoute]);
+  const server = http.createServer((req, res) => req.url?.startsWith('/office/harness/binding') ? void officeHarnessBinding(ctx, req, res, new URL(req.url, 'http://x')) : req.url?.startsWith('/office/') ? void officeHarness(ctx, req, res, new URL(req.url, 'http://x')) : void handler(req, res));
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   ctx.cfg.port = (server.address() as { port: number }).port;
   t.after(() => { server.close(); server.closeAllConnections(); rmSync(dir, { recursive: true, force: true }); rmSync(dirB, { recursive: true, force: true }); });
@@ -62,7 +63,12 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   assert.equal((await call(api, 'member', data)).status, 403);
   assert.equal((await call(api, 'admin', data, 'https://evil.example')).status, 403);
   assert.equal((await call(api, 'admin', data)).status, 200);
-  assert.equal((await call(api, 'admin', data)).status, 409);
+  // The same payload at the same revision again is a retry: the stored result comes back, nothing is written twice; another payload at the stale revision is the conflict (CAS).
+  const again = await call(api, 'admin', data);
+  assert.equal(again.status, 200);
+  assert.equal(again.headers.get('x-harness-replay'), '1');
+  assert.equal((await again.json()).revision, 1);
+  assert.equal((await call(api, 'admin', { ...data, layer: { language: { value: 'en' } } })).status, 409);
   assert.equal((await call('/api/harness/profile?floor=other', 'admin')).status, 404);
   assert.equal((await call('/office/harness?worker=planner')).status, 401);
   assert.equal((await call('/office/harness?worker=ordinary', '', { ...data, scope: 'repository', revision: 1 }, base, 'Bearer test-token')).status, 403);
@@ -71,6 +77,11 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   assert.equal(saved.status, 200);
   assert.equal((await saved.json()).effective.language.scope, 'task');
   assert.equal((await call(api, 'admin', { ...data, layer: { rule: { resource: 'missing' } }, revision: 2 })).status, 400);
+  // Profiles at Opora nodes need the floor bound to its project and workspace first (tests/harness-bindings.test.ts has the matrix).
+  const unbound = await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'sector', layer: { tone: { value: 'terse' } }, revision: 2, at: k('sector') });
+  assert.equal(unbound.status, 409);
+  assert.match((await unbound.json()).error, /not bound to an Opora project/);
+  assert.equal((await call('/api/harness/binding?floor=floor', 'admin', { project: 'p', workspace: 'w' })).status, 200);
   // Down the hierarchy: a card's key is placed on the canvas, its sector's layer reaches it and its sibling, with provenance and audit.
   const card = await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin');
   assert.equal(card.status, 200);
@@ -78,6 +89,8 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   assert.deepEqual(view.path.map((p: { level: string }) => p.level), ['page', 'layer', 'area', 'sector', 'task']);
   assert.deepEqual(view.levels, ['global', 'project', 'page', 'layer', 'area', 'sector', 'task']);
   assert.deepEqual(view.tasks, [{ id: k('c1'), title: 'Card 1' }]);
+  assert.deepEqual(Object.keys(view.binding).sort(), ['floorId', 'project', 'repoHash', 'workspace']);
+  assert.equal(view.binding.project, 'p');
   // A save below the project at a node of the canvas must say which node it is for (`at`).
   const noAt = await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'sector', layer: { tone: { value: 'terse' } }, revision: 2 });
   assert.equal(noAt.status, 400);
