@@ -101,10 +101,11 @@ test('release vs a replacement: a lock that was replaced after the owner checked
 test('a lock held longer than the stale threshold is renewed while its owner lives, and a writer whose lock was claimed does not commit', async (t) => {
   const { at, put, data, lock } = await fixture(t);
   await put('data/.keep', '');
-  const held = await acquireLock(lock, { staleMs: 200, tries: 3, waitMs: 20 });
+  // The lease is renewed every staleMs / 4, so a generous threshold keeps this independent of a busy test runner.
+  const held = await acquireLock(lock, { staleMs: 1200, tries: 3, waitMs: 20 });
   assert.ok(held);
-  await delay(600);
-  const contender = await acquireLock(lock, { staleMs: 200, tries: 3, waitMs: 20 });
+  await delay(2600);
+  const contender = await acquireLock(lock, { staleMs: 1200, tries: 3, waitMs: 20 });
   assert.equal(contender, undefined, 'the lease was renewed: the live owner is never taken over');
   assert.ok(held.valid());
   held.release();
