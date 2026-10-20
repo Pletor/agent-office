@@ -12,7 +12,7 @@ process.on('uncaughtException', (err) => { console.error('office-harness: ' + (e
 if (process.env.AGENT_OFFICE_HOOK_URL) {
   await remoteHarness(args);
 } else {
-if (['--catalog', '--effective', '--assign'].includes(args[0])) throw new Error(args[0] + ' works inside an office worker (AGENT_OFFICE_HOOK_URL set). Outside one: office-harness [--project folder] [--read id | --bundle id ...]');
+if (['--catalog', '--effective', '--assign', '--binding', '--bind'].includes(args[0])) throw new Error(args[0] + ' works inside an office worker (AGENT_OFFICE_HOOK_URL set). Outside one: office-harness [--project folder] [--read id | --bundle id ...]');
 let project = process.cwd();
 // Element revisions live in the office data dir beside the profiles (the folder holding config.json, so a floor's own
 // .agent-office is not mistaken for it); without one, versions read 0 and no tombstones are kept.
