@@ -2,12 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { OporaBridge, type BridgeFloor, type BridgeEvents } from '../src/server/opora/bridge.js';
 import { HarnessProfiles } from '../src/server/harness/profiles.js';
 import { harnessCardHandoff } from '../src/server/harness/handoff.js';
+import { harnessCardRun } from '../src/server/harness/run.js';
+import { loadSnapshot } from '../src/server/harness/snapshot.js';
+import { HarnessLibrary, harnessSources } from '../src/server/harness/catalog.js';
+import { HarnessRegistry } from '../src/server/harness/registry.js';
 import { oporaHarnessTask } from '../src/shared/harness-cascade.js';
 import { harnessPath } from '../src/shared/harness-hierarchy.js';
 import { OPORA_ESCAPE_WINDOW_MS, browserOporaUrl, canEmbedOpora, cardGroup, deskFor, frontierCards, oporaCanvasUrl, oporaEmbedPolicy, oporaEscapeLeaves, sameDir, signGroup } from '../src/shared/opora.js';
@@ -64,6 +68,48 @@ test('a card down a page and a sector is dispatched with the page’s and the se
   assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
   assert.match(f.workers[1].prompt!, /"later"/);
   assert.doesNotMatch(f.workers[1].prompt!, /"warm"/, 'a card in another sector sees nothing of the Invoices sector');
+});
+
+test('taking a card pins a run snapshot: its id and digest reach the prompt, survive a restart, and a tombstone refuses before claiming', async (t) => {
+  let root = '';
+  const f = await fixture(t, (project, workspace, card, _owner, nodes) => harnessCardRun(root, root, { project, workspace }, card, nodes, false));
+  root = f.dir;
+  mkdirSync(path.join(root, '.harness', 'rules'), { recursive: true });
+  writeFileSync(path.join(root, '.harness', 'rules', 'review.md'), 'Review rule v1.\n');
+  writeFileSync(path.join(root, '.harness', 'rules', 'gone.md'), 'Soon gone.\n');
+  const catalog = await new HarnessLibrary(harnessSources(root, false), new HarnessRegistry(root)).list();
+  const id = (p: string) => catalog.entries.find((e) => e.path === p)!.id;
+  const profiles = new HarnessProfiles(root);
+  await profiles.save(root, '', 'global', { language: { value: 'en' } }, 0);
+  await profiles.save(root, '', 'repository', { 'rules.review': { resource: id('rules/review.md') } }, 1);
+  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
+  const ref = f.bridge.snapshotOf(f.workers[0].id)!;
+  assert.match(ref.runId, /^[0-9a-f-]{36}$/);
+  assert.match(f.workers[0].prompt!, new RegExp('Run: ' + ref.runId + '\\nSnapshot SHA-256: ' + ref.digest));
+  assert.match(f.workers[0].prompt!, new RegExp('harness run ' + ref.runId + ' sha256:' + ref.digest), 'the worker is told to record the run on the card');
+  assert.match(f.workers[0].prompt!, /Review rule v1\./);
+  assert.equal(loadSnapshot(root, ref.runId).digest, ref.digest);
+  assert.equal((f.state().runs[0] as unknown as { snapshot?: unknown }).snapshot, undefined, 'the run reference stays on the server, off the wire');
+  // Mid-run: global and the element change; the seated run's snapshot does not.
+  await profiles.save(root, '', 'global', { language: { value: 'de' } }, 2);
+  writeFileSync(path.join(root, '.harness', 'rules', 'review.md'), 'Review rule v2.\n');
+  assert.equal(loadSnapshot(root, ref.runId).content[id('rules/review.md')], 'Review rule v1.\n');
+  // A restarted office knows which run the worker was seated with.
+  f.bridge.shutdown();
+  const again = new OporaBridge({ id: 'shop', dir: root, list: () => f.workers, seat: () => 'no', desks: () => ['desk-9'], deskOccupied: () => false, labels: () => ({}) }, root, { prepareTask: (project, workspace, card, _owner, nodes) => harnessCardRun(root, root, { project, workspace }, card, nodes, false), update: () => undefined, toast: () => undefined, prompt: (pid) => PROMPTS[pid].text }, f.url);
+  t.after(() => again.shutdown());
+  await again.poll();
+  assert.deepEqual(again.snapshotOf(f.workers[0].id), ref);
+  assert.equal(again.snapshotOf('nobody'), undefined);
+  // A tombstoned element fails closed before the card is claimed.
+  await profiles.save(root, '', 'repository', { 'rules.review': { resource: id('rules/review.md') }, 'rules.gone': { resource: id('rules/gone.md') } }, 3);
+  unlinkSync(path.join(root, '.harness', 'rules', 'gone.md'));
+  await new HarnessLibrary(harnessSources(root, false), new HarnessRegistry(root)).list();
+  const claims = f.op.calls.filter((c) => c.body?.op === 'claim').length;
+  const runs = readdirSync(path.join(root, 'harness-snapshots')).length;
+  assert.match((await again.take('c1', 'Ana'))!, /Task context: .*unavailable/);
+  assert.equal(f.op.calls.filter((c) => c.body?.op === 'claim').length, claims, 'nothing was claimed');
+  assert.equal(readdirSync(path.join(root, 'harness-snapshots')).length, runs, 'no snapshot was written');
 });
 
 test('a card on the design pipeline goes to the designers, the rest to the developers', () => {
@@ -274,7 +320,7 @@ test('the autopilot takes routed cards by itself, up to its limit', async (t) =>
 test('with Opora down the bridge says so instead of failing', async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-opora-'));
   let state: OporaState | undefined;
-  const bridge = new OporaBridge({ id: 'x', dir, list: () => [], seat: () => 'no', desks: () => [], deskOccupied: () => false, labels: () => ({}) }, dir, { update: (s) => void (state = s), toast() {}, prompt: (id) => PROMPTS[id].text }, 'http://127.0.0.1:9');
+  const bridge = new OporaBridge({ id: 'x', dir, list: () => [], seat: () => 'no', desks: () => ['desk-9'], deskOccupied: () => false, labels: () => ({}) }, dir, { update: (s) => void (state = s), toast() {}, prompt: (id) => PROMPTS[id].text }, 'http://127.0.0.1:9');
   t.after(() => {
     bridge.shutdown();
     rmSync(dir, { recursive: true, force: true });
@@ -525,8 +571,9 @@ test('the picked workspace is kept across a restart, and linking another project
   assert.match(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'), /"workspace": "work1"/);
   f.bridge.shutdown();
   let state: OporaState | undefined;
-  const again = new OporaBridge({ id: 'shop', dir: f.dir, list: () => [], seat: () => 'no', desks: () => [], deskOccupied: () => false, labels: () => ({}) }, f.dir, { update: (s) => void (state = s), toast() {}, prompt: (id) => PROMPTS[id].text }, f.url);
+  const again = new OporaBridge({ id: 'shop', dir: f.dir, list: () => [], seat: () => 'no', desks: () => ['desk-9'], deskOccupied: () => false, labels: () => ({}) }, f.dir, { update: (s) => void (state = s), toast() {}, prompt: (id) => PROMPTS[id].text }, f.url);
   t.after(() => again.shutdown());
+  await again.poll();
   await again.poll();
   assert.equal(state!.workspace, 'work1');
   assert.equal(state!.workspaceBy, 'choice');
