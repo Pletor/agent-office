@@ -13,7 +13,11 @@ import { DigestCache } from './digests.js';
  * from the namespace and its path from the namespace root (`prefix/<path in the folder>`), never from
  * where the folder happens to be on disk, so moving a checkout or restarting keeps every ID.
  */
-export interface HarnessSource { name: string; dir: string; category?: HarnessCategory; files?: string[]; boundary?: string; ns?: string; prefix?: string }
+export interface HarnessSource {
+  name: string; dir: string; category?: HarnessCategory; files?: string[]; boundary?: string; ns?: string; prefix?: string;
+  /** The folder is pinned installation-wide (an environment variable), so its elements are the same file in every project. */
+  pinned?: boolean;
+}
 const MAX_FILES = 1200;
 const MAX_VISITS = 6000;
 const MAX_BYTES = 128 * 1024;
@@ -35,12 +39,13 @@ const READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
 const sameFile = (a: BigIntStats, b: BigIntStats) => a.ino === b.ino && (a.dev === b.dev || !a.dev || !b.dev);
 const sha256 = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 const posix = (p: string) => p.replaceAll('\\', '/');
-const fileKey = (s: BigIntStats) => [s.dev, s.ino, s.size, s.mtimeNs].join(':');
-/** The namespaces whose elements may be bound in the global layer; a project element would resolve to a different file in every other project. */
-const GLOBAL_NAMESPACES = new Set(['handbook', 'machine', 'published', 'openviking']);
+const fileKey = (s: BigIntStats) => [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':');
+/** The namespaces whose elements are the same file in every project, so the global layer may bind them; OpenViking joins them only when its root is pinned (see HarnessLibrary.globalReason). */
+const GLOBAL_NAMESPACES = ['handbook', 'machine', 'published'];
 /** The namespace an ID names, without a lookup: `guide:` → handbook, `el:<ns>:` → ns; a legacy alias names none. */
 export const elementNamespace = (id: string): string | undefined => id.startsWith('guide:') ? 'handbook' : /^el:([a-z]+):/.exec(id)?.[1];
-export const globalNamespace = (ns: string | undefined) => !!ns && GLOBAL_NAMESPACES.has(ns);
+export const GLOBAL_SCOPE_RULE = 'The global layer may bind handbook, machine, published and pinned OpenViking elements only; a project element (el:project:…) names a path that is a different file in every project, so bind it at repository or task scope.';
+export const OPENVIKING_SCOPE_RULE = 'AGENT_OFFICE_OPENVIKING_DIR is not set, so OpenViking is discovered relative to each project and an OpenViking element (el:openviking:…) can be a different checkout in another project; set AGENT_OFFICE_OPENVIKING_DIR for the whole installation to bind it globally, or bind it at repository or task scope.';
 
 const SINGULAR: Record<string, HarnessCategory> = { instruction: 'instructions', skill: 'skills', hook: 'hooks', rule: 'rules', command: 'commands', script: 'scripts', tool: 'tools', plugin: 'plugins', permission: 'permissions', test: 'testing', tests: 'testing', ops: 'operations', runbook: 'operations', runbooks: 'operations' };
 /** The first category name on the path wins (`runbooks/hooks.md` is a runbook), whichever form it takes; a SKILL.md is always a skill. */
@@ -70,9 +75,10 @@ export function harnessSources(project: string, local: boolean, env: NodeJS.Proc
     ...['.harness', '.agents/skills', '.claude/skills', '.claude/commands', '.claude/rules', '.cursor/rules', '.github/instructions'].map((p) => ({ name: 'Project / ' + p, dir: path.join(project, p), boundary: project, ns: 'project', prefix: p })),
   ];
   if (!local) return sources;
-  if (env.AGENT_OFFICE_HARNESS_DIR) sources.push({ name: 'Published machine harness', dir: path.resolve(env.AGENT_OFFICE_HARNESS_DIR), ns: 'published', prefix: '' });
+  if (env.AGENT_OFFICE_HARNESS_DIR) sources.push({ name: 'Published machine harness', dir: path.resolve(env.AGENT_OFFICE_HARNESS_DIR), ns: 'published', prefix: '', pinned: true });
   for (const p of ['.agents/skills', '.codex/skills', '.claude/skills', '.claude/commands']) sources.push({ name: 'Machine / ' + p, dir: path.join(os.homedir(), p), category: p.endsWith('commands') ? 'commands' : 'skills', ns: 'machine', prefix: p });
   let viking = env.AGENT_OFFICE_OPENVIKING_DIR;
+  const pinned = !!viking;
   if (!viking) {
     let parent = path.resolve(project);
     for (let depth = 0; depth < 7; depth++) {
@@ -83,7 +89,7 @@ export function harnessSources(project: string, local: boolean, env: NodeJS.Proc
     }
   }
   if (viking) {
-    for (const sub of ['agent-plugins', 'docs/en', 'examples']) sources.push({ name: 'OpenViking / ' + sub, dir: path.join(viking, sub), category: 'memory', ns: 'openviking', prefix: sub });
+    for (const sub of ['agent-plugins', 'docs/en', 'examples']) sources.push({ name: 'OpenViking / ' + sub, dir: path.join(viking, sub), category: 'memory', ns: 'openviking', prefix: sub, pinned });
   } else sources.push({ name: 'OpenViking (set AGENT_OFFICE_OPENVIKING_DIR)', dir: '', category: 'memory', ns: 'openviking', prefix: '' });
   return sources;
 }
@@ -99,7 +105,7 @@ export function elementId(source: HarnessSource, rel: string): { id: string; ns:
 const legacyId = (file: string) => sha256(path.resolve(file)).slice(0, 24);
 
 /** Where list() found a file: its path relative to the source, and the real root/boundary it was verified against. */
-interface Located { source: HarnessSource; file: string; rel: string; root: string; boundary?: string; entry: HarnessEntry }
+interface Located { source: HarnessSource; file: string; rel: string; root: string; boundary?: string; entry: HarnessEntry; observed: Observed }
 /** Why a listed path yielded no content: a property of the content (binary, too large) or a read that could not be completed now. */
 interface Skipped { skip: 'binary' | 'size' | 'unreadable' }
 export class HarnessLibrary {
@@ -109,9 +115,20 @@ export class HarnessLibrary {
   private digests: DigestCache;
   /** The namespaces this library publishes: what resolve() may describe. Legacy `source` namespace covers ad-hoc sources (tests). */
   private visible: Set<string>;
+  /** The namespaces the global layer may bind here: the fixed ones, plus OpenViking when every OpenViking source is pinned. */
+  private global: Set<string>;
+  private repaired = false;
   constructor(private sources: HarnessSource[], readonly registry?: HarnessRegistry) {
     this.digests = registry?.digests ?? DigestCache.memory();
     this.visible = new Set(['handbook', ...sources.map((s) => s.ns ?? 'source')]);
+    const viking = sources.filter((s) => s.ns === 'openviking');
+    this.global = new Set([...GLOBAL_NAMESPACES, ...(viking.length && viking.every((s) => s.pinned) ? ['openviking'] : [])]);
+  }
+  /** Why `id` (canonical) may not be bound in the global layer here, or nothing when it may. */
+  globalReason(id: string): string | undefined {
+    const ns = elementNamespace(id);
+    if (ns && this.global.has(ns)) return;
+    return ns === 'openviking' ? 'OpenViking element in global layer: ' + id + '. ' + OPENVIKING_SCOPE_RULE : 'Project-scoped element in global layer: ' + id + '. ' + GLOBAL_SCOPE_RULE;
   }
   async list(): Promise<HarnessCatalog> {
     this.locations.clear();
@@ -157,15 +174,16 @@ export class HarnessLibrary {
           const alias = legacyId(file);
           const category = sourceCategory(rel, source.category);
           const entry: HarnessEntry = { id, title: this.title(rel), category, group: sourceGroup(rel, category, source.name), source: source.name, path: posix(rel), version: 0, digest: '', aliases: [alias] };
-          const located: Located = { source, file, rel, root: verified, boundary, entry };
+          const observedEntry: Observed = { id, ns, key, root: instance, title: entry.title, path: entry.path, source: source.name, category, digest: '' };
+          const located: Located = { source, file, rel, root: verified, boundary, entry, observed: observedEntry };
           const digest = await this.digest(located, stat);
           // Binary content or content past the limit is not an element. Anything else (a denied or busy
           // read, a path swapped meanwhile) leaves the walk incomplete, so the element is not declared missing.
           if (typeof digest !== 'string') { if (digest.skip === 'unreadable') whole = false; return; }
-          entry.digest = digest;
+          entry.digest = observedEntry.digest = digest;
           this.locations.set(id, located);
           this.aliases.set(alias, id);
-          observed.push({ id, ns, key, root: instance, title: entry.title, path: entry.path, source: source.name, category, digest });
+          observed.push(observedEntry);
           entries.push(entry);
         }
       };
@@ -178,10 +196,18 @@ export class HarnessLibrary {
     for (const entry of entries) entry.version = this.versions.get(entry.id) ?? 0;
     return { entries, sources, limited };
   }
-  /** SHA-256 of a listed file, read with the same verification as read(); the cache is keyed by the file ID, size and mtime the walk saw. */
+  /**
+   * SHA-256 of a listed file, read with the same verification as read(). A digest cached under the file
+   * identity the walk saw (ID, size, mtime, ctime) is reused only when the registry has recorded it for
+   * this element (a cache entry the registry has never seen is re-hashed, not trusted) and the file can
+   * still be opened for reading (a denied file is unreadable, cached or not). The cache cannot tell an
+   * edit that kept the whole identity key: the listing shows the previous digest until read() repairs it.
+   */
   private async digest(located: Located, seen: BigIntStats): Promise<string | Skipped> {
     const key = fileKey(seen), cached = this.digests.get(located.file, key);
-    if (cached) return cached;
+    if (cached && (!this.registry || this.registry.knows(located.entry.id, cached))) {
+      try { await (await open(located.file, READ_FLAGS)).close(); return cached; } catch { return { skip: 'unreadable' }; }
+    }
     const content = await this.content(located);
     if ('skip' in content) return content;
     if (!sameFile(content.stat, seen)) return { skip: 'unreadable' };
@@ -238,8 +264,19 @@ export class HarnessLibrary {
     if (!found) return undefined;
     const content = await this.content(found);
     if ('skip' in content) return undefined;
-    // The digest is of the bytes just read; the version stays the one listed (a new revision is assigned by the next listing).
-    return { ...found.entry, digest: sha256(content.bytes), text: content.bytes.toString('utf8') };
+    const digest = sha256(content.bytes);
+    // The bytes differ from what the listing showed (an edit that kept the file identity, or a cache entry that was wrong): repair the cache, the entry and the registry's record for this place.
+    if (digest !== found.entry.digest) {
+      if (!this.repaired) console.warn('agent-office: harness digest of ' + found.file + ' differed from the listed one; the cache and registry were repaired');
+      this.repaired = true;
+      this.digests.set(found.file, fileKey(content.stat), digest);
+      this.digests.flush();
+      found.entry.digest = found.observed.digest = digest;
+      const versions = await this.registry?.observe([found.observed], new Set());
+      found.entry.version = versions?.get(id) ?? 0;
+      this.versions.set(id, found.entry.version);
+    }
+    return { ...found.entry, digest, text: content.bytes.toString('utf8') };
   }
   /**
    * A successful list() is not a standing grant: every read re-checks, against the disk as it is now,

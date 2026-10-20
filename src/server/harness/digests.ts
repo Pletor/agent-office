@@ -1,15 +1,17 @@
-// Verified content digests keyed by path and file identity (dev:ino:size:mtimeNs), so a listing re-reads
-// only edited files. With a data dir the cache is persisted beside the registry (`harness-digests.json`),
-// so a fresh process (the CLI, a restarted office) does not hash every unchanged file again. It is a
-// cache, never an authority: a read always returns the digest of the bytes actually read, and a stale
-// entry only costs one re-hash. The file holds paths and digests, never content.
+// Verified content digests keyed by path and file identity (dev:ino:size:mtimeNs:ctimeNs), so a listing
+// re-reads only edited files. With a data dir the cache is persisted beside the registry
+// (`harness-digests.json`), so a fresh process (the CLI, a restarted office) does not hash every unchanged
+// file again. It is a cache, never an authority: the library reuses an entry only when the registry has
+// recorded that digest for the element, a read always returns the digest of the bytes actually read and
+// repairs a differing entry, and a stale entry otherwise only costs one re-hash. The file holds paths and
+// digests, never content, and is kept under the size the loader accepts.
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 const MAX_ENTRIES = 4000;
 const MAX_BYTES = 2 * 1024 * 1024;
-const ENTRY = /^[0-9:]{1,80} [0-9a-f]{64}$/;
+const ENTRY = /^[0-9:]{1,120} [0-9a-f]{64}$/;
 interface Stored { schema: 1; files: Record<string, string> }
 
 export class DigestCache {
@@ -58,17 +60,29 @@ export class DigestCache {
     this.entries.set(file, { key, digest });
     this.dirty = true;
   }
-  /** Persist new entries (best effort, atomic replacement, no lock: a lost race only costs a re-hash). */
+  /**
+   * Persist new entries (best effort, atomic replacement, no lock: a lost race only costs a re-hash).
+   * The least recently used entries are evicted until the file fits the byte cap the loader applies.
+   */
   flush() {
     if (!this.dirty || !this.file) return;
     this.dirty = false;
-    const files: Record<string, string> = {};
-    for (const [file, { key, digest }] of this.entries) files[file] = key + ' ' + digest;
+    let json = this.serialize();
+    while (Buffer.byteLength(json) > MAX_BYTES && this.entries.size) {
+      const drop = Math.max(1, Math.ceil(this.entries.size / 8));
+      for (const file of [...this.entries.keys()].slice(0, drop)) this.entries.delete(file);
+      json = this.serialize();
+    }
     const temp = this.file + '.' + randomUUID() + '.tmp';
     try {
       mkdirSync(path.dirname(this.file), { recursive: true });
-      writeFileSync(temp, JSON.stringify({ schema: 1, files } satisfies Stored), { mode: 0o600 });
+      writeFileSync(temp, json, { mode: 0o600 });
       renameSync(temp, this.file);
     } catch { try { unlinkSync(temp); } catch { /* never written */ } }
+  }
+  private serialize(): string {
+    const files: Record<string, string> = {};
+    for (const [file, { key, digest }] of this.entries) files[file] = key + ' ' + digest;
+    return JSON.stringify({ schema: 1, files } satisfies Stored);
   }
 }
