@@ -9,6 +9,7 @@ import { OporaBridge, type BridgeFloor, type BridgeEvents } from '../src/server/
 import { HarnessProfiles } from '../src/server/harness/profiles.js';
 import { harnessCardHandoff } from '../src/server/harness/handoff.js';
 import { oporaHarnessTask } from '../src/shared/harness-cascade.js';
+import { harnessPath } from '../src/shared/harness-hierarchy.js';
 import { OPORA_ESCAPE_WINDOW_MS, browserOporaUrl, canEmbedOpora, cardGroup, deskFor, frontierCards, oporaCanvasUrl, oporaEmbedPolicy, oporaEscapeLeaves, sameDir, signGroup } from '../src/shared/opora.js';
 import { PROMPTS } from '../src/shared/prompts.js';
 import { oporaCardViews } from '../src/server/opora/sketches.js';
@@ -20,16 +21,50 @@ test('Opora dispatch embeds effective harness and refuses a missing resource bef
   const f = await fixture(t, (project, workspace, card, _owner, nodes) => harnessCardHandoff(root, root, { project, workspace }, card, nodes, false));
   root = f.dir;
   const profiles = new HarnessProfiles(root);
-  profiles.save(root, '', 'global', { language: { value: 'en' } }, 0);
-  profiles.save(root, oporaHarnessTask('p1', 'draft', 'c2'), 'task', { language: { value: 'cs' } }, 1);
+  await profiles.save(root, '', 'global', { language: { value: 'en' } }, 0);
+  await profiles.save(root, oporaHarnessTask('p1', 'draft', 'c2'), 'task', { language: { value: 'cs' } }, 1);
   assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
   assert.match(f.workers[0].prompt!, /"value": "cs"/);
   assert.match(f.workers[0].prompt!, /Snapshot SHA-256/);
   assert.match(f.workers[0].prompt!, /"path": \[\s*\{\s*"level": "task"/, 'a card under a root sector is a task of the project');
-  profiles.save(root, '', 'repository', { missing: { resource: 'missing' } }, 2);
+  await profiles.save(root, '', 'repository', { missing: { resource: 'missing' } }, 2);
   assert.match((await f.bridge.take('c1', 'Ana'))!, /unavailable/);
   assert.equal(f.op.leases.has('c1'), false);
   assert.equal(f.workers.length, 1);
+});
+
+test('a card down a page and a sector is dispatched with the page’s and the sector’s slots, frozen in its prompt', async (t) => {
+  let root = '';
+  const f = await fixture(t, (project, workspace, card, _owner, nodes) => harnessCardHandoff(root, root, { project, workspace }, card, nodes, false));
+  root = f.dir;
+  // The canvas grows a page with a sector of one card under it: Shop › Billing (page) › Invoices (sector) › Tax rules (card).
+  f.op.extra.nodes.push({ id: 'pg', kind: 'node', name: 'Billing', parentId: 's1' }, { id: 's2', kind: 'sector', name: 'Invoices', parentId: 'pg' }, { id: 'c3', kind: 'node', name: 'Tax rules', parentId: 's2' });
+  f.op.extra.frontier.s2 = [{ id: 'c3', name: 'Tax rules', pipeline: { profile: 'code', current: null } }];
+  await f.bridge.poll();
+  const key = (id: string) => oporaHarnessTask('p1', 'draft', id);
+  const nodes = f.bridge.canvasNodes();
+  const page = harnessPath(nodes, { project: 'p1', workspace: 'draft' }, 'pg'), sector = harnessPath(nodes, { project: 'p1', workspace: 'draft' }, 's2');
+  assert.deepEqual(page.map((p) => p.level), ['page']);
+  assert.deepEqual(sector.map((p) => p.level), ['page', 'sector']);
+  const profiles = new HarnessProfiles(root);
+  await profiles.save(root, '', 'global', { language: { value: 'en' }, tone: { value: 'plain' } }, 0);
+  await profiles.save(root, page, 'page', { language: { value: 'cs' } }, 1);
+  await profiles.save(root, sector, 'sector', { tone: { value: 'terse' } }, 2);
+  assert.equal(await f.bridge.take('c3', 'Ana'), undefined);
+  const prompt = f.workers[0].prompt!;
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  assert.match(prompt, new RegExp(`"task": "${escape(key('c3'))}",\\n\\s+"level": "task"`));
+  assert.match(prompt, new RegExp(`"language": \\{\\s*"binding": \\{\\s*"value": "cs"\\s*\\},\\s*"scope": "page",\\s*"node": "${escape(key('pg'))}",\\s*"nodeName": "Billing"`), 'the page’s slot reaches the worker, with its origin');
+  assert.match(prompt, new RegExp(`"tone": \\{\\s*"binding": \\{\\s*"value": "terse"\\s*\\},\\s*"scope": "sector",\\s*"node": "${escape(key('s2'))}",\\s*"nodeName": "Invoices"`), 'the sector’s slot reaches the worker, with its origin');
+  assert.doesNotMatch(prompt, /"value": "plain"/, 'the sector replaced the global tone');
+  // Later edits at the sector and at global never reach the seated worker's prompt; the next card gets them.
+  await profiles.save(root, sector, 'sector', { tone: { value: 'warm' } }, 3);
+  await profiles.save(root, '', 'global', { language: { value: 'en' }, tone: { value: 'plain' }, extra: { value: 'later' } }, 4);
+  assert.equal(f.workers[0].prompt, prompt, 'the seated worker’s prompt is the snapshot it was seated with');
+  assert.doesNotMatch(f.workers[0].prompt!, /"warm"|"later"/);
+  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
+  assert.match(f.workers[1].prompt!, /"later"/);
+  assert.doesNotMatch(f.workers[1].prompt!, /"warm"/, 'a card in another sector sees nothing of the Invoices sector');
 });
 
 test('a card on the design pipeline goes to the designers, the rest to the developers', () => {
@@ -74,6 +109,8 @@ test('frontierCards keeps the cards in the group they are listed in, and leaves 
 function fakeOpora(dir: string) {
   const calls: { method: string; path: string; body?: Record<string, unknown>; headers: http.IncomingHttpHeaders }[] = [];
   const leases = new Map<string, string>();
+  // What a test adds to Shop's canvas: more nodes, and the frontier of a sector among them (by its id).
+  const extra: { nodes: Record<string, unknown>[]; frontier: Record<string, Record<string, unknown>[]> } = { nodes: [], frontier: {} };
   // Opora's page refuses to be framed, as it does until its embed_origins lists someone.
   const page: { headers: Record<string, string> } = { headers: { 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'" } };
   // Shop's workspaces; a test adds `main` and a work one (`work1`, with a card of its own).
@@ -113,8 +150,9 @@ function fakeOpora(dir: string) {
         case '/api/project-workspaces':
           return send(200, { workspaces });
         case '/api/view':
-          return send(200, { graph: { nodes: [{ id: 'a1', kind: 'area', name: 'Frontend' }, { id: 's1', kind: 'sector', name: 'Checkout', parentId: null }, { id: 'c1', kind: 'node', name: 'Cart page', parentId: 's1' }, { id: 'c2', kind: 'node', name: 'Pay API', parentId: 's1' }] } });
+          return send(200, { graph: { nodes: [{ id: 'a1', kind: 'area', name: 'Frontend' }, { id: 's1', kind: 'sector', name: 'Checkout', parentId: null }, { id: 'c1', kind: 'node', name: 'Cart page', parentId: 's1' }, { id: 'c2', kind: 'node', name: 'Pay API', parentId: 's1' }, ...extra.nodes] } });
         case '/api/desktop-v3/frontier':
+          if (extra.frontier[url.searchParams.get('nodeId') ?? '']) return send(200, { frontier: extra.frontier[url.searchParams.get('nodeId')!].filter((c) => !leases.has(String(c.id))) });
           if (url.searchParams.get('nodeId') !== 's1') return send(200, { frontier: [{ id: 's1', name: 'Checkout' }] });
           return send(200, {
             frontier: [
@@ -142,7 +180,7 @@ function fakeOpora(dir: string) {
       send(404, { detail: 'nope' });
     });
   });
-  return { server, calls, leases, projects, page, workspaces };
+  return { server, calls, leases, projects, page, workspaces, extra };
 }
 
 async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeEvents['prepareTask']) {

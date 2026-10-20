@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { harnessPath, harnessTarget, type HierarchyNode } from '../src/shared/harness-hierarchy.js';
+import { harnessDeadEnd, harnessPath, harnessTarget, type HierarchyNode } from '../src/shared/harness-hierarchy.js';
 import { oporaKey } from '../src/shared/opora-identity.js';
 
 const place = { project: 'p', workspace: 'w' };
@@ -37,6 +37,16 @@ test('a task’s path goes down page › layer › area › sector › task, fro
   assert.deepEqual(harnessPath(PLAN, place, 'h01').slice(0, 4), harnessPath(PLAN, place, 'h02').slice(0, 4));
   assert.notDeepEqual(harnessPath(PLAN, place, 'h01')[4], harnessPath(PLAN, place, 'h02')[4]);
   assert.equal(harnessPath(PLAN, place, 'h02')[4].level, 'task', 'a card under a sector is the task even with a sub-card');
+});
+
+test('a card between the page and the layers is a dead end for a save; pages, layers, areas, sectors and cards are not', () => {
+  const mid: HierarchyNode[] = [...PLAN, { id: 'mid', kind: 'node', name: 'Mid', parentId: 'page' }, { id: 'layer-b', kind: 'node', name: '[vrstva 02]', parentId: 'mid' }, { id: 'sector-b', kind: 'sector', name: '02.1', parentId: 'layer-b' }, { id: 'h20', kind: 'node', name: 'H20', parentId: 'sector-b' }];
+  assert.match(harnessDeadEnd(mid, 'mid')!, /no task's path goes through it/);
+  assert.deepEqual(harnessPath(mid, place, 'mid').map((p) => p.level), ['page', 'layer'], 'addressed by itself it looks like a layer, which is why the save must be refused');
+  assert.deepEqual(harnessPath(mid, place, 'h20').map((p) => [p.level, p.node]), [['page', k('page')], ['layer', k('layer-b')], ['sector', k('sector-b')], ['task', k('h20')]], 'the task under it goes through the page and the real layer, never through Mid');
+  for (const id of ['page', 'layer', 'area', 'sector', 'h02', 'sub', 'loose', 'deep', 'root', 'orphan', 'nope', 'layer-b']) assert.equal(harnessDeadEnd(mid, id), undefined, `${id} is reachable`);
+  const leafUnderMid: HierarchyNode[] = [...mid, { id: 'leaf', kind: 'node', name: 'Leaf', parentId: 'mid' }];
+  assert.equal(harnessDeadEnd(leafUnderMid, 'mid'), undefined, 'a leaf card right under it makes Mid its layer');
 });
 
 test('an area counts only when Opora says the sector is a member of it under the same parent', () => {

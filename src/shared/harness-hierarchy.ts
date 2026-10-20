@@ -23,7 +23,10 @@ export type HierarchyNode = Pick<CanvasNode, 'id' | 'kind' | 'name' | 'parentId'
  * - The cards above the sector are the `page` (the outermost) and the `layer` (the innermost, when
  *   there are two or more); any in between have no level and set nothing.
  * - A card under a sector is a `task`, children or not (cards between the sector and it have no level).
- *   With no sector above it, a card with nothing under it is a `task` and one with children is a page or a layer.
+ *   This is a decision, not a reading of the canvas: a sub-card is work of the card above it, so the
+ *   sub-card is the task of its own handoff and the card above it sets nothing for it; the sector and
+ *   what's above are shared by both. With no sector above it, a card with nothing under it is a `task`
+ *   and one with children is a page or a layer.
  * - An area addressed by its own key is the `area` of its path (it is never a parent, so nothing is under it).
  * - A node id the canvas doesn't have is a task with nothing above it, so a custom task id keeps working.
  */
@@ -51,6 +54,29 @@ export function harnessPath(nodes: readonly HierarchyNode[], place: OporaPlace, 
     ...entry('sector', sector),
     ...entry('task', task),
   ];
+}
+
+/**
+ * Why a save at the level `harnessPath` gives `nodeId` could reach no task: the node is a card above the
+ * sectors that is neither the page (the outermost card) nor the layer of anything under it (no sector
+ * and no leaf card right under it), so no task's path goes through it at any level. Undefined when
+ * something can inherit from it, or the canvas doesn't have the node.
+ */
+export function harnessDeadEnd(nodes: readonly HierarchyNode[], nodeId: string): string | undefined {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const self = byId.get(nodeId);
+  if (!self || self.kind !== 'node') return undefined;
+  const children = nodes.filter((n) => n.parentId === nodeId && n.kind !== 'area');
+  if (!children.length) return undefined;
+  for (let at = self.parentId ? byId.get(self.parentId) : undefined, seen = new Set<string>([self.id]); at && !seen.has(at.id); at = at.parentId ? byId.get(at.parentId) : undefined) {
+    seen.add(at.id);
+    if (at.kind === 'sector' && at.parentId) return undefined; // a root sector is the project, not a sector above
+  }
+  const outermost = !self.parentId || byId.get(self.parentId)?.kind !== 'node';
+  if (outermost) return undefined;
+  const reaches = children.some((c) => c.kind === 'sector' || (c.kind === 'node' && !nodes.some((n) => n.parentId === c.id && n.kind !== 'area')));
+  if (reaches) return undefined;
+  return `"${self.name || nodeId}" is a card between the page and the layers under it: no task's path goes through it, so a layer saved here would reach nothing. Save at the page above it or at the layer right above a sector.`;
 }
 
 /**

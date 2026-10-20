@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Ctx } from '../src/server/office/context.js';
@@ -9,33 +9,47 @@ import { requestHandler } from '../src/server/http/router.js';
 import { harnessProfileRoute } from '../src/server/http/routes/harness.js';
 import { officeHarness } from '../src/server/harness/api.js';
 import { oporaKey } from '../src/shared/opora-identity.js';
+import { remoteHarness } from '../bin/harness-remote.js';
 
 test('profile HTTP and hook API enforce session, origin, admin, planner and revision boundaries', async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'harness-api-'));
-  // A canvas like the Harness plan: a page, a layer, an area beside the sector, and two cards in it.
-  const nodes = [
+  // A canvas like the Harness plan: a page, a layer, an area beside the sector, and two cards in it; a card between
+  // the page and the layer (`mid`) that no task's path goes through; a second sector that is a member of the area.
+  let nodes = [
     { id: 'root', kind: 'sector', name: 'Shop', parentId: null }, { id: 'page', kind: 'node', name: 'Page', parentId: 'root' }, { id: 'layer', kind: 'node', name: 'Layer', parentId: 'page' },
     { id: 'area', kind: 'area', name: 'Area', parentId: 'layer' }, { id: 'sector', kind: 'sector', name: 'Sector', parentId: 'layer', memberOf: 'area' },
     { id: 'c1', kind: 'node', name: 'Card 1', parentId: 'sector' }, { id: 'c2', kind: 'node', name: 'Card 2', parentId: 'sector' },
+    { id: 'sector2', kind: 'sector', name: 'Sector 2', parentId: 'layer', memberOf: 'area' }, { id: 'c3', kind: 'node', name: 'Card 3', parentId: 'sector2' },
+    { id: 'mid', kind: 'node', name: 'Mid', parentId: 'page' }, { id: 'layer2', kind: 'node', name: 'Layer 2', parentId: 'mid' }, { id: 'sector3', kind: 'sector', name: 'Sector 3', parentId: 'layer2' }, { id: 'c4', kind: 'node', name: 'Card 4', parentId: 'sector3' },
   ];
+  /** Set to move Card 1 to Sector 2 after the next canvas read: a move between a client's read and its save. */
+  let moveAfterRead = false;
+  const canvasNodes = () => {
+    const now = nodes;
+    if (moveAfterRead) { moveAfterRead = false; nodes = nodes.map((n) => (n.id === 'c1' ? { ...n, parentId: 'sector2' } : n)); }
+    return now;
+  };
   const place = { project: 'p', workspace: 'w' };
   const k = (id: string) => oporaKey(place, id);
   const floor = {
-    dir, opora: { view: () => ({ project: { id: 'p', name: 'P' }, workspace: 'w', cards: [{ id: 'c1', name: 'Card 1' }] }), canvasNodes: () => nodes },
+    dir, opora: { view: () => ({ project: { id: 'p', name: 'P' }, workspace: 'w', cards: [{ id: 'c1', name: 'Card 1' }] }), canvasNodes },
     workers: { authenticate: (id: string, token: string) => token === 'test-token' ? { id } : undefined },
     planning: { state: () => ({ current: { workerId: 'planner', mode: 'opora', owner: 'admin' } }) },
   };
+  // Another floor, another checkout, on the same office: its worker must see nothing of the first floor's saves.
+  const dirB = mkdtempSync(path.join(tmpdir(), 'harness-api-b-'));
+  const floorB = { ...floor, dir: dirB, opora: { view: () => ({ project: { id: 'pb', name: 'PB' }, workspace: 'w', cards: [] }), canvasNodes: () => [] }, planning: { state: () => ({ current: undefined }) } };
   const ctx = {
-    cfg: { dataDir: dir, port: 0 }, floors: new Map([['floor', floor]]),
+    cfg: { dataDir: dir, port: 0 }, floors: new Map([['floor', floor], ['floor-b', floorB]]),
     accounts: { get: (id: string) => ({ role: id === 'admin' ? 'admin' : 'member' }) },
     auth: { fromRequest: (req: http.IncomingMessage) => req.headers['x-test-session'] === 'admin' ? { account: { id: 'admin', role: 'admin' } } : req.headers['x-test-session'] === 'member' ? { account: { role: 'member' } } : undefined },
-    workerFloor: () => floor,
+    workerFloor: (id: string) => (id === 'worker-b' ? floorB : floor),
   } as unknown as Ctx;
   const handler = requestHandler(ctx, [harnessProfileRoute]);
   const server = http.createServer((req, res) => req.url?.startsWith('/office/') ? void officeHarness(ctx, req, res, new URL(req.url, 'http://x')) : void handler(req, res));
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   ctx.cfg.port = (server.address() as { port: number }).port;
-  t.after(() => { server.close(); server.closeAllConnections(); rmSync(dir, { recursive: true, force: true }); });
+  t.after(() => { server.close(); server.closeAllConnections(); rmSync(dir, { recursive: true, force: true }); rmSync(dirB, { recursive: true, force: true }); });
   const base = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
   const api = '/api/harness/profile?floor=floor';
   const data = { scope: 'global', layer: { language: { value: 'cs' } }, revision: 0 };
@@ -64,17 +78,21 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   assert.deepEqual(view.path.map((p: { level: string }) => p.level), ['page', 'layer', 'area', 'sector', 'task']);
   assert.deepEqual(view.levels, ['global', 'project', 'page', 'layer', 'area', 'sector', 'task']);
   assert.deepEqual(view.tasks, [{ id: k('c1'), title: 'Card 1' }]);
-  assert.equal((await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'sector', layer: { tone: { value: 'terse' } }, revision: 2 })).status, 200);
+  // A save below the project at a node of the canvas must say which node it is for (`at`).
+  const noAt = await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'sector', layer: { tone: { value: 'terse' } }, revision: 2 });
+  assert.equal(noAt.status, 400);
+  assert.match((await noAt.json()).error, /Send "at"/);
+  assert.equal((await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'sector', layer: { tone: { value: 'terse' } }, revision: 2, at: k('sector') })).status, 200);
   const sibling = await (await call(api + '&task=' + encodeURIComponent(k('c2')), 'admin')).json();
-  assert.deepEqual(sibling.effective.tone, { binding: { value: 'terse' }, scope: 'sector', node: k('sector') });
+  assert.deepEqual(sibling.effective.tone, { binding: { value: 'terse' }, scope: 'sector', node: k('sector'), nodeName: 'Sector' });
   assert.deepEqual(sibling.layers.task, {});
   assert.equal(sibling.audit[0].level, 'sector');
   assert.equal(sibling.audit[0].by, 'account:admin');
   assert.equal(sibling.audit[0].node, k('sector'));
   assert.equal(sibling.revision, 3);
   // A worker's save goes into the audit as the worker; a stale revision is refused; a foreign key never resolves.
-  assert.equal((await call('/office/harness?worker=planner&node=' + encodeURIComponent(k('c2')), '', { scope: 'task', layer: { tone: { value: 'warm' } }, revision: 2 }, base, 'Bearer test-token')).status, 409);
-  const mine = await call('/office/harness?worker=planner&node=' + encodeURIComponent(k('c2')), '', { scope: 'task', layer: { tone: { value: 'warm' } }, revision: 3 }, base, 'Bearer test-token');
+  assert.equal((await call('/office/harness?worker=planner&node=' + encodeURIComponent(k('c2')), '', { scope: 'task', layer: { tone: { value: 'warm' } }, revision: 2, at: k('c2') }, base, 'Bearer test-token')).status, 409);
+  const mine = await call('/office/harness?worker=planner&node=' + encodeURIComponent(k('c2')), '', { scope: 'task', layer: { tone: { value: 'warm' } }, revision: 3, at: k('c2') }, base, 'Bearer test-token');
   assert.equal(mine.status, 200);
   const after = await mine.json();
   assert.equal(after.effective.tone.scope, 'task');
@@ -86,4 +104,46 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
   assert.equal((await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'sector', layer: {}, revision: 4, at: k('sector') })).status, 200);
   assert.equal((await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'sector', layer: {}, revision: 5, at: k('other-sector') })).status, 409);
   assert.equal((await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin', { scope: 'global', layer: {}, revision: 5, at: '' })).status, 200);
+  // An area layer saved through the area's own key reaches every card whose sector is a member of it (memberOf), in both sectors.
+  const areaView = await (await call(api + '&node=' + encodeURIComponent(k('area')), 'admin')).json();
+  assert.deepEqual(areaView.path.map((p: { level: string }) => p.level), ['page', 'layer', 'area']);
+  assert.equal((await call(api + '&node=' + encodeURIComponent(k('area')), 'admin', { scope: 'area', layer: { palette: { value: 'warm' } }, revision: 6, at: k('area') })).status, 200);
+  for (const card of ['c1', 'c3']) assert.deepEqual((await (await call(api + '&node=' + encodeURIComponent(k(card)), 'admin')).json()).effective.palette, { binding: { value: 'warm' }, scope: 'area', node: k('area'), nodeName: 'Area' }, `${card} inherits the area through its sector's membership`);
+  assert.equal((await (await call(api + '&node=' + encodeURIComponent(k('c4')), 'admin')).json()).effective.palette, undefined, 'a card whose sector is in no area does not');
+  // A card between the page and the layers under it is given no level any task goes through: a save there is refused, not written into the void.
+  const midView = await (await call(api + '&node=' + encodeURIComponent(k('mid')), 'admin')).json();
+  assert.deepEqual(midView.path.map((p: { level: string }) => p.level), ['page', 'layer']);
+  const dead = await call(api + '&node=' + encodeURIComponent(k('mid')), 'admin', { scope: 'layer', layer: { palette: { value: 'cold' } }, revision: 7, at: k('mid') });
+  assert.equal(dead.status, 400);
+  assert.match((await dead.json()).error, /no task's path goes through it/);
+  assert.equal((await call(api + '&node=' + encodeURIComponent(k('mid')), 'admin', { scope: 'page', layer: { palette: { value: 'cold' } }, revision: 7, at: k('page') })).status, 200, 'the page above it is reachable from the same node');
+  assert.equal((await call(api + '&node=' + encodeURIComponent(k('c4')), 'admin', { scope: 'layer', layer: { palette: { value: 'cold' } }, revision: 8, at: k('layer2') })).status, 200, 'the real layer of Card 4 is reachable through the card');
+  // The audit a worker reads is its floor's repository's: nothing of another floor, no global saves. The administrator sees everything.
+  const adminAudit = (await (await call(api, 'admin')).json()).audit;
+  assert.ok(adminAudit.some((a: { level: string }) => a.level === 'global') && adminAudit.length >= 8);
+  const workerB = await (await call('/office/harness?worker=worker-b', '', undefined, base, 'Bearer test-token')).json();
+  assert.deepEqual(workerB.audit, [], 'floor B has no saves, and sees none of floor A\'s keys, slots or accounts');
+  assert.deepEqual(workerB.levels, ['global', 'project', 'page', 'layer', 'area', 'sector', 'task']);
+  const workerA = await (await call('/office/harness?worker=planner', '', undefined, base, 'Bearer test-token')).json();
+  assert.ok(workerA.audit.length > 0 && workerA.audit.every((a: { level: string; repo: string }) => a.level !== 'global' && a.repo === workerA.audit[0].repo), 'floor A\'s planner sees only its repository\'s saves below global');
+  // The CLI sends `at` from the path it read right before saving, so a card the canvas moved in between is refused (409).
+  const assignments = path.join(dir, 'assignments.json');
+  writeFileSync(assignments, JSON.stringify({ revision: 9, layer: { tone: { value: 'cli' } } }));
+  const env = { AGENT_OFFICE_HOOK_URL: base, AGENT_OFFICE_WORKER_ID: 'planner', AGENT_OFFICE_HOOK_TOKEN: 'test-token' };
+  const previous = { ...process.env };
+  Object.assign(process.env, env);
+  const printed: string[] = [];
+  const log = console.log;
+  console.log = (line: string) => void printed.push(line);
+  try {
+    moveAfterRead = true;
+    await assert.rejects(remoteHarness(['--assign', 'sector', assignments, '--node', k('c1')]), /canvas moved this node/);
+    assert.equal((await (await call(api + '&node=' + encodeURIComponent(k('c1')), 'admin')).json()).revision, 9, 'nothing was written');
+    const saved = await remoteHarness(['--assign', 'sector', assignments, '--node', k('c1')]).then(() => JSON.parse(printed.pop()!));
+    assert.deepEqual(saved.effective.tone, { binding: { value: 'cli' }, scope: 'sector', node: k('sector2'), nodeName: 'Sector 2' }, 'read again, Card 1 is in Sector 2 now and the save goes there');
+    assert.equal(saved.audit[0].node, k('sector2'));
+    await assert.rejects(remoteHarness(['--assign', 'area', assignments, '--node', k('c4')]), /has no area on its way down the canvas/);
+    await assert.rejects(remoteHarness(['--assign', 'sector', assignments]), /needs the node it is for/);
+    await assert.rejects(remoteHarness(['--assign', 'sector', assignments, '--node', k('c1'), '--at', k('sector')]), /canvas moved this node/, 'an explicit --at is sent as given');
+  } finally { console.log = log; for (const key of Object.keys(env)) delete process.env[key]; Object.assign(process.env, previous); }
 });
