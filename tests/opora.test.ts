@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { OporaBridge, type BridgeFloor, type BridgeEvents } from '../src/server/opora/bridge.js';
 import { HarnessProfiles } from '../src/server/harness/profiles.js';
-import { harnessHandoff } from '../src/server/harness/handoff.js';
+import { harnessCardHandoff } from '../src/server/harness/handoff.js';
 import { oporaHarnessTask } from '../src/shared/harness-cascade.js';
 import { OPORA_ESCAPE_WINDOW_MS, browserOporaUrl, canEmbedOpora, cardGroup, deskFor, frontierCards, oporaCanvasUrl, oporaEmbedPolicy, oporaEscapeLeaves, sameDir, signGroup } from '../src/shared/opora.js';
 import { PROMPTS } from '../src/shared/prompts.js';
@@ -17,7 +17,7 @@ import type { OporaState, WorkerInfo } from '../src/shared/protocol.js';
 
 test('Opora dispatch embeds effective harness and refuses a missing resource before claiming', async (t) => {
   let root = '';
-  const f = await fixture(t, (project, workspace, card) => harnessHandoff(root, root, oporaHarnessTask(project, workspace, card), false));
+  const f = await fixture(t, (project, workspace, card, _owner, nodes) => harnessCardHandoff(root, root, { project, workspace }, card, nodes, false));
   root = f.dir;
   const profiles = new HarnessProfiles(root);
   profiles.save(root, '', 'global', { language: { value: 'en' } }, 0);
@@ -25,6 +25,7 @@ test('Opora dispatch embeds effective harness and refuses a missing resource bef
   assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
   assert.match(f.workers[0].prompt!, /"value": "cs"/);
   assert.match(f.workers[0].prompt!, /Snapshot SHA-256/);
+  assert.match(f.workers[0].prompt!, /"path": \[\s*\{\s*"level": "task"/, 'a card under a root sector is a task of the project');
   profiles.save(root, '', 'repository', { missing: { resource: 'missing' } }, 2);
   assert.match((await f.bridge.take('c1', 'Ana'))!, /unavailable/);
   assert.equal(f.op.leases.has('c1'), false);
