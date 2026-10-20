@@ -32,11 +32,13 @@ function canonical(value: unknown): unknown {
   if (object(value)) return Object.fromEntries(Object.keys(value).sort().map((k) => [k, canonical(value[k])]));
   return value;
 }
-/** The payload's digest, the request id left out: what decides whether two requests are the same write. */
-export function requestDigest(body: Record<string, unknown>): string {
+/** The digest of the payload and of what it addresses (`target`: the node's key, '' for none), the request id left out: what decides whether two requests are the same write. */
+export function requestDigest(body: Record<string, unknown>, target = ''): string {
   const { requestId: _id, ...rest } = body;
-  return createHash('sha256').update(JSON.stringify(canonical(rest))).digest('hex');
+  return createHash('sha256').update(JSON.stringify([target, canonical(rest)])).digest('hex');
 }
+/** The most one stored result may take; a bigger one is not kept (the retry then gets an ordinary answer). */
+const MAX_RECORD_BYTES = 512 * 1024;
 
 export class HarnessRequests {
   private file: string;
@@ -66,9 +68,9 @@ export class HarnessRequests {
    * The result `body` got before under `scope` (a repository's or a floor's key), when it did: by its
    * `requestId`, which must carry the same payload (409 when it doesn't), or else by the payload itself.
    */
-  replay(scope: string, body: Record<string, unknown>): HarnessRequestRecord | undefined {
+  replay(scope: string, body: Record<string, unknown>, target = ''): HarnessRequestRecord | undefined {
     const id = parseRequestId(body.requestId);
-    const digest = requestDigest(body);
+    const digest = requestDigest(body, target);
     const list = this.read().requests[scope] ?? [];
     if (id !== undefined) {
       const same = list.find((r) => r.id === id);
@@ -78,17 +80,22 @@ export class HarnessRequests {
     }
     return [...list].reverse().find((r) => r.id === undefined && r.digest === digest);
   }
-  /** Remembers that `body` was accepted under `scope` with `status` and `result`, so sending it again changes nothing. */
-  record(scope: string, body: Record<string, unknown>, status: number, result: unknown): void {
+  /**
+   * Remembers that `body` at `target` was accepted under `scope` with `status` and `result`, so sending it
+   * again changes nothing. A result too big to keep is not kept; the write it belongs to is done either way.
+   */
+  record(scope: string, body: Record<string, unknown>, status: number, result: unknown, target = ''): void {
     const id = parseRequestId(body.requestId);
+    const entry: HarnessRequestRecord = { ...(id === undefined ? {} : { id }), digest: requestDigest(body, target), status, body: result, at: new Date().toISOString() };
+    if (Buffer.byteLength(JSON.stringify(entry)) > MAX_RECORD_BYTES) return;
     const data = this.read();
     const list = (data.requests[scope] ?? []).filter((r) => id === undefined || r.id !== id);
-    data.requests[scope] = [...list.slice(-(KEEP - 1)), { ...(id === undefined ? {} : { id }), digest: requestDigest(body), status, body: result, at: new Date().toISOString() }];
+    data.requests[scope] = [...list.slice(-(KEEP - 1)), entry];
     data.version = HARNESS_REQUESTS_VERSION;
     let text = JSON.stringify(data, null, 2);
     // A log that outgrew its cap drops the oldest records of every scope until it fits; a retry of those gets an ordinary answer (409 on a stale revision).
-    while (Buffer.byteLength(text) > MAX_BYTES && Object.values(data.requests).some((l) => l.length)) {
-      for (const key of Object.keys(data.requests)) { data.requests[key].shift(); if (!data.requests[key].length) delete data.requests[key]; }
+    while (Buffer.byteLength(text) > MAX_BYTES && Object.values(data.requests).some((l) => l.length > 1)) {
+      for (const key of Object.keys(data.requests)) if (data.requests[key].length > 1) data.requests[key].shift();
       text = JSON.stringify(data, null, 2);
     }
     mkdirSync(this.dataDir, { recursive: true });

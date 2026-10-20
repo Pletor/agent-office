@@ -42,7 +42,7 @@ export async function harnessBindingRequest(ctx: Ctx, floor: Floor, req: http.In
     checkBindTarget(floor.opora.view(), place);
     const { changed } = bindings.bind(floor.id, floor.dir, place, by, { rebind: body.rebind === true, revision: body.revision });
     const result = { ...reply(), changed };
-    requests.record(scope, body, 200, result);
+    try { requests.record(scope, body, 200, result); } catch (err) { console.error('harness: the request log was not written: ' + (err as Error).message); }
     send(res, 200, result);
   } catch (err) {
     send(res, err instanceof HarnessError ? err.status : 400, { error: (err as Error).message });

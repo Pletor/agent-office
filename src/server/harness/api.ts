@@ -41,14 +41,8 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
     // The binding says which project's keys this floor takes; the window's link only while there is none.
     const place = binding ? { project: binding.project, workspace: binding.workspace } : linked;
     const canvas = floor.opora.canvasNodes();
+    const target = () => { try { return harnessTarget(canvas, place, id); } catch (err) { throw new HarnessError((err as Error).message, 400); } };
     let path;
-    try { path = harnessTarget(canvas, place, id); }
-    catch (err) {
-      // Another project's node: a read of it is a bad address (400); a write to it would change another project's profiles (403).
-      const at = parseOporaKey(id);
-      if (req.method === 'POST' && binding && at && !samePlace(at, binding)) throw new HarnessError(`That node is in project ${at.project}, workspace ${at.workspace}; floor ${floor.id} is bound to project ${binding.project}, workspace ${binding.workspace}. Another project's profiles are not this floor's to change.`, 403);
-      throw new HarnessError((err as Error).message, 400);
-    }
     let body: Record<string, unknown> | undefined, requests: HarnessRequests | undefined;
     // The log of accepted writes is the caller's own: a retry is by the same identity, and nobody is handed another's reply.
     const scope = 'repo:' + harnessRepoKey(floor.dir) + ':' + by;
@@ -58,12 +52,14 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HarnessError('Expected a JSON object');
       if (body.scope === 'global' && !globalWrite) return send(res, 403, { error: 'Global settings require the administrator UI.' });
       requests = new HarnessRequests(ctx.cfg.dataDir);
-      const replay = requests.replay(scope, body);
+      const replay = requests.replay(scope, body, id);
       if (replay) return send(res, replay.status, replay.body, { [REPLAY_HEADER]: '1' });
       const level = harnessLevel(body.scope);
       const below = !!level && level !== 'global' && level !== 'project';
       const canvasId = parseOporaKey(id)?.nodeId;
+      // The binding is checked before the key is placed on the canvas, so an unbound floor hears "bind first" and a foreign node "not yours", whatever the window reads.
       assertBoundWrite({ floorId: floor.id, binding, opora: { connected: !!opora.connected, error: opora.error }, linked, key: id, below, claims: { project: body.project, workspace: body.workspace }, known: canvasId === undefined || canvas.some((n) => n.id === canvasId) });
+      path = target();
       const at = below ? pathNode(path, level)?.node : undefined;
       if (below && canvasId && at && body.at === undefined) throw new HarnessError(`Send "at": the key of the ${level} node this save was edited for, from the path the preceding read returned.`);
       if (body.at !== undefined && body.at !== (at ?? '')) throw new HarnessError('The canvas moved this node since you loaded it: reload before saving.', 409);
@@ -79,6 +75,7 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       }
       await store.save(floor.dir, path, body.scope, layer, body.revision, by);
     } else if (req.method !== 'GET') return send(res, 405, { error: 'Use GET or POST' });
+    else path = target();
     const view = store.view(floor.dir, path);
     const tasks = place && samePlace(place, linked) ? opora.cards.map((card) => ({ id: oporaHarnessTask(place.project, place.workspace, card.id), title: card.name })) : [];
     let preview = '', warning = '';
@@ -86,7 +83,8 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
     catch (err) { warning = (err as Error).message; }
     if (!opora.connected) warning = [warning, `Opora isn't answering: this is the local store down the canvas as last read${opora.error ? ' (' + opora.error + ')' : ''}.`].filter(Boolean).join(' ');
     const result = { ...view, levels: HARNESS_LEVELS, tasks, audit: store.audit(20, floor.dir, auditAll), binding: bindingView(binding), writable, globalWrite, preview, warning };
-    if (body && requests) requests.record(scope, body, 200, result);
+    // The write is done; remembering it is for the retry's sake and never fails the reply. The stored reply has no preview (a GET gives it).
+    if (body && requests) try { requests.record(scope, body, 200, { ...result, preview: '' }, id); } catch (err) { console.error('harness: the request log was not written: ' + (err as Error).message); }
     send(res, 200, result);
   } catch (err) {
     send(res, err instanceof HarnessError ? err.status : 400, { error: (err as Error).message });

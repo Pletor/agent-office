@@ -87,15 +87,21 @@ test('the binding store: one project and workspace per floor, explicit audited r
   // Another place is a rebind, which must be asked for; a stale revision is a conflict; names are not ids.
   assert.throws(() => store.bind('a', checkout, { project: 'q', workspace: 'w' }, 'account:admin'), (e: Error & { status: number }) => e.status === 409 && /Rebinding is explicit/.test(e.message));
   assert.throws(() => store.bind('a', checkout, { project: 'q', workspace: 'w' }, 'account:admin', { rebind: true, revision: 0 }), (e: Error & { status: number }) => e.status === 409 && /changed elsewhere/.test(e.message));
-  const moved = store.bind('a', checkout, { project: 'q', workspace: 'w2' }, 'worker:planner', { rebind: true, revision: 1 });
+  // Another floor on the same checkout shares the place: it can't be bound elsewhere.
+  assert.throws(() => store.bind('a2', checkout, { project: 'q', workspace: 'w' }, 'account:admin'), (e: Error & { status: number }) => e.status === 409 && /Floor a has the same checkout bound/.test(e.message));
+  assert.equal(store.bind('a2', checkout, place, 'account:admin').changed, true);
+  // A rebind moves every floor on the checkout together, each with its own audit entry.
+  const moved = store.bind('a', checkout, { project: 'q', workspace: 'w2' }, 'worker:planner', { rebind: true, revision: 2 });
+  assert.equal(store.forFloor('a2')?.project, 'q', 'the other floor on the checkout moved with it');
+  assert.equal(store.audit(20, 'a2')[0].by, 'worker:planner');
   assert.equal(moved.changed, true);
-  assert.deepEqual(store.audit().map((a) => [a.from, a.to, a.by]), [[{ project: 'p', workspace: 'w' }, { project: 'q', workspace: 'w2' }, 'worker:planner'], [null, { project: 'p', workspace: 'w' }, 'account:admin']]);
+  assert.deepEqual(store.audit(20, 'a').map((a) => [a.from, a.to, a.by]), [[{ project: 'p', workspace: 'w' }, { project: 'q', workspace: 'w2' }, 'worker:planner'], [null, { project: 'p', workspace: 'w' }, 'account:admin']]);
   // A restart is a new instance over the same file; the binding is found by floor and by checkout.
   const after = new HarnessBindings(dir);
   assert.equal(after.forFloor('a')?.project, 'q');
   assert.equal(after.forRepo(checkout)?.workspace, 'w2');
   assert.equal(after.forRepo(path.join(dir, 'elsewhere')), undefined);
-  assert.equal(after.revision(), 2);
+  assert.equal(after.revision(), 3);
   // A damaged file fails closed and is left alone.
   writeFileSync(path.join(dir, 'harness-bindings.json'), '{not json');
   assert.throws(() => after.forFloor('a'), (e: Error & { status: number }) => e.status === 503);
@@ -196,17 +202,26 @@ test('the orchestrator contract: safe retries, CAS, an unknown node, a request n
   const save = { scope: 'sector', layer: { tone: { value: 'terse' } }, revision: 1, at: k('sector'), requestId: 'save-1' };
   const first = await call(planner('&node=' + encodeURIComponent(k('c1'))), '', save, undefined, auth);
   assert.equal(first.status, 200);
-  const firstBody = await first.json() as { revision: number; audit: unknown[]; binding: { project: string } };
+  const firstBody = await first.json() as { revision: number; audit: unknown[]; binding: { project: string }; preview: string };
   assert.equal(firstBody.revision, 2);
   assert.equal(firstBody.binding.project, 'p');
   const second = await call(planner('&node=' + encodeURIComponent(k('c1'))), '', save, undefined, auth);
   assert.equal(second.status, 200);
   assert.equal(second.headers.get('x-harness-replay'), '1');
-  assert.deepEqual(await second.json(), firstBody);
+  assert.deepEqual(await second.json(), { ...firstBody, preview: '' }, 'the stored reply, without the preview');
   const profiles = new HarnessProfiles(dir);
   assert.equal(profiles.view(dir).revision, 2, 'nothing was written twice');
   assert.equal(profiles.audit(50).filter((a) => a.level === 'sector').length, 1, 'one audit entry');
   assert.equal((await call(planner('&node=' + encodeURIComponent(k('c1'))), '', { ...save, layer: { tone: { value: 'warm' } } }, undefined, auth)).status, 409);
+  // The node addressed is part of the request: the same id at another node is a reused id (409), and without an id the same body at another node is a new write, not a replay.
+  const elsewhere = await call(planner('&node=' + encodeURIComponent(k('sector'))), '', save, undefined, auth);
+  assert.equal(elsewhere.status, 409);
+  assert.match((await elsewhere.json() as { error: string }).error, /requestId save-1 was used for another request/);
+  const { requestId: _r, ...plain } = save;
+  const plainElsewhere = await call(planner('&node=' + encodeURIComponent(k('sector'))), '', plain, undefined, auth);
+  assert.equal(plainElsewhere.status, 409, 'a stale revision at another node is the conflict it is');
+  assert.equal(plainElsewhere.headers.get('x-harness-replay'), null);
+  assert.ok(typeof firstBody.preview === 'string' && firstBody.preview.length > 0, 'the first reply carries the preview');
   // The log is the caller's own: the administrator sending the planner's exact request is not handed the planner's reply but a conflict of its own (stale revision).
   const admin = await call(api, 'admin', save);
   assert.equal(admin.status, 409);

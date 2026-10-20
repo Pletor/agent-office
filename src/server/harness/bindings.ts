@@ -105,11 +105,20 @@ export class HarnessBindings {
     const current = data.bindings[floorId];
     if (current && samePlace(current, place)) return { binding: current, revision: data.revision, changed: false };
     if (current && !options.rebind) throw new HarnessError(`Floor ${floorId} is bound to Opora project ${current.project}, workspace ${current.workspace}. Rebinding is explicit: send rebind: true (CLI: --rebind). The old binding's profiles stay in the store under its repository key.`, 409);
-    const binding: HarnessBinding = { project: place.project, workspace: place.workspace, repoHash: harnessRepoKey(checkout), floorId, checkoutPath: path.resolve(checkout), boundAt: new Date().toISOString(), boundBy: String(by).slice(0, 120) };
-    data.bindings[floorId] = binding;
+    const repoHash = harnessRepoKey(checkout);
+    // Profiles are the checkout's, so floors on one checkout share one place: a first binding of another floor on it must name the same place (409),
+    // and a rebind moves every floor on the checkout together, each with its own audit entry, so the dispatch gate stays unambiguous.
+    const sharing = Object.values(data.bindings).filter((b) => b.floorId !== floorId && b.repoHash === repoHash);
+    const elsewhere = sharing.find((b) => !samePlace(b, place));
+    if (elsewhere && !current) throw new HarnessError(`Floor ${elsewhere.floorId} has the same checkout bound to project ${elsewhere.project}, workspace ${elsewhere.workspace}: one checkout's profiles belong to one project and workspace. Rebind that floor, which moves every floor on the checkout, or bind this one to the same place.`, 409);
+    const binding: HarnessBinding = { project: place.project, workspace: place.workspace, repoHash, floorId, checkoutPath: path.resolve(checkout), boundAt: new Date().toISOString(), boundBy: String(by).slice(0, 120) };
     data.revision++;
     data.version = HARNESS_BINDINGS_VERSION;
-    data.audit = [...data.audit.slice(-(AUDIT_KEEP - 1)), { at: binding.boundAt, revision: data.revision, floorId, repoHash: binding.repoHash, from: current ? { project: current.project, workspace: current.workspace } : null, to: { ...place }, by: binding.boundBy }];
+    const moved = [{ binding, from: current }, ...sharing.filter((b) => !samePlace(b, place)).map((b) => ({ binding: { ...b, project: place.project, workspace: place.workspace, boundAt: binding.boundAt, boundBy: binding.boundBy }, from: b as HarnessBinding | undefined }))];
+    for (const m of moved) {
+      data.bindings[m.binding.floorId] = m.binding;
+      data.audit = [...data.audit.slice(-(AUDIT_KEEP - 1)), { at: binding.boundAt, revision: data.revision, floorId: m.binding.floorId, repoHash, from: m.from ? { project: m.from.project, workspace: m.from.workspace } : null, to: { ...place }, by: binding.boundBy }];
+    }
     this.replace(JSON.stringify(data, null, 2));
     return { binding, revision: data.revision, changed: true };
   }
