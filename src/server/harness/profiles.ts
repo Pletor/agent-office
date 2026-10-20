@@ -42,6 +42,12 @@ export function parseHarnessLayer(value: unknown): HarnessLayer {
   return structuredClone(value) as HarnessLayer;
 }
 
+/** The store's key of a checkout (the hash in `repo:<hash>`): its absolute path, case-folded on Windows. The bindings (bindings.ts) name a repository by it too. */
+export function harnessRepoKey(repo: string): string {
+  const dir = path.resolve(repo);
+  return createHash('sha256').update(process.platform === 'win32' ? dir.toLowerCase() : dir).digest('hex');
+}
+
 /** One save: which level and node changed, into which revision, by whom, and the slots the layer names now. */
 export interface HarnessAudit {
   at: string;
@@ -107,10 +113,7 @@ export class HarnessProfiles {
       return data;
     } catch { throw new HarnessError('Harness profiles are unreadable. Repair the saved file; it has not been overwritten.', 503); }
   }
-  private repoKey(repo: string) {
-    const dir = path.resolve(repo);
-    return createHash('sha256').update(process.platform === 'win32' ? dir.toLowerCase() : dir).digest('hex');
-  }
+  private repoKey(repo: string) { return harnessRepoKey(repo); }
   /** The store key of a level on the path; undefined for a level below the project the path doesn't go through. */
   private key(repo: string, path: HarnessPath, level: HarnessLevel): string | undefined {
     if (level === 'global') return 'global';
