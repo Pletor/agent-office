@@ -14,6 +14,7 @@ import type { Ctx } from '../src/server/office/context.js';
 import type { Floor } from '../src/server/floor.js';
 import { OporaBridge } from '../src/server/opora/bridge.js';
 import { harnessProfileRequest } from '../src/server/harness/api.js';
+import { HarnessBindings } from '../src/server/harness/bindings.js';
 import { oporaKey } from '../src/shared/opora-identity.js';
 import { PROMPTS } from '../src/shared/prompts.js';
 
@@ -38,7 +39,9 @@ test('the place of a node is re-checked under the lock against Opora itself, and
   const bridgeFloor = { id: 'shop', dir, list: () => [], seat: () => 'no', desks: () => [], deskOccupied: () => false, labels: () => ({}) };
   const bridge = new OporaBridge(bridgeFloor, dataDir, { update() {}, toast() {}, prompt: (id) => PROMPTS[id].text }, `http://127.0.0.1:${(opora.address() as AddressInfo).port}`);
   await bridge.poll();
-  const floor = { dir, opora: bridge } as unknown as Floor;
+  const floor = { id: 'shop', dir, opora: bridge } as unknown as Floor;
+  // A save at an Opora node needs the floor bound to the project it plans (bindings.ts).
+  await new HarnessBindings(dataDir).bind('shop', dir, { project: 'p', workspace: 'w' }, 'test');
   const ctx = { cfg: { dataDir } } as unknown as Ctx;
   const office = http.createServer((req, res) => void harnessProfileRequest(ctx, floor, req, res, new URL(req.url!, 'http://x'), true, true, true, 'admin'));
   await new Promise<void>((r) => office.listen(0, '127.0.0.1', r));

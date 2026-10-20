@@ -5,6 +5,8 @@
 //     Prints "wrote" or "replay".
 //   bind <project>: binds floor "a" (checkout <dataDir>/repo) to that project in workspace "w", no rebind.
 //     Prints "bound" or the refusal's status.
+//   bind-stall <project>:<stallMs>: the same, with a very short lock lease and a blocked loop of stallMs between
+//     the lock check and the publish (the window no lock can close: a paused process whose lock was taken over).
 import { appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { HarnessBindings } from '../../src/server/harness/bindings.js';
@@ -23,8 +25,11 @@ if (mode === 'request') {
     return 'wrote';
   }));
 } else {
+  const [project, stall] = mode === 'bind-stall' ? arg.split(':') : [arg, '0'];
+  const busy = (ms: number) => { const until = Date.now() + ms; while (Date.now() < until) { /* a blocked loop, as a paused VM would be */ } };
+  const options = mode === 'bind-stall' ? { waitMs: 20_000, staleMs: 300, renewMs: 100, hooks: { verified: () => busy(Number(stall)) } } : {};
   try {
-    await new HarnessBindings(dataDir).bind('a', path.join(dataDir, 'repo'), { project: arg, workspace: 'w' }, 'child:' + arg);
+    await new HarnessBindings(dataDir, options).bind('a', path.join(dataDir, 'repo'), { project, workspace: 'w' }, 'child:' + project);
     out('bound');
   } catch (err) { out((err as { status?: number }).status ?? 500); }
 }
