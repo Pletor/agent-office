@@ -120,24 +120,25 @@ test('the 8 MiB cap: tombstones are pruned first, then the write is refused with
   for (let i = 2; i < Math.floor((MAX - 60_000 - one) / each) + 1; i++) add(i);
   assert.ok(size() <= MAX && size() > MAX - 80_000, 'just under the cap: ' + size());
   await put('data/harness-registry.json', JSON.stringify({ schema: 1, elements, roots }, null, 1));
-  const before = await stat(registry);
+  const before = await readFile(registry);
   for (let i = 0; i < 200; i++) await put('p/.harness/rules/new' + i + '.md', 'new ' + i);
   const warn = t.mock.method(console, 'warn', () => {});
   try {
     const listed = await lib(at('p'), data).list();
-    assert.ok(listed.entries.filter((e) => e.path.startsWith('rules/new')).every((e) => e.version === 0), 'refused: no unsaved revision is reported');
+    const fresh = listed.entries.filter((e) => e.path.startsWith('rules/new'));
+    assert.equal(fresh.length, 200);
+    assert.ok(fresh.every((e) => e.version === 0), 'refused: no unsaved revision is reported');
     assert.equal(warn.mock.callCount(), 1);
     assert.match(String(warn.mock.calls[0].arguments[0]), /is full/);
   } finally { warn.mock.restore(); }
-  const after = await stat(registry);
-  assert.equal(after.size, before.size);
-  assert.equal(after.mtimeMs, before.mtimeMs, 'the full registry is left as it was');
+  assert.deepEqual(await readFile(registry), before, 'the full registry is left byte for byte as it was');
   // Tombstoned records make room: once every record is gone from its place, the same listing fits and is recorded.
   for (const r of Object.values(elements) as { instances: Record<string, { missingSince?: string }> }[]) r.instances[rootHash].missingSince = at0;
   while (size() > MAX) delete elements[Object.keys(elements).at(-1)!]; // the tombstone stamps need room of their own
   await put('data/harness-registry.json', JSON.stringify({ schema: 1, elements, roots }, null, 1));
-  const recorded = await lib(at('p'), data).list();
-  assert.ok(recorded.entries.filter((e) => e.path.startsWith('rules/new')).every((e) => e.version === 1), 'pruned, then written');
+  const recorded = (await lib(at('p'), data).list()).entries.filter((e) => e.path.startsWith('rules/new'));
+  assert.equal(recorded.length, 200);
+  assert.ok(recorded.every((e) => e.version === 1), 'pruned, then written');
   assert.ok((await stat(registry)).size < 1024 * 1024);
 });
 
@@ -173,7 +174,7 @@ test('a read that is denied leaves the walk incomplete: the element is not liste
   assert.equal(back.digest, y.digest);
 });
 
-test('records of a deleted checkout are pruned at the next save; a checkout that only lost its .harness folder and a root whose parent is gone too are kept', async (t) => {
+test('records of a deleted checkout are pruned by the second save that finds it gone; a checkout that only lost its .harness folder and a root whose parent is gone too are kept', async (t) => {
   const { at, put, data, registry } = await fixture(t);
   await put('wts/wt1/.harness/rules/only-here.md', 'only in wt1');
   await put('wts/wt2/.harness/rules/branch-only.md', 'only on this branch');
@@ -194,7 +195,12 @@ test('records of a deleted checkout are pruned at the next save; a checkout that
   const p = lib(at('p'), data);
   await p.list();
   stored = JSON.parse(await readFile(registry, 'utf8'));
-  assert.equal(stored.elements[only.id], undefined, 'the deleted worktree\'s only element is gone from the registry');
+  assert.ok(stored.elements[only.id], 'one save that finds the checkout gone only records the sighting');
+  const sightings = Object.keys((stored as unknown as { rootsMissing: Record<string, string> }).rootsMissing);
+  assert.ok(sightings.length > 0 && sightings.every((h) => stored.roots[h].toLowerCase().endsWith('wt1')), 'the sighting is recorded for the places of the deleted checkout alone (one per source instance)');
+  await p.list();
+  stored = JSON.parse(await readFile(registry, 'utf8'));
+  assert.equal(stored.elements[only.id], undefined, 'the deleted worktree\'s only element is gone from the registry after the second save');
   assert.equal(Object.values(stored.roots).some((dir) => dir.toLowerCase().includes('wt1')), false);
   assert.ok(stored.elements[ghostId], 'the unreachable root is kept');
   assert.ok(stored.elements[branchOnly.id], 'a checkout that only switched branches keeps its records');
@@ -219,28 +225,45 @@ console.log(JSON.stringify(last.entries.filter((e) => e.path.startsWith('rules/'
   assert.deepEqual((await readdir(data)).filter((f) => f.endsWith('.lock') || f.endsWith('.tmp')), []);
 });
 
-test('a fresh process sees the same IDs and revisions and reuses the persisted digests instead of hashing every file again', async (t) => {
+test('a fresh process sees the same IDs and revisions and reuses the persisted digests; an edit the cache key cannot tell is shown until read() repairs it', async (t) => {
   const { at, put, data, dir } = await fixture(t);
   for (let i = 0; i < 50; i++) await put('p/.harness/rules/r' + i + '.md', 'rule ' + i);
   const r7 = at('p/.harness/rules/r7.md'), stamp = new Date('2026-01-01T00:00:00Z');
   await utimes(r7, stamp, stamp);
   const first = (await lib(at('p'), data).list()).entries.filter((e) => e.path.startsWith('rules/')).map((e) => [e.id, e.version, e.digest]);
-  const digests = JSON.parse(await readFile(path.join(data, 'harness-digests.json'), 'utf8')) as { schema: number; files: Record<string, string> };
+  const cacheFile = path.join(data, 'harness-digests.json');
+  const digests = JSON.parse(await readFile(cacheFile, 'utf8')) as { schema: number; files: Record<string, string> };
   assert.equal(digests.schema, 1);
   assert.equal(Object.keys(digests.files).length, 50, 'one entry per listed file');
   assert.ok(Object.values(digests.files).every((v) => /^[0-9:]+ [0-9a-f]{64}$/.test(v)), 'file identity and digest, never content');
-  // A file whose identity key (ID, size, mtime) is unchanged is served from the cache: rewrite one in place with same-size content and the old mtime.
+  const oldDigest = createHash('sha256').update('rule 7').digest('hex'), newDigest = createHash('sha256').update('RULE 7').digest('hex');
+  const r7Id = first.find(([, , d]) => d === oldDigest)![0] as string;
+  // A same-size rewrite with the old mtime still changes the change time, so the key misses and the file is re-hashed.
   await writeFile(r7, 'RULE 7');
   await utimes(r7, stamp, stamp);
-  const out = await fresh(dir, 'again', `const lib = new HarnessLibrary(harnessSources(${JSON.stringify(at('p'))}, false), new HarnessRegistry(${JSON.stringify(data)}));
+  const again = JSON.parse(await fresh(dir, 'again', `const lib = new HarnessLibrary(harnessSources(${JSON.stringify(at('p'))}, false), new HarnessRegistry(${JSON.stringify(data)}));
 const c = await lib.list();
-console.log(JSON.stringify(c.entries.filter((e) => e.path.startsWith('rules/')).map((e) => [e.id, e.version, e.digest])));`);
-  assert.deepEqual(JSON.parse(out), first, 'same IDs, versions and digests across processes; r7 was not re-hashed');
-  const reader = lib(at('p'), data);
-  await reader.list();
-  const read = await reader.read(first.find(([, , d]) => d === createHash('sha256').update('rule 7').digest('hex'))![0] as string);
-  assert.equal(read?.text, 'RULE 7');
-  assert.equal(read?.digest, createHash('sha256').update('RULE 7').digest('hex'), 'a read always reports the digest of the bytes returned');
+console.log(JSON.stringify(c.entries.filter((e) => e.path.startsWith('rules/')).map((e) => [e.id, e.version, e.digest])));`)) as [string, number, string][];
+  assert.deepEqual(again.filter(([id]) => id !== r7Id), first.filter(([id]) => id !== r7Id), 'same IDs, versions and digests across processes for the unchanged files');
+  assert.deepEqual(again.find(([id]) => id === r7Id), [r7Id, 2, newDigest], 'the edited file was re-hashed: new content, next revision');
+  // An edit the key cannot tell (here: the cache entry rewritten to the file's current key with the previous digest, which the registry knows) is shown by a listing.
+  const cached = JSON.parse(await readFile(cacheFile, 'utf8')) as { files: Record<string, string> };
+  cached.files[r7] = cached.files[r7].split(' ')[0] + ' ' + oldDigest;
+  await writeFile(cacheFile, JSON.stringify(cached));
+  const stale = JSON.parse(await fresh(dir, 'stale', `const lib = new HarnessLibrary(harnessSources(${JSON.stringify(at('p'))}, false), new HarnessRegistry(${JSON.stringify(data)}));
+const c = await lib.list();
+const e = c.entries.find((e) => e.id === ${JSON.stringify(r7Id)});
+const listed = [e.version, e.digest];
+const warned = [];
+console.warn = (m) => warned.push(String(m));
+const r = await lib.read(e.id);
+const d = await lib.list();
+console.log(JSON.stringify({ listed, read: [r.version, r.digest, r.text], next: [d.entries.find((e) => e.id === ${JSON.stringify(r7Id)}).version, d.entries.find((e) => e.id === ${JSON.stringify(r7Id)}).digest], warned }));`)) as { listed: [number, string]; read: [number, string, string]; next: [number, string]; warned: string[] };
+  assert.deepEqual(stale.listed, [1, oldDigest], 'the cached digest is served (the documented staleness window)');
+  assert.deepEqual(stale.read, [2, newDigest, 'RULE 7'], 'a read reports the digest of the bytes returned and the revision that content has');
+  assert.deepEqual(stale.next, [2, newDigest], 'the next listing shows the repaired digest');
+  assert.equal(stale.warned.filter((m) => /repaired/.test(m)).length, 1, 'logged once');
+  assert.equal(JSON.parse(await readFile(cacheFile, 'utf8')).files[r7].split(' ')[1], newDigest, 'the cache entry was repaired too');
 });
 
 test('after a checkout move the canonical ID and the new alias resolve; the alias of the old path is unknown', async (t) => {

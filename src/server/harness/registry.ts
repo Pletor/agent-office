@@ -4,11 +4,12 @@
 // disappears, so an assignment that points at it resolves as "missing" instead of being remapped or
 // forgotten. One ID can live in several places at once (two checkouts of a repository, two projects
 // with the same layout), so the state that depends on the place is kept per source instance.
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { HARNESS_CATEGORIES, type HarnessCategory } from '../../shared/harness.js';
 import { DigestCache } from './digests.js';
+import { acquireLock, LOCK_TIMING, type LockTiming } from './registry-lock.js';
 
 /** The element as one source instance (a published folder at one real root) last saw it. */
 export interface ElementInstance {
@@ -37,49 +38,68 @@ export interface Observed { id: string; ns: string; key: string; root: string; t
 export interface Known { ns: string; title: string; path: string; source: string; category: HarnessCategory; revision: number; digest: string; lastSeenAt: string; missingSince: string }
 /** The key under which a listing declares a source instance completely walked: source name + root hash. */
 export const sourceInstance = (source: string, root: string) => source + '\0' + root;
-/** `roots` maps each instance hash to the real folder it stands for, so a root deleted from disk can be pruned. */
-interface Stored { schema: 1; elements: Record<string, ElementRecord>; roots: Record<string, string> }
+/**
+ * `roots` maps each instance hash to the real folder it stands for; `rootsMissing` holds the time a save
+ * first found that folder deleted, so its instances are pruned only by a second consecutive save that finds it deleted too.
+ */
+interface Stored { schema: 1; elements: Record<string, ElementRecord>; roots: Record<string, string>; rootsMissing: Record<string, string> }
 
 const MAX_ELEMENTS = 6000;
-const MAX_VERSIONS = 32;
+/** Distinct digests remembered per element; a digest evicted from this history gets a new, higher number when its content returns. */
+export const MAX_VERSIONS = 64;
 const MAX_INSTANCES = 16;
 const MAX_BYTES = 8 * 1024 * 1024;
-const LOCK_STALE_MS = 10_000;
-const LOCK_TRIES = 40;
-const LOCK_WAIT_MS = 25;
 const TOUCH_MS = 3600_000;
 const ISO = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/;
+const HASH = /^[0-9a-z]{1,32}$/;
 const own = <T>(record: Record<string, T>, key: string): T | undefined => Object.hasOwn(record, key) ? record[key] : undefined;
 const text = (v: unknown, max = 1000): v is string => typeof v === 'string' && v.length <= max;
 const revisionOf = (v: unknown): number | undefined => Number.isSafeInteger(v) && (v as number) > 0 ? v as number : undefined;
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const ABSENT = new Set(['ENOENT', 'ENOTDIR']);
+/** present, gone (ENOENT/ENOTDIR), or unknown: any other failure, which never counts as deletion. */
+const seeDir = (dir: string): 'present' | 'gone' | 'unknown' => {
+  try { statSync(dir); return 'present'; } catch (err) { return ABSENT.has((err as NodeJS.ErrnoException).code ?? '') ? 'gone' : 'unknown'; }
+};
 /**
- * A place (the checkout a published folder belongs to) is pruned only when it is gone while some folder
- * above it, other than the volume root, is still there: a deleted worktree or clone. When nothing above
- * it exists down to the volume root (an unmounted disk, a checkout that sat directly under the drive
- * root) it is kept, conservatively; a network path is never checked, so it is never pruned.
+ * Whether the place (the checkout a published folder belongs to) is deleted: gone with ENOENT while some
+ * folder above it, other than the volume root, is still there (a deleted worktree or clone). Anything
+ * else keeps it: a permission or I/O error on it or on a folder above it, a UNC path (never checked), a
+ * volume root that cannot be reached (a disk that is not mounted or a mapped network drive that is offline: on
+ * Windows its drive letter), or nothing above it down to the volume root (a checkout that sat directly
+ * under the drive root). On POSIX an unmounted disk leaves its mount-point parent behind, so it is only protected by the two-save rule.
  */
-const rootGone = (dir: string) => {
-  if (!path.isAbsolute(dir) || /^[\\/]{2}/.test(dir) || existsSync(dir)) return false;
+export const rootGone = (dir: string): boolean => {
+  if (!path.isAbsolute(dir) || /^[\\/]{2}/.test(dir)) return false;
+  if (seeDir(dir) !== 'gone') return false;
   const volume = path.parse(dir).root;
-  for (let above = path.dirname(dir); above !== volume; above = path.dirname(above)) if (existsSync(above)) return true;
+  if (seeDir(volume) !== 'present') return false;
+  for (let above = path.dirname(dir); above !== volume; above = path.dirname(above)) {
+    const state = seeDir(above);
+    if (state !== 'gone') return state === 'present';
+  }
   return false;
 };
 
 /**
- * Each update is one read-modify-write under a lock file, so writers in this process and in other
- * processes (the CLI, a second office) take turns; atomic replacement survives restarts. A registry
- * that cannot be read or written never breaks a listing: a revision that was not persisted reads 0.
+ * Each update is one read-modify-write under a lock file (see registry-lock.ts), so writers in this
+ * process and in other processes (the CLI, a second office) take turns; atomic replacement survives
+ * restarts. A registry that cannot be read or written never breaks a listing: a revision that was not
+ * persisted reads 0.
  */
 export class HarnessRegistry {
   readonly file: string;
   /** Verified content digests, persisted beside the registry so a fresh process re-hashes only changed files. */
   readonly digests: DigestCache;
+  private readonly timing: LockTiming;
   private unreadable = false;
   private warned = false;
-  constructor(dataDir: string) {
+  /** The file as last read or written by this instance, with its stat signature, for lookups (one parse per batch; a changed file is re-read). */
+  private cached?: Stored;
+  private cachedSig = '';
+  constructor(dataDir: string, timing: Partial<LockTiming> = {}) {
     this.file = path.join(dataDir, 'harness-registry.json');
     this.digests = DigestCache.at(path.join(dataDir, 'harness-digests.json'));
+    this.timing = { ...LOCK_TIMING, ...timing };
   }
 
   private warn(message: string) {
@@ -87,11 +107,13 @@ export class HarnessRegistry {
     this.warned = true;
   }
   private read(): Stored {
-    const empty: Stored = { schema: 1, elements: {}, roots: {} };
+    const empty: Stored = { schema: 1, elements: {}, roots: {}, rootsMissing: {} };
+    this.cached = undefined;
+    this.cachedSig = this.signature();
     let raw: string;
     try { raw = readFileSync(this.file, 'utf8'); }
     catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') { this.unreadable = false; return empty; }
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') { this.unreadable = false; return this.cached = empty; }
       this.unreadable = true; this.warn('cannot be read and will not be updated'); return empty;
     }
     try {
@@ -100,12 +122,15 @@ export class HarnessRegistry {
       if (data.schema !== 1 || !data.elements || typeof data.elements !== 'object' || Array.isArray(data.elements)) throw new Error('invalid schema');
       const elements: Record<string, ElementRecord> = {};
       for (const [id, r] of Object.entries(data.elements)) { const record = this.sanitize(r); if (record && /^[A-Za-z0-9:_.-]{1,80}$/.test(id)) elements[id] = record; }
-      const roots: Record<string, string> = {};
+      const roots: Record<string, string> = {}, rootsMissing: Record<string, string> = {};
       if (data.roots && typeof data.roots === 'object' && !Array.isArray(data.roots)) {
-        for (const [hash, dir] of Object.entries(data.roots)) if (/^[0-9a-z]{1,32}$/.test(hash) && text(dir, 4000)) roots[hash] = dir;
+        for (const [hash, dir] of Object.entries(data.roots)) if (HASH.test(hash) && text(dir, 4000)) roots[hash] = dir;
+      }
+      if (data.rootsMissing && typeof data.rootsMissing === 'object' && !Array.isArray(data.rootsMissing)) {
+        for (const [hash, at] of Object.entries(data.rootsMissing)) if (roots[hash] && text(at, 40) && ISO.test(at)) rootsMissing[hash] = at;
       }
       this.unreadable = false;
-      return { schema: 1, elements, roots };
+      return this.cached = { schema: 1, elements, roots, rootsMissing };
     } catch {
       // Fail closed: serve no versions or tombstones and never overwrite a file someone may want to repair.
       this.unreadable = true; this.warn('is unreadable and will not be updated');
@@ -122,7 +147,7 @@ export class HarnessRegistry {
     for (const [digest, n] of Object.entries(x.versions as Record<string, unknown>)) { const v = revisionOf(n); if (v && /^[0-9a-f]{64}$/.test(digest)) versions[digest] = v; }
     const instances: Record<string, ElementInstance> = {};
     for (const [root, i] of Object.entries(x.instances as Record<string, unknown>)) {
-      if (!i || typeof i !== 'object' || !/^[0-9a-z]{1,32}$/.test(root)) continue;
+      if (!i || typeof i !== 'object' || !HASH.test(root)) continue;
       const y = i as Record<string, unknown>, revision = revisionOf(y.revision);
       if (!revision || !text(y.digest, 64) || !text(y.lastSeenAt, 40) || !ISO.test(y.lastSeenAt)) continue;
       instances[root] = { digest: y.digest, revision, lastSeenAt: y.lastSeenAt, ...(text(y.missingSince, 40) && ISO.test(y.missingSince) ? { missingSince: y.missingSince } : {}) };
@@ -130,8 +155,14 @@ export class HarnessRegistry {
     if (!Object.keys(versions).length || !Object.keys(instances).length) return;
     return { ns: x.ns, key: x.key, title: x.title, path: x.path, source: x.source, category: x.category as HarnessCategory, versions, firstSeenAt: x.firstSeenAt, instances };
   }
-  /** Atomic replacement; when the file would pass the size cap, tombstoned records are pruned first, then the write is refused. */
-  private write(data: Stored): boolean {
+  private signature(): string {
+    try { const s = statSync(this.file, { bigint: true }); return [s.ino, s.size, s.mtimeNs].join(':'); } catch { return ''; }
+  }
+  /**
+   * Atomic replacement; when the file would pass the size cap, tombstoned records are pruned first, then the write is refused.
+   * `fence` is asked once more after the temporary file is written and just before it replaces the registry.
+   */
+  private write(data: Stored, fence: () => boolean): boolean {
     let json = JSON.stringify(data, null, 1);
     if (Buffer.byteLength(json) > MAX_BYTES) {
       this.pruneTombstones(data, 0);
@@ -142,41 +173,16 @@ export class HarnessRegistry {
     try {
       mkdirSync(path.dirname(this.file), { recursive: true });
       writeFileSync(temp, json, { mode: 0o600 });
+      if (!fence()) { try { unlinkSync(temp); } catch { /* gone */ } this.warn('lock was taken over during this update; this listing is not recorded'); return false; }
       renameSync(temp, this.file);
+      this.cached = data;
+      this.cachedSig = this.signature();
       return true;
     } catch {
       try { unlinkSync(temp); } catch { /* never written */ }
       this.warn('cannot be written; revisions are not persisted');
       return false;
     }
-  }
-  /**
-   * An O_EXCL lock file holding the owner's token, taken with bounded asynchronous waiting (at most
-   * LOCK_TRIES × LOCK_WAIT_MS, never blocking the event loop). Release deletes only a lock that still
-   * carries this owner's token. A lock older than LOCK_STALE_MS is from a dead writer and is taken over;
-   * a younger lock is always left alone.
-   */
-  private async lock(): Promise<(() => void) | undefined> {
-    const lock = this.file + '.lock';
-    const token = randomUUID();
-    const holder = () => { try { return readFileSync(lock, 'utf8'); } catch { return undefined; } };
-    for (let attempt = 0; attempt < LOCK_TRIES; attempt++) {
-      try {
-        mkdirSync(path.dirname(this.file), { recursive: true });
-        const fd = openSync(lock, 'wx', 0o600);
-        try { writeSync(fd, token); } finally { closeSync(fd); }
-        return () => { try { if (holder() === token) unlinkSync(lock); } catch { /* already gone */ } };
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') return undefined;
-        try {
-          // A stale lock is claimed by renaming it (atomic: only one taker succeeds) and the claimed file is removed,
-          // so a fresh lock another writer created meanwhile is never the one deleted.
-          if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) { const claimed = lock + '.' + token; renameSync(lock, claimed); unlinkSync(claimed); }
-        } catch { /* raced, or already gone */ }
-        await delay(LOCK_WAIT_MS);
-      }
-    }
-    return undefined;
   }
 
   /**
@@ -189,8 +195,8 @@ export class HarnessRegistry {
    */
   async observe(seen: Observed[], complete: Set<string>, roots: Record<string, string> = {}, now = new Date()): Promise<Map<string, number>> {
     const versions = new Map<string, number>();
-    const release = await this.lock();
-    if (!release) { this.warn('lock could not be taken (held by another writer, or the folder is not writable); this listing is not recorded'); return versions; }
+    const held = await acquireLock(this.file + '.lock', this.timing);
+    if (!held) { this.warn('lock could not be taken (held by another writer, or the folder is not writable); this listing is not recorded'); return versions; }
     try {
       const data = this.read();
       if (this.unreadable) return versions;
@@ -237,20 +243,35 @@ export class HarnessRegistry {
           dirty = true;
         }
       }
-      if (this.pruneRoots(data)) dirty = true;
+      held.renew();
+      if (this.pruneRoots(data, at)) dirty = true;
       if (dirty) {
         this.pruneTombstones(data, MAX_ELEMENTS);
+        held.renew();
+        // Fencing: a lock claimed from this writer meanwhile (it looked stale) means another writer owns the file now.
+        if (!held.valid()) { this.warn('lock was taken over during this update; this listing is not recorded'); this.cached = undefined; for (const id of fresh) versions.set(id, 0); return versions; }
         // A revision assigned in this listing but not persisted is not a revision anyone can rely on.
-        if (!this.write(data)) for (const id of fresh) versions.set(id, 0);
+        if (!this.write(data, () => held.valid())) { this.cached = undefined; for (const id of fresh) versions.set(id, 0); }
       }
       return versions;
-    } finally { release(); }
+    } finally { held.release(); }
   }
-  /** Instances whose root folder was deleted (see rootGone) are dropped, and with them records left without any place. */
-  private pruneRoots(data: Stored): boolean {
-    const gone = new Set(Object.keys(data.roots).filter((hash) => rootGone(data.roots[hash])));
-    if (!gone.size) return false;
-    for (const hash of gone) delete data.roots[hash];
+  /**
+   * Instances whose root folder is deleted (see rootGone) on this save and was already found deleted on the
+   * previous save are dropped, and with them records left without any place. A single sighting is only
+   * recorded (`rootsMissing`), and is cleared when the folder is back or cannot be checked.
+   */
+  private pruneRoots(data: Stored, at: string): boolean {
+    let dirty = false;
+    const gone = new Set<string>();
+    for (const hash of Object.keys(data.roots)) {
+      if (rootGone(data.roots[hash])) {
+        if (data.rootsMissing[hash]) gone.add(hash);
+        else { data.rootsMissing[hash] = at; dirty = true; }
+      } else if (data.rootsMissing[hash]) { delete data.rootsMissing[hash]; dirty = true; }
+    }
+    if (!gone.size) return dirty;
+    for (const hash of gone) { delete data.roots[hash]; delete data.rootsMissing[hash]; }
     for (const [id, record] of Object.entries(data.elements)) {
       for (const hash of Object.keys(record.instances)) if (gone.has(hash)) delete record.instances[hash];
       if (!Object.keys(record.instances).length) delete data.elements[id];
@@ -266,9 +287,19 @@ export class HarnessRegistry {
     const tombstones = ids.filter((id) => gone(data.elements[id])).sort((a, b) => since(data.elements[a]) - since(data.elements[b]));
     for (const id of tombstones.slice(0, ids.length - keep)) delete data.elements[id];
   }
+  /** The file as last read or written here, parsed once per batch of lookups; one stat per lookup tells whether another process wrote it since. */
+  private current(): Stored { return this.cached && this.signature() === this.cachedSig ? this.cached : this.read(); }
+  /**
+   * Whether the registry has recorded `digest` for `id`: what a cached digest must pass before a listing
+   * may reuse it. False when the registry cannot be read (nothing can be verified against it).
+   */
+  knows(id: string, digest: string): boolean {
+    const record = own(this.current().elements, id);
+    return !!record && own(record.versions, digest) !== undefined;
+  }
   /** What is known about an ID: the most recently seen instance's content; `missingSince` only when it is gone from every place it was listed. */
   lookup(id: string): Known | undefined {
-    const record = own(this.read().elements, id);
+    const record = own(this.current().elements, id);
     if (!record) return;
     const instances = Object.values(record.instances).sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt));
     const latest = instances[0];

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { HarnessProfiles, HarnessError, type HarnessTarget } from './profiles.js';
-import { HarnessLibrary, harnessSources, elementNamespace, globalNamespace } from './catalog.js';
+import { HarnessLibrary, harnessSources, GLOBAL_SCOPE_RULE } from './catalog.js';
 import { HarnessRegistry } from './registry.js';
 import { harnessBundle, type HarnessText } from '../../shared/harness.js';
 import { HARNESS_LEVELS, type HarnessProfile, type HarnessScope } from '../../shared/harness-cascade.js';
@@ -8,16 +8,17 @@ import { harnessPath, type HierarchyNode } from '../../shared/harness-hierarchy.
 import { samePlace, type OporaPlace } from '../../shared/opora-identity.js';
 import { HarnessBindings } from './bindings.js';
 
-export const GLOBAL_SCOPE_RULE = 'The global layer may bind handbook, machine, published and OpenViking elements only; a project element (el:project:…) names a path that is a different file in every project, so bind it at repository or task scope.';
+export { GLOBAL_SCOPE_RULE };
 /**
  * Whether a listed library may bind `id` at `scope`: the element must be available here, and the global
- * layer may hold only elements that are the same file in every project. Throws the reason when not.
+ * layer may hold only elements that are the same file in every project (see HarnessLibrary.globalReason). Throws the reason when not.
  */
 export function assertBindable(library: HarnessLibrary, scope: HarnessScope, id: string) {
   const found = library.resolve(id);
   if (found.status === 'missing') throw new HarnessError((found.missingSince ? 'Resource is missing since ' + found.missingSince : 'Resource is not published in this project') + ' (' + found.source + ' / ' + found.path + '): ' + id);
   if (found.status !== 'available') throw new HarnessError('Unknown or inaccessible resource: ' + id);
-  if (scope === 'global' && !globalNamespace(elementNamespace(found.entry.id))) throw new HarnessError('Project-scoped element in global layer: ' + id + '. ' + GLOBAL_SCOPE_RULE);
+  const reason = scope === 'global' ? library.globalReason(found.entry.id) : undefined;
+  if (reason) throw new HarnessError(reason);
 }
 
 /** Resolve once, then embed the actual content: later edits at any level cannot change an already seated task. */
@@ -29,9 +30,10 @@ export async function harnessHandoff(dataDir: string, repo: string, target: Harn
   if (ids.length > 24) throw new HarnessError('The effective harness exceeds 24 resources.');
   if (ids.length) await library.list();
   for (const { id, scope } of bound) {
-    // A global binding to a project element (saved before the rule, or by hand) would quietly pick this project's same-path file: refused, never rebound.
+    // A global binding to a project element (saved before the rule, or by hand), or to an OpenViking element discovered per project, would quietly pick this project's same-path file: refused, never rebound.
     const canonical = library.resolve(id);
-    if (scope === 'global' && canonical.status === 'available' && !globalNamespace(elementNamespace(canonical.entry.id))) throw new HarnessError('Assigned harness resource is unavailable for this worker: project-scoped element in global layer: ' + id);
+    const reason = scope === 'global' && canonical.status === 'available' ? library.globalReason(canonical.entry.id) : undefined;
+    if (reason) throw new HarnessError('Assigned harness resource is unavailable for this worker: ' + reason.replace(/^Project-scoped/, 'project-scoped'));
   }
   for (const id of ids) {
     const entry = await library.read(id);
