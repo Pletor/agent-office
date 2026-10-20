@@ -41,12 +41,22 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
   try {
     const store = new HarnessProfiles(ctx.cfg.dataDir);
     const id = url.searchParams.get('node') ?? url.searchParams.get('task') ?? '';
-    const opora = floor.opora.view();
-    const binding = new HarnessBindings(ctx.cfg.dataDir).forFloor(floor.id);
-    const linked = opora.project && opora.workspace ? { project: opora.project.id, workspace: opora.workspace } : undefined;
+    // What the floor reads: the window, its binding and the canvas. Read again under the request log's lock (`snapshot`), never trusted from before the wait.
+    let opora = undefined as unknown as ReturnType<typeof floor.opora.view>;
+    let binding: ReturnType<HarnessBindings['forFloor']>;
+    let linked: { project: string; workspace: string } | undefined;
     // The binding says which project's keys this floor takes; the window's link only while there is none.
-    const place = binding ? { project: binding.project, workspace: binding.workspace } : linked;
-    const canvas = floor.opora.canvasNodes();
+    let place: { project: string; workspace: string } | undefined;
+    let canvas: ReturnType<typeof floor.opora.canvasNodes> = [];
+    const snapshot = () => {
+      opora = floor.opora.view();
+      binding = new HarnessBindings(ctx.cfg.dataDir).forFloor(floor.id);
+      linked = opora.project && opora.workspace ? { project: opora.project.id, workspace: opora.workspace } : undefined;
+      place = binding ? { project: binding.project, workspace: binding.workspace } : linked;
+      canvas = floor.opora.canvasNodes();
+    };
+    // A write reads them under the lock only; a read has no lock to wait for.
+    if (req.method !== 'POST') snapshot();
     const target = (nodes: readonly HierarchyNode[]) => {
       try { return harnessTarget(nodes, place, id); }
       catch (err) { throw new HarnessError((err as Error).message, 400); }
@@ -58,7 +68,8 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
     const scope = 'repo:' + harnessRepoKey(floor.dir) + ':' + by;
     // The reply both a read and a committed write end in; a write records it in the request log (under that log's lock).
     const respond = async () => {
-      const tasks = place && samePlace(place, linked) ? opora.cards.map((card) => ({ id: oporaHarnessTask(place.project, place.workspace, card.id), title: card.name })) : [];
+      const here = place;
+      const tasks = here && samePlace(here, linked) ? opora.cards.map((card) => ({ id: oporaHarnessTask(here.project, here.workspace, card.id), title: card.name })) : [];
       let preview = '', warning = '';
       try { preview = await harnessHandoff(ctx.cfg.dataDir, floor.dir, path, local, view); }
       catch (err) { warning = (err as Error).message; }
@@ -79,6 +90,8 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       await log.exclusive(async () => {
         const replay = log.replay(scope, posted, id);
         if (replay) return send(res, replay.status, replay.body, { [REPLAY_HEADER]: '1' });
+        // In-memory reads, so the lock is never held across an Opora call: a bind that landed while this save waited decides now.
+        snapshot();
         const level = harnessLevel(posted.scope);
         const below = !!level && level !== 'global' && level !== 'project';
         const canvasId = parseOporaKey(id)?.nodeId;

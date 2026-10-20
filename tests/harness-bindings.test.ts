@@ -17,6 +17,7 @@ import { officeHarnessBinding, checkBindTarget } from '../src/server/harness/bin
 import { HarnessBindings, assertBoundWrite } from '../src/server/harness/bindings.js';
 import { HarnessRequests, requestDigest } from '../src/server/harness/requests.js';
 import { HarnessProfiles, harnessRepoKey } from '../src/server/harness/profiles.js';
+import { withFileLock } from '../src/server/harness/lock.js';
 import { harnessCardHandoff } from '../src/server/harness/handoff.js';
 import { oporaKey } from '../src/shared/opora-identity.js';
 import { remoteHarness } from '../bin/harness-remote.js';
@@ -412,4 +413,60 @@ test('two office processes sending the same write, and binding one floor to diff
   assert.deepEqual([...bound].sort(), [409, 'bound'], 'one project won, the other is a 409');
   assert.equal(new HarnessBindings(dir).audit().length, 1);
   assert.equal(new HarnessBindings(dir).revision(), 1);
+});
+
+test('a bind repeated without a requestId is replayed only while its stored reply is still the truth (E1)', async (t) => {
+  const { call, dir, opora } = await office(t);
+  const bindUrl = '/api/harness/binding?floor=a';
+  const fileProject = () => (JSON.parse(readFileSync(path.join(dir, 'harness-bindings.json'), 'utf8')) as { bindings: Record<string, { project: string }> }).bindings.a?.project;
+  assert.equal((await call(bindUrl, 'admin', place)).status, 200);
+  // The same payload again while nothing changed is a replay of the first reply.
+  const again = await call(bindUrl, 'admin', place);
+  assert.equal(again.status, 200);
+  assert.equal(again.headers.get('x-harness-replay'), '1');
+  Object.assign(opora, { project: { id: 'q', name: 'Q' } });
+  assert.equal((await call(bindUrl, 'admin', { project: 'q', workspace: 'w', rebind: true })).status, 200);
+  Object.assign(opora, { project: { id: 'p', name: 'P' } });
+  // Bound to q now: binding p again without rebind is a conflict, never a replay claiming p.
+  const stale = await call(bindUrl, 'admin', place);
+  assert.equal(stale.status, 409);
+  assert.equal(stale.headers.get('x-harness-replay'), null);
+  assert.equal(fileProject(), 'q');
+  // Binding q again (what the file holds) succeeds idempotently and reports q.
+  Object.assign(opora, { project: { id: 'q', name: 'Q' } });
+  const idem = await call(bindUrl, 'admin', { project: 'q', workspace: 'w' });
+  assert.equal(idem.status, 200);
+  assert.equal(((await idem.json()) as { binding: { project: string } }).binding.project, 'q');
+});
+
+test('a save queued behind the request-log lock sees a rebind that landed while it waited (E2)', async (t) => {
+  const { call, dir } = await office(t);
+  assert.equal((await call('/api/harness/binding?floor=a', 'admin', place)).status, 200);
+  const url = '/api/harness/profile?floor=a&node=' + encodeURIComponent(k('c1'));
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  let acquired!: () => void;
+  const gotLock = new Promise<void>((r) => (acquired = r));
+  const holder = withFileLock(path.join(dir, 'harness-requests.json.lock'), { waitMs: 5000 }, async () => { acquired(); await held; });
+  await gotLock;
+  const save = call(url, 'admin', { scope: 'sector', layer: { tone: { value: 'stale' } }, revision: 0, at: k('sector') });
+  await new Promise((r) => setTimeout(r, 400)); // the save is queued behind the lock
+  await new HarnessBindings(dir).bind('a', dir, { project: 'q', workspace: 'w' }, 'account:admin', { rebind: true });
+  release();
+  await holder;
+  const res = await save;
+  assert.equal(res.status, 403, 'a node of project p is foreign once the floor is bound to q');
+  assert.equal(existsSync(path.join(dir, 'harness-profiles.json')), false, 'nothing was written');
+});
+
+test('a null item in the bindings audit fails closed with 503 (not a TypeError)', async (t) => {
+  const { call, dir } = await office(t);
+  assert.equal((await call('/api/harness/binding?floor=a', 'admin', place)).status, 200);
+  const file = path.join(dir, 'harness-bindings.json');
+  const data = JSON.parse(readFileSync(file, 'utf8')) as { audit: unknown[] };
+  data.audit.push(null);
+  writeFileSync(file, JSON.stringify(data));
+  const res = await call('/api/harness/binding?floor=a', 'admin');
+  assert.equal(res.status, 503);
+  assert.throws(() => new HarnessBindings(dir).audit(), (e: Error & { status: number }) => e.status === 503);
 });
