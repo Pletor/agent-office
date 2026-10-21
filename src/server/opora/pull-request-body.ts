@@ -72,7 +72,8 @@ export function draftPullRequest(input: PullRequestDraftInput): { title: string;
     ?? `Close this pull request unmerged, or revert its merge commit on ${input.base ? `\`${input.base}\`` : 'the base branch'}; the Canvas card keeps its accepted revision.`;
   const body = [
     '## Summary', clip(text(result.summary) ?? '(no summary)', SUMMARY_MAX),
-    '## Tests and checks', checks.length ? checks.map(line => `- ${line}`).join('\n') : 'None reported by the worker.',
+    // Canvas's merge gate wants the PR template's `Testing`, `Risk` and `Revert plan` sections by name.
+    '## Testing', checks.length ? checks.map(line => `- ${line}`).join('\n') : 'None reported by the worker.',
     '## Risk', clip(risk, LINE_MAX * 4),
     '## Revert plan', clip(revert, LINE_MAX * 4),
     '---',

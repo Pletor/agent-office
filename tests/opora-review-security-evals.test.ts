@@ -145,6 +145,28 @@ test('the reporter posts {project, workspace, executionId, selfChecks} once per 
   assert.equal(await new SelfCheckReporter('http://canvas', 'o', [{ name: 'tests', command: 'npm test' }], path.join(dir, 'l2.json'), exec, old.transport).report(subject), 'not-deployed');
 });
 
+test('evidence Canvas refuses as not yet the current head is posted again, without running the checks again', async t => {
+  const dir = tmp(t);
+  // Canvas learns a head PR upkeep pushed only at its next reconciliation read: 409 until then.
+  let refusals = 2;
+  const f = canvas(() => (refusals-- > 0 ? 409 : 200));
+  const { exec, ran } = fakeExec({});
+  const logs: string[] = [];
+  const reporter = new SelfCheckReporter('http://canvas', 'office-1', [{ name: 'tests', command: 'npm test' }], path.join(dir, 'ledger.json'), exec, f.transport,
+    (m) => void logs.push(m), { everyMs: 5, attempts: 5 });
+  t.after(() => reporter.shutdown());
+  const subject = { ...scope, executionId: 'ex-1', headSha: HEAD, dir };
+  assert.equal(await reporter.report(subject), 'conflict');
+  assert.equal(await reporter.report(subject), 'skipped', 'a head waiting for a re-post is not run again');
+  for (let i = 0; i < 100 && f.calls.length < 3; i++) await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(f.calls.length, 3);
+  assert.deepEqual(f.calls[2].body, f.calls[0].body);
+  assert.equal(ran.length, 1);
+  assert.equal(JSON.parse(readFileSync(path.join(dir, 'ledger.json'), 'utf8'))[`ex-1@${HEAD}`], 'recorded');
+  assert.match(logs.at(-1)!, /once it saw that head/);
+});
+
 test('PR upkeep reports evidence for the head it pushed, in the execution its PR names', async t => {
   const dir = tmp(t), NEW = '1'.repeat(40), OLD = '2'.repeat(40);
   mkdirSync(path.join(dir, 'opora-executions'), { recursive: true });
