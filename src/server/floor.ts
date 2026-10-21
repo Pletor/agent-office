@@ -26,6 +26,7 @@ import { PlanningRoom } from './planning.js';
 import { OporaBridge, type PreparedTask } from './opora/bridge.js';
 import type { AdoptedRun, RunRecovery } from './opora/prepared.js';
 import type { CanvasNode } from '../shared/opora-scope.js';
+import type { AgentProvider } from '../shared/providers.js';
 import { harnessPlannerBrief } from './harness/handoff.js';
 import { PLANNER_SEAT } from '../shared/planning.js';
 import { Worktrees, type WorktreeCleanup } from './worktrees.js';
@@ -38,7 +39,7 @@ type ToastLevel = 'info' | 'warn' | 'error';
 
 /** What a floor needs from the building around it. */
 export interface FloorContext {
-  prepareTask?(dir: string, project: string, workspace: string, card: string, owner: string | undefined, nodes: readonly CanvasNode[]): Promise<string | PreparedTask>;
+  prepareTask?(dir: string, project: string, workspace: string, card: string, owner: string | undefined, nodes: readonly CanvasNode[], runner?: AgentProvider): Promise<string | PreparedTask>;
   /** Finishes the prepared runs of the floor checked out at `dir` that an earlier office left (harness/prepare-recover.ts). */
   recoverRuns?(dir: string, recovery: RunRecovery): Promise<AdoptedRun[]>;
   agentCmd: string;
@@ -341,7 +342,7 @@ export class Floor {
       dataDir,
       {
         update: (state) => ctx.emit(this, { t: 'opora', state }),
-        prepareTask: (project, workspace, card, owner, nodes) => ctx.prepareTask?.(def.dir, project, workspace, card, owner, nodes) ?? Promise.resolve(''),
+        prepareTask: (project, workspace, card, owner, nodes) => ctx.prepareTask?.(def.dir, project, workspace, card, owner, nodes, this.workers.officeDefault.provider) ?? Promise.resolve(''),
         recoverRuns: (recovery) => ctx.recoverRuns?.(def.dir, recovery) ?? Promise.resolve([]),
         toast: (text, level) => ctx.toast(this, text, level),
         prompt: (id) => ctx.prompts.text(id),

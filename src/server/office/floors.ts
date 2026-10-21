@@ -3,6 +3,7 @@ import { WebSocket } from 'ws';
 import type { FloorDef } from '../building.js';
 import { Floor, type FloorContext } from '../floor.js';
 import { preparedCardRun, recoverRuns } from '../harness/prepare-recover.js';
+import { bindRunLaunches } from '../harness/launch-scope.js';
 import { ROOF } from '../../shared/rooftop.js';
 import type { FloorInfo, ServerMsg } from '../../shared/protocol.js';
 import type { Ctx, FloorHelpers, FloorsOpen } from './context.js';
@@ -70,9 +71,11 @@ export function floorHelpers(ctx: Ctx): FloorHelpers {
  */
 export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen> {
   const { cfg, floors, clients } = ctx;
+  // A prepared run's launch configuration (per-run MCP, narrowing permissions) is found again by worker id.
+  bindRunLaunches(cfg.dataDir);
   const floorContext: FloorContext = {
     // The preparation runner (harness/prepare.ts): a card is claimed only once its run is prepared and verified.
-    prepareTask: (dir, project, workspace, card, owner, nodes) => preparedCardRun(cfg.dataDir, dir, { project, workspace }, card, nodes, !owner || ctx.accounts.get(owner)?.role === 'admin'),
+    prepareTask: (dir, project, workspace, card, owner, nodes, runner) => preparedCardRun(cfg.dataDir, dir, { project, workspace }, card, nodes, !owner || ctx.accounts.get(owner)?.role === 'admin', { runner }),
     recoverRuns: async (dir, recovery) => (await recoverRuns(cfg.dataDir, dir, recovery)).adopted,
     agentCmd: cfg.agentCmd,
     agentArgs: cfg.agentArgs,
