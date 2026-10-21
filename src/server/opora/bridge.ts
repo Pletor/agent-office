@@ -1,15 +1,16 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaAgentName, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
+import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
 import { buildScope, cleanFocus, focusLine, inFocus, toggleFocus } from '../../shared/opora-scope.js';
-import { fillPrompt, type PromptId } from '../../shared/prompts.js';
+import { type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
 import type { OporaCard, OporaRun, OporaState, WorkerInfo } from '../../shared/protocol.js';
 import { forgetForOpora, markForOpora, seatForOpora, withReaBrief } from '../rea/index.js';
-import { OporaClient, OporaError } from './client.js';
+import { OporaClient } from './client.js';
 import { ActivityFeed } from './live.js';
 import { oporaProcess } from './process.js';
-import { describeSketches, oporaCardViews, readSketches, sketchesLine } from './sketches.js';
+import { ExecutionDispatch, type ExecutionHeld } from './execution-dispatch.js';
+import { requestExecutionStop } from './execution-stop.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
 export interface BridgeFloor {
@@ -17,6 +18,7 @@ export interface BridgeFloor {
   readonly id: string;
   readonly dir: string;
   list(): WorkerInfo[];
+  stop?(workerId: string): Promise<unknown>;
   /** Seats a worker at `deskId`, in its own worktree when the project is a git repo. */
   seat(deskId: string, by: string, prompt: string, owner?: string): WorkerInfo | string;
   /** The desks a worker can be hired at now, in order (the back office's as far as it's built). */
@@ -40,14 +42,12 @@ export interface BridgeEvents {
 }
 
 /** The office's side of a card it took: what it needs to keep the lease and let it go. */
-interface Held extends OporaRun {
+interface Held extends OporaRun, Omit<ExecutionHeld, 'state'> {
   token?: string;
   owner?: string;
 }
 
 const POLL_MS = 20_000;
-const HEARTBEAT_MS = 5 * 60_000;
-const LEASE_TTL = 900;
 /** How many finished runs stay in the list. */
 const KEEP_GONE = 12;
 /** Sectors read each poll, at most. */
@@ -86,7 +86,7 @@ export class OporaBridge {
   private client: OporaClient;
   private statePath: string;
   private pollTimer: NodeJS.Timeout;
-  private beatTimer: NodeJS.Timeout;
+  readonly executions: ExecutionDispatch;
   /** The read under way, which another call to poll waits for rather than starting a second. */
   private polling?: Promise<void>;
   private stopped = false;
@@ -100,16 +100,21 @@ export class OporaBridge {
     this.client = new OporaClient(url, `office-${floor.id}`);
     this.state = { ...EMPTY_OPORA, url, canStart: oporaProcess.canStart() };
     this.statePath = path.join(dataDir, 'opora.json');
+    this.executions = new ExecutionDispatch(url, `office-${floor.id}`, dataDir, () => this.runs,
+      () => this.changed(), (id, reason) => {
+        const run = this.runs.find(run => run.workerId === id);
+        requestExecutionStop(run, id, reason, this.floor.stop?.bind(this.floor),
+          () => this.changed(), message => this.events.toast(message, 'warn'));
+      });
     this.restore();
     this.live = new ActivityFeed(this.client, () => ({ project: this.state.project?.id, workspace: this.state.workspace ?? undefined }), () => this.events.update(this.view()));
     this.pollTimer = setInterval(() => void this.poll(), POLL_MS);
-    this.beatTimer = setInterval(() => void this.heartbeat(), HEARTBEAT_MS);
     void this.poll();
   }
 
   view(): OporaState {
     const focus = this.state.scope.length ? cleanFocus(this.state.scope, this.focus) : [...this.focus];
-    return { ...this.state, focus, activity: this.live.list(), handOutWaiting: [...this.handed.keys()], runs: this.runs.map(({ token: _t, owner: _o, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
+    return { ...this.state, focus, activity: this.live.list(), handOutWaiting: [...this.handed.keys()], runs: this.runs.map(({ token: _t, owner: _o, execution: _e, deadlineUnixMs: _d, ...r }) => ({ ...r })), canStart: oporaProcess.canStart(), starting: oporaProcess.starting };
   }
 
   /** Reads the canvas again: the floor's Opora project, its sectors and their cards. */
@@ -217,36 +222,14 @@ export class OporaBridge {
     if (this.runs.some((r) => r.cardId === cardId && r.state !== 'gone')) return `The office is already on “${card.name}”`;
     const desk = deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
     if (!desk) return 'Every desk is taken: send someone home, or build the back office out';
-    const agent = oporaAgentName(this.floor.id, card.id);
-    let context = '';
-    try { context = await this.events.prepareTask?.(project.id, workspace, card.id, owner) ?? ''; }
-    catch (err) { return 'Task context: ' + (err as Error).message; }
-    let lease;
+    if (!this.floor.stop) return "Office cannot enforce Canvas execution deadlines";
+    let dispatched;
     try {
-      lease = await this.client.claim(project.id, workspace, card.id, agent, LEASE_TTL);
-    } catch (err) {
-      return err instanceof OporaError && err.status === 409 ? `Someone else holds “${card.name}” on Opora` : (err as Error).message;
-    }
-    // What the person sketched for the card (its drawing, its storyboard), and the Opora pages that show it.
-    const sketches = await readSketches(this.client, project.id, workspace, card.id);
-    const views = oporaCardViews(this.state.url, project.id, workspace, card.id);
-    const where = { node: card.id, base: this.state.url, project: project.id, workspace };
-    const design = card.group === 'design' ? fillPrompt(this.events.prompt('opora.design'), { ...where, card: card.name, ...views, found: describeSketches(sketches) }) : '';
-    const prompt = fillPrompt(this.events.prompt('opora.card'), {
-      ...where,
-      card: card.name,
-      sector: card.sectorName ?? '—',
-      agent,
-      token: lease.token,
-      sketches: design ? '' : sketchesLine(sketches, views, project.id, workspace, card.id),
-      design,
-    });
-    // 🔬 REA, when it's on: its MCP server for taking a reference app apart, and how to use it (see rea/).
-    const seated = seatForOpora(() => this.floor.seat(desk, by, withReaBrief(prompt + context, this.events.prompt), owner));
-    if (typeof seated === 'string') {
-      await this.client.release(project.id, workspace, card.id, lease.token).catch(() => undefined);
-      return seated;
-    }
+      dispatched = await this.executions.dispatch({ project: project.id, workspace, nodeId: card.id },
+        () => this.events.prepareTask?.(project.id, workspace, card.id, owner) ?? Promise.resolve(''),
+        prompt => seatForOpora(() => this.floor.seat(desk, by, prompt, owner)), prompt => withReaBrief(prompt, this.events.prompt));
+    } catch (error) { return (error as Error).message; }
+    const seated = dispatched.worker;
     this.runs.unshift({
       cardId: card.id,
       cardName: card.name,
@@ -258,10 +241,10 @@ export class OporaBridge {
       by,
       startedAt: Date.now(),
       state: 'working',
-      ...(lease.expiresAt ? { leaseUntil: lease.expiresAt } : {}),
+      leaseUntil: new Date(dispatched.execution.expiresAt * 1000).toISOString(),
       workspace,
-      token: lease.token,
-      owner: agent,
+      execution: dispatched.execution,
+      deadlineUnixMs: dispatched.deadlineUnixMs,
     });
     card.status = 'claimed';
     this.changed();
@@ -311,7 +294,7 @@ export class OporaBridge {
   shutdown() {
     this.stopped = true;
     clearInterval(this.pollTimer);
-    clearInterval(this.beatTimer);
+    this.executions.controller.shutdown();
     this.live.stop();
     this.persist();
   }
@@ -427,30 +410,8 @@ export class OporaBridge {
     }
   }
 
-  private async heartbeat() {
-    const { project } = this.state;
-    if (!project) return;
-    for (const run of this.runs) {
-      // A run keeps the workspace it was leased in; one saved before runs had theirs is in the floor's.
-      const workspace = run.workspace ?? this.state.workspace;
-      if (run.state === 'gone' || !run.token || !workspace) continue;
-      try {
-        run.leaseUntil = (await this.client.heartbeat(project.id, workspace, run.cardId, run.token, LEASE_TTL)).expiresAt ?? run.leaseUntil;
-        run.error = undefined;
-      } catch (err) {
-        run.error = (err as Error).message;
-      }
-    }
-    this.changed();
-  }
-
-  /** Lets the card's lease go, if the worker didn't itself (an error then is the lease being gone already). */
   private async letGo(run: Held) {
-    const { project } = this.state;
-    const workspace = run.workspace ?? this.state.workspace;
-    if (!project || !workspace || !run.token) return;
-    await this.client.release(project.id, workspace, run.cardId, run.token).catch(() => undefined);
-    run.token = undefined;
+    await this.executions.release(run);
     this.persist();
   }
 

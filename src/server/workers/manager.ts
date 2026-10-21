@@ -18,6 +18,7 @@ import type { Capacity } from '../machine.js';
 import { PROVIDERS, providerAdapter, titleNoise, type LaunchPlan, type ProviderFloor } from '../providers/index.js';
 import { launchAcp } from './acp.js';
 import { clockWork } from './clock.js';
+import { WorkerLaunchGuards } from './launch-guards.js';
 import { childEnv } from './env.js';
 import { midTurn } from './lifecycle.js';
 import { restoreWorkers, saveWorkers } from './persist.js';
@@ -29,7 +30,6 @@ import type { HookEnv, OpenedPr, RepoSource, RunAs, Worker, WorkerContext, Worke
 import { clamp, safeEq, truncate } from './util.js';
 import { COLORS, NAMES, newWorker } from './worker.js';
 import { WorkerTrees, lostMessage } from './worktree.js';
-
 const SCREEN_INTERVAL_MS = 250;
 /** How often a steady typist's "last typed" time is refreshed for everyone. */
 const TYPED_REFRESH_MS = 15_000;
@@ -41,8 +41,8 @@ const USAGE_SCAN_MS = 10_000;
 const SAVE_SCROLLBACK_MS = 15_000;
 /** Between a worker's saved scrollback and what it prints after the office restarted. */
 const RESTORED_NOTE = '\x1b[2m──── the office restarted · earlier output above ────\x1b[0m\r\n';
-
 export class WorkerManager {
+  readonly launchGuards = new WorkerLaunchGuards();
   private workers = new Map<string, Worker>();
   private statePath: string;
   private trees: Worktrees;
@@ -71,7 +71,6 @@ export class WorkerManager {
   private saveTimer: NodeJS.Timeout;
   /** How many rows the floor's back office is built out: its desks past that aren't there to hire at (see WING). */
   wing: () => number = () => 0;
-
   constructor(
     private dir: string,
     dataDir: string,
@@ -154,7 +153,8 @@ export class WorkerManager {
         const saved = w.saved;
         w.saved = undefined;
         const adopted = saved && (await this.host.attach(saved.ptyId));
-        if (adopted) this.adopt(w, adopted, saved);
+        if (this.launchGuards.manages(w.info)) { adopted?.pty.kill(); if (await this.launchGuards.restore(w.info)) await this.kill(w.info.id, 'keep'); }
+        else if (adopted) this.adopt(w, adopted, saved);
       }),
     );
     // Terminals nobody saved a claim on (their worker was sent home as the office went down).
@@ -300,16 +300,15 @@ export class WorkerManager {
     return info;
   }
 
-  /** The workspace of a worker across repositories (see WorkerTrees.makeWorkspace). */
-  private makeWorkspace(slug: string, repos: RepoSource[]): { worktree: NonNullable<WorkerInfo['worktree']>; repos: WorkerRepo[]; notes: string[] } | string {
+  private makeWorkspace(slug: string, repos: RepoSource[]) {
     return this.worktrees.makeWorkspace(slug, repos);
   }
-
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
   resume(id: string, prompt?: string): string | undefined {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
     if (w.pty || w.dsh) return 'Worker is already running';
+    const denied = this.launchGuards.check(w.info); if (denied) return denied;
     if (this.worktrees.checkLost(w, true)) return lostMessage(w.info);
     clockWork(w.info, 'starting');
     w.info.status = 'starting';
@@ -616,7 +615,7 @@ export class WorkerManager {
           // already gone
         }
       }
-      if (keep && w.pty?.id) continue;
+      if (keep && w.pty?.id && this.launchGuards.keepOnRestart(w.info)) continue;
       // A restart only takes this one down because it runs in-process: the next office carries on its turn.
       if (keep && midTurn(w)) w.interrupted = true;
       try {
@@ -635,6 +634,7 @@ export class WorkerManager {
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
     const { info } = w;
+    const denied = this.launchGuards.check(info); if (denied) { info.status = 'exited'; info.activity = denied; this.emitUpdate(w); return; }
     // Its folder was deleted meanwhile: it waits, marked lost, for someone to rebuild it or send it home.
     if (this.worktrees.checkLost(w)) {
       clockWork(info, 'exited');

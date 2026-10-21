@@ -12,6 +12,7 @@ import { jukeboxRoutes } from './jukebox.js';
 import { pageRoutes } from './pages.js';
 import { searchRoutes } from './search.js';
 import { serviceRoutes } from './services.js';
+import { isolatedExecutorRoutes } from '../../opora/isolated-service.js';
 
 export const routes: readonly Route[] = [
   // Anyone.
@@ -41,6 +42,7 @@ export const routes: readonly Route[] = [
   harnessProfileRoute,
   searchRoutes.search,
   serviceRoutes.forwards,
+  ...isolatedExecutorRoutes,
   githubRoutes.github,
   jukeboxRoutes.upload,
   jukeboxRoutes.songs,

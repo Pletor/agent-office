@@ -73,6 +73,7 @@ test('frontierCards keeps the cards in the group they are listed in, and leaves 
 function fakeOpora(dir: string) {
   const calls: { method: string; path: string; body?: Record<string, unknown>; headers: http.IncomingHttpHeaders }[] = [];
   const leases = new Map<string, string>();
+  const executions = new Map<string, Record<string, unknown>>();
   // Opora's page refuses to be framed, as it does until its embed_origins lists someone.
   const page: { headers: Record<string, string> } = { headers: { 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'" } };
   // Shop's workspaces; a test adds `main` and a work one (`work1`, with a card of its own).
@@ -94,6 +95,24 @@ function fakeOpora(dir: string) {
         return res.end('<!doctype html><title>Opora</title>');
       }
       if (req.method === 'POST' && req.headers.origin !== `http://127.0.0.1:${(server.address() as AddressInfo).port}`) return send(403, { detail: 'origin' });
+      if (url.pathname === '/api/oporahub/executions/context') return send(200, { available: true, acceptedHead: 'a'.repeat(40), contextVersion: 'ctx' });
+      if (url.pathname === '/api/oporahub/executions/claim') {
+        const node = String(body?.nodeId);
+        if (leases.has(node)) return send(409, {});
+        const lease = { executionId: 'ex-' + node, project: body?.project, workspace: body?.workspace, nodeId: node,
+          token: 'tok-' + node, epoch: 1, acceptedRevision: 'a'.repeat(40), assignmentDigest: 'b'.repeat(64),
+          assignment: { acceptedRevision: 'a'.repeat(40), contextVersion: 'ctx', documents: { [node]: 'Accepted task' }, specification: {} },
+          serverNow: Date.now() / 1000, expiresAt: Date.now() / 1000 + 900, state: 'running' };
+        leases.set(node, String(lease.token)); executions.set(lease.executionId, lease);
+        return send(200, lease);
+      }
+      if (url.pathname.startsWith('/api/oporahub/executions/ex-')) {
+        const id = url.pathname.split('/')[4];
+        const lease = executions.get(id);
+        if (!lease || body?.token !== lease.token || body?.epoch !== lease.epoch) return send(409, {});
+        if (url.pathname.endsWith('/release')) { leases.delete(String(lease.nodeId)); return send(200, { state: 'released' }); }
+        return send(200, { ...lease, serverNow: Date.now() / 1000, expiresAt: Date.now() / 1000 + 900 });
+      }
       // The other project's canvas: one sector with one card.
       if (url.searchParams.get('project') === 'other') {
         if (url.pathname === '/api/view') return send(200, { graph: { nodes: [{ id: 's9', kind: 'sector', name: 'Elsewhere', parentId: null }, { id: 'c9', kind: 'node', name: 'Other card', parentId: 's9' }] } });
@@ -156,6 +175,7 @@ async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeE
     id: 'shop',
     dir,
     list: () => workers,
+    stop: async id => { const worker = workers.find(w => w.id === id); if (worker) worker.status = 'exited'; },
     seat(deskId, by, prompt) {
       const w = { id: `w${workers.length}`, deskId, kind: 'agent', prompt, name: `Worker ${workers.length}`, color: '#fff', status: 'working', acked: false, createdBy: by, createdAt: Date.now(), cols: 80, rows: 24, viewers: [], viewerIds: [] } as WorkerInfo;
       workers.push(w);
@@ -189,13 +209,13 @@ test('the bridge links the Opora project that plans this floor’s folder, and r
 test('taking a card claims its lease on Opora and seats a worker for it, a design card at the Design desk', async (t) => {
   const f = await fixture(t);
   assert.equal(await f.bridge.take('c1', 'Ana'), undefined);
-  const claim = f.op.calls.find((c) => c.path === '/api/desktop-v3/lease' && c.body?.op === 'claim')!;
+  const claim = f.op.calls.find((c) => c.path === '/api/oporahub/executions/claim')!;
   assert.deepEqual({ project: claim.body!.project, workspace: claim.body!.workspace, nodeId: claim.body!.nodeId }, { project: 'p1', workspace: 'draft', nodeId: 'c1' });
   assert.match(String(claim.headers['x-opora-actor']), /^agent; name=office-shop/);
   assert.equal(f.workers[0].deskId, 'desk-3');
-  assert.match(f.workers[0].prompt!, /tok-c1/);
-  assert.match(f.workers[0].prompt!, /Cart page/);
-  assert.match(f.workers[0].prompt!, /design card/);
+  assert.doesNotMatch(f.workers[0].prompt!, /tok-c1/);
+  assert.match(f.workers[0].prompt!, /immutable Canvas assignment/);
+  assert.doesNotMatch(JSON.stringify(f.state()), /tok-c1|assignmentDigest/);
   const run = f.state().runs[0];
   assert.equal(run.cardName, 'Cart page');
   assert.equal(run.state, 'working');
@@ -351,37 +371,15 @@ test('the Opora pages for a card open its drawing (Kreslení) and its storyboard
   });
 });
 
-test('a design card gets the designer’s brief, with its Opora pages and what is sketched on it', async (t) => {
+test('design and development workers use accepted assignments without live legacy briefs', async (t) => {
   const f = await fixture(t);
-  assert.equal(await f.bridge.take('c1', 'Ana'), undefined);
-  const prompt = f.workers[0].prompt!;
-  const views = oporaCardViews(f.url, 'p1', 'draft', 'c1');
-  assert.ok(prompt.includes(PROMPTS['opora.design'].text.slice(0, 40)), 'the opora.design brief is in it');
-  assert.ok(prompt.includes(views.drawing) && prompt.includes(views.storyboard));
-  assert.match(prompt, /a storyboard \(animation "kod"\) with 2 moments, 1 sketched, 1 waiting on a reply/);
-  assert.match(prompt, /opora_read\.py drawing --project p1 --workspace draft --layer c1 --raw/);
-  assert.match(prompt, /--layer sb\/c1\/<momentId>/);
-  assert.doesNotMatch(prompt, /Look at them before you build/, 'the developer’s sketches line stays out of it');
-  assert.doesNotMatch(prompt, /\{\{/);
-  // Only reads: the bridge never writes to the storyboard or a drawing.
-  assert.ok(!f.op.calls.some((c) => c.method === 'POST' && (c.path === '/api/drawing' || c.path === '/api/storyboard')));
-});
-
-test('a developer’s card with sketches is told where they are and how to see them, one without is not', async (t) => {
-  const f = await fixture(t);
-  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
-  const prompt = f.workers[0].prompt!;
-  assert.match(prompt, /On Opora this card has a drawing of 2 elements \(1 pasted image\) in the card's own Kreslení layer\. Look at them before you build/);
-  assert.ok(prompt.includes(oporaCardViews(f.url, 'p1', 'draft', 'c2').drawing));
-  assert.match(prompt, /opora_read\.py drawing --project p1 --workspace draft --layer c2 --raw/);
-  assert.doesNotMatch(prompt, /design card|mode=storyboard/);
-  assert.doesNotMatch(prompt, /\{\{/);
-  f.bridge.onWorkerGone(f.workers[0].id);
-  f.bridge.link('other');
-  await f.bridge.repoll();
-  assert.equal(await f.bridge.take('c9', 'Ana'), undefined);
-  assert.doesNotMatch(f.workers[1].prompt!, /On Opora this card has|Look at them/);
-  assert.match(f.workers[1].prompt!, /end your turn\.$/);
+  for (const card of ['c1', 'c2']) assert.equal(await f.bridge.take(card, 'Ana'), undefined);
+  for (const worker of f.workers) {
+    assert.match(worker.prompt!, /immutable Canvas assignment/);
+    assert.match(worker.prompt!, /execution-worker/);
+    assert.doesNotMatch(worker.prompt!, /tok-c|opora_read|POST.*agent-output/);
+  }
+  assert.ok(!f.op.calls.some(c => c.path === '/api/drawing' || c.path === '/api/storyboard'));
 });
 
 test('with 🔬 REA on for Opora, a card’s worker gets REA and is told how to use it; with it off, neither', async (t) => {
@@ -428,7 +426,7 @@ test('a picked workspace is the one the floor reads and claims cards in', async 
   assert.equal(f.state().error, undefined);
   assert.deepEqual(f.state().cards.map((c) => [c.name, c.sectorName]), [['Oracle card', 'Oracle']]);
   assert.equal(await f.bridge.take('c5', 'Ana'), undefined);
-  const claim = f.op.calls.find((c) => c.path === '/api/desktop-v3/lease' && c.body?.op === 'claim')!;
+  const claim = f.op.calls.find((c) => c.path === '/api/oporahub/executions/claim')!;
   assert.deepEqual({ project: claim.body!.project, workspace: claim.body!.workspace, nodeId: claim.body!.nodeId }, { project: 'p1', workspace: 'work1', nodeId: 'c5' });
   assert.match(f.workers[0].prompt!, /work1/);
   // Back to the default.
@@ -459,25 +457,25 @@ test('a card the office holds keeps its own workspace for its heartbeat and rele
   f.bridge.useWorkspace(null);
   await f.bridge.repoll();
   assert.equal(f.state().workspace, 'main');
-  await (f.bridge as unknown as { heartbeat(): Promise<void> }).heartbeat();
-  const beat = f.op.calls.find((c) => c.path === '/api/desktop-v3/lease' && c.body?.op === 'heartbeat')!;
+  const saved = JSON.parse(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'));
+  await f.bridge.executions.client.heartbeat(saved.runs[0].execution, 900);
+  const beat = f.op.calls.find((c) => c.path.endsWith('/heartbeat'))!;
   assert.equal(beat.body!.workspace, 'work1');
   f.bridge.onWorkerGone(f.workers[0].id);
   await new Promise((r) => setTimeout(r, 100));
-  const release = f.op.calls.find((c) => c.path === '/api/desktop-v3/lease' && c.body?.op === 'release')!;
-  assert.deepEqual({ workspace: release.body!.workspace, nodeId: release.body!.nodeId }, { workspace: 'work1', nodeId: 'c5' });
+  const release = f.op.calls.find((c) => c.path.endsWith('/release'))!;
+  assert.equal(release.body!.workspace, 'work1');
+  assert.match(release.path, /ex-c5/);
   assert.equal(f.op.leases.has('c5'), false);
 });
 
-test('a run saved before runs kept their workspace lets its lease go in the floor’s current one', async (t) => {
-  const f = await withWorkspaces(t);
+test('a legacy saved worker without execution authority cannot resume', async (t) => {
+  const f = await fixture(t);
   await f.bridge.take('c2', 'Ana');
-  // As an older office saved it: no workspace on the run.
-  delete (f.bridge as unknown as { runs: { workspace?: string }[] }).runs[0].workspace;
-  f.bridge.onWorkerGone(f.workers[0].id);
-  await new Promise((r) => setTimeout(r, 100));
-  const release = f.op.calls.find((c) => c.path === '/api/desktop-v3/lease' && c.body?.op === 'release')!;
-  assert.equal(release.body!.workspace, 'main');
+  delete (f.bridge as unknown as { runs: { execution?: unknown }[] }).runs[0].execution;
+  const reason = await f.bridge.executions.guard.restore(f.workers[0]);
+  assert.match(reason!, /could not be revalidated/);
+  assert.equal(f.workers[0].status, 'exited');
 });
 
 test('the picked workspace is kept across a restart, and linking another project resets it', async (t) => {
