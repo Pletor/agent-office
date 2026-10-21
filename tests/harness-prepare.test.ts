@@ -114,7 +114,7 @@ test('an exhausted retry budget fails the take with every attempt recorded; a de
 test('an adapter the office does not have, or one that belongs to H13, is refused with the reason before anything is written', async (t) => {
   const f = await setup(t, { adapters: 'mcp, nope' });
   const reply = (await f.bridge.take('c2', 'Ana'))!;
-  assert.match(reply, /Unsupported adapters, refused before anything was prepared: mcp \(MCP servers are configured by the runner adapters of H13[^)]*\); nope \(no adapter with this id is registered/);
+  assert.match(reply, /Unsupported adapters, refused before anything was prepared: mcp \(the runner this card's worker is seated with is not known[^)]*\); nope \(no adapter with this id is registered/);
   assert.match(reply, /Nothing was written; the card was not claimed\.$/);
   assert.equal(leaseOps(f.op, 'claim').length, 0);
   assert.deepEqual(records(f.dir), [], 'a refusal before anything was created leaves no record');

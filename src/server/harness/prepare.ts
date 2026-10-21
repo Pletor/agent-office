@@ -19,13 +19,18 @@ import { HarnessError, HarnessProfiles, harnessRepoKey } from './profiles.js';
 import { cardBinding, resolveHandoff, type ResolvedHandoff } from './handoff.js';
 import { HARNESS_GUIDES } from './guides.js';
 import { buildSnapshot, loadSnapshot, persistSnapshot, snapshotDir, type StoredSnapshot } from './snapshot.js';
-import { contextAdapter, resolveAdapters, writesOutside, type AdapterContext, type AdapterResult, type Capability, type HarnessAdapter } from './adapters.js';
+import { contextAdapter, listAdapters, resolveAdapters, writesOutside, type AdapterContext, type AdapterResult, type Capability, type HarnessAdapter } from './adapters.js';
 import { attemptScope, cardKey, cardLockFile, claimFile, createRecord, dataRel, OWNER_FRESH_MS, ownerAlive, preparedDir, PROCESS_TOKEN, readRecord, recordScope, removeRunFiles, removeScope, scopeDir, STEP_IDS, updateRecord, type PreparedRecord, type StepAttempt, type StepId, type StepReport } from './prepare-store.js';
 import { activeRecords } from './prepare-index.js';
+import { capabilitySection } from './capability-contract.js';
+// The runner adapters this office has besides `context` (they register themselves): per-run MCP and permissions.
+import './adapter-claude.js';
+import { mergeLaunch, type RunLaunch } from './launch-scope.js';
 import { withFileLock } from './lock.js';
 import { harnessPath, type HierarchyNode } from '../../shared/harness-hierarchy.js';
 import type { HarnessProfile } from '../../shared/harness-cascade.js';
 import type { OporaPlace } from '../../shared/opora-identity.js';
+import type { AgentProvider } from '../../shared/providers.js';
 
 /** What a run is prepared for: the floor's checkout, the card and the canvas it was read on. */
 export interface PrepareContext {
@@ -40,6 +45,8 @@ export interface PrepareContext {
   adapters?: readonly string[];
   /** The floor the run is for, kept in its record (a recovery acts on its own floor's runs only). */
   floor?: string;
+  /** The runner the card's worker will be seated with: per-run MCP and permissions are per runner (adapter-claude.ts). */
+  runner?: AgentProvider;
 }
 export interface RetryBudget { max: number; backoffMs: number }
 export interface PrepareOptions {
@@ -65,6 +72,8 @@ export interface PreparedRun {
   /** True when an existing prepared run was found and used (nothing was prepared again). */
   resumed: boolean;
   capabilities: Capability[];
+  /** What the worker's launch gets for this run only (launch-scope.ts), when an adapter contributed. */
+  launch?: RunLaunch;
   /** Records that the claim is about to be asked for (and the desk), so a restart knows a lease may exist. */
   claiming(agent: string, deskId?: string): Promise<void>;
   /** Writes the lease token next to the record, synchronously, the moment the claim answered (see PreparedRecord.claiming). */
@@ -198,7 +207,7 @@ function resolveStep(ctx: PrepareContext): Resolved {
   const card = { ...ctx.place, nodeId: ctx.card };
   const binding = cardBinding(ctx.dataDir, ctx.repo, ctx.place) ?? null;
   const profile = new HarnessProfiles(ctx.dataDir).view(ctx.repo, harnessPath(ctx.nodes, ctx.place, ctx.card));
-  const { adapters, refused } = resolveAdapters(namedAdapters(profile, ctx.adapters));
+  const { adapters, refused } = resolveAdapters(namedAdapters(profile, ctx.adapters), ctx.runner);
   return { card, binding, profile, adapters, refused };
 }
 /** What makes a failure "the same" for the cooldown: the inputs the resolve step reads. */
@@ -253,7 +262,7 @@ export async function preparePlan(ctx: PrepareContext, options: PrepareOptions =
   const scope = path.join(preparedDir(ctx.dataDir), runId, '1');
   const files = { record: rel(path.join(preparedDir(ctx.dataDir), runId + '.json')), snapshot: rel(path.join(snapshotDir(ctx.dataDir), runId + '.json')) };
   plan.steps.push({ id: 'snapshot', status: 'planned', detail: `snapshot sha256:${snapshot.digest} (${snapshot.eager.length} essential, ${snapshot.lazy.length} by ID)`, writes: [files.snapshot] });
-  const actx = { runId, dataDir: ctx.dataDir, repo: ctx.repo, card, snapshot, scopeDir: scope };
+  const actx = { runId, dataDir: ctx.dataDir, repo: ctx.repo, card, snapshot, scopeDir: scope, runner: ctx.runner };
   const writes = r.adapters.flatMap((a) => a.plan(actx).flatMap((s) => s.writes.map((w) => rel(path.resolve(scope, w)))));
   plan.steps.push({ id: 'adapters', status: 'planned', detail: r.adapters.map((a) => `${a.id}: ${a.plan(actx).map((s) => s.detail).join('; ') || 'nothing to do'}`).join(' | '), writes });
   plan.requirements = r.adapters.flatMap((a) => a.capabilities(actx));
@@ -363,7 +372,7 @@ async function dropPrepared(ctx: PrepareContext, repo: string, card: OporaPlace 
 function handle(ctx: PrepareContext, record: PreparedRecord, context: string, resumed: boolean, undo: () => Promise<string[]>): PreparedRun {
   const { dataDir } = ctx, runId = record.runId;
   return {
-    runId, digest: record.digest!, context, resumed, capabilities: record.capabilities,
+    runId, digest: record.digest!, context, resumed, capabilities: record.capabilities, ...(record.launch ? { launch: record.launch } : {}),
     async claiming(agent, deskId) {
       await updateRecord(dataDir, runId, ['prepared'], undefined, (r) => { r.claiming = { agent, at: new Date().toISOString() }; if (deskId) r.deskId = deskId; });
     },
@@ -413,12 +422,26 @@ export async function finishRollback(dataDir: string, runId: string, reason: str
   const failed = before.state === 'failed'
     ? (leaseReleased ? await updateRecord(dataDir, runId, ['failed'], undefined, released) : before)
     : await updateRecord(dataDir, runId, ['planned', 'preparing', 'prepared', 'claimed'], 'failed', (r) => { guard(r); r.error ??= { step, reason }; released(r); }, reason);
+  // Each adapter's own recovery first (it may undo what lies outside the folder), then the run's folder, claim token and snapshot go.
+  const recovered = await recoverAdapters(dataDir, runId, failed);
   const { done, errors } = removeRunFiles(dataDir, runId);
-  const all = [...earlier, ...errors];
+  const all = [...earlier, ...recovered, ...errors];
   return updateRecord(dataDir, runId, ['failed'], all.length ? undefined : 'rolledBack', (r) => {
     r.rollback = { at: new Date().toISOString(), done, errors: all };
     for (const s of r.steps) if (s.status === 'done') s.status = 'rolledBack';
   }, all.length ? undefined : `rolled back: ${failed.error?.reason ?? reason}`);
+}
+
+/** Each adapter's `recover` with the state it persisted, on the record's scoped folder (idempotent: after a closure's rollback it finds nothing left). Returns what failed. */
+async function recoverAdapters(dataDir: string, runId: string, record: PreparedRecord): Promise<string[]> {
+  const errors: string[] = [];
+  for (const [id, persisted] of Object.entries(record.adapterState ?? {})) {
+    const adapter = listAdapters().find((a) => a.id === id);
+    if (!adapter?.recover) continue;
+    try { for (const e of (await adapter.recover({ runId, dataDir, scopeDir: recordScope(dataDir, record) }, persisted)) ?? []) errors.push(`${id}: ${e}`); }
+    catch (err) { errors.push(`${id}: ${(err as Error).message}`); }
+  }
+  return errors;
 }
 
 type Prepared = { adapter: HarnessAdapter; result: AdapterResult }[];
@@ -438,7 +461,7 @@ async function freshRun(ctx: PrepareContext, record: PreparedRecord, options: Pr
   try {
     await runStep(ctx, runId, current, options, { work: async (signal) => { aborted(signal); persistSnapshot(dataDir, snapshot); } });
     await doneStep(dataDir, runId, current, `snapshot sha256:${snapshot.digest}`, [dataRel(dataDir, path.join(snapshotDir(dataDir), runId + '.json'))]);
-    await updateRecord(dataDir, runId, ['preparing'], undefined, (x) => { x.digest = snapshot.digest; x.adapters = r.adapters.map((a) => a.id); x.capabilities = r.adapters.flatMap((a) => a.capabilities({ runId, dataDir, repo: ctx.repo, card: snapshot.card, snapshot, scopeDir: attemptScope(dataDir, runId, 1) })); });
+    await updateRecord(dataDir, runId, ['preparing'], undefined, (x) => { x.digest = snapshot.digest; x.adapters = r.adapters.map((a) => a.id); x.capabilities = r.adapters.flatMap((a) => a.capabilities({ runId, dataDir, repo: ctx.repo, card: snapshot.card, snapshot, scopeDir: attemptScope(dataDir, runId, 1), runner: ctx.runner })); });
     current = 'adapters';
     const made = await runStep(ctx, runId, current, options, {
       async work(signal, attempt) {
@@ -447,7 +470,7 @@ async function freshRun(ctx: PrepareContext, record: PreparedRecord, options: Pr
         try {
           for (const adapter of r.adapters) {
             aborted(signal);
-            const result = await adapter.prepare({ runId, dataDir, repo: ctx.repo, card: snapshot.card, snapshot, scopeDir: dir, signal });
+            const result = await adapter.prepare({ runId, dataDir, repo: ctx.repo, card: snapshot.card, snapshot, scopeDir: dir, signal, runner: ctx.runner });
             out.push({ adapter, result });
             aborted(signal);
             if (!result.ok) throw new HarnessError(`adapter ${adapter.id} could not prepare: ${result.reason ?? 'no reason given'}`, 500);
@@ -471,12 +494,21 @@ async function freshRun(ctx: PrepareContext, record: PreparedRecord, options: Pr
     for (const { result } of made.out) undos.push(() => result.rollback());
     const writes = made.out.flatMap(({ result }) => result.steps.flatMap((s) => s.writes.map((w) => dataRel(dataDir, path.resolve(made.dir, w)))));
     await doneStep(dataDir, runId, current, made.out.map(({ adapter, result }) => `${adapter.id}: ${result.steps.map((s) => s.detail).join('; ') || 'done'}`).join(' | '), writes);
-    await updateRecord(dataDir, runId, ['preparing'], undefined, (x) => { x.scope = dataRel(dataDir, made.dir); for (const c of x.capabilities) c.state = 'prepared'; });
+    const launch = mergeLaunch(runId, made.out.map(({ result }) => result.launch));
+    await updateRecord(dataDir, runId, ['preparing'], undefined, (x) => {
+      x.scope = dataRel(dataDir, made.dir);
+      for (const c of x.capabilities) c.state = 'prepared';
+      if (launch) x.launch = launch;
+      const persisted = made.out.filter(({ result }) => result.persist).map(({ adapter, result }) => [adapter.id, result.persist!] as const);
+      if (persisted.length) x.adapterState = Object.fromEntries(persisted);
+    });
     current = 'verify';
-    const context = await runStep(ctx, runId, current, options, { work: (signal) => verifyRun(ctx, runId, snapshot.digest, made.out, signal, made.dir) });
+    const checked = await runStep(ctx, runId, current, options, { work: (signal) => verifyRun(ctx, runId, snapshot.digest, made.out, signal, made.dir, readRecord(dataDir, runId)?.capabilities ?? []) });
+    const context = checked.context + capabilitySection(checked.capabilities);
     const prepared = await updateRecord(dataDir, runId, ['preparing'], 'prepared', (x) => {
-      Object.assign(step(x, 'verify'), { status: 'done', detail: `${x.capabilities.length} capabilit${x.capabilities.length === 1 ? 'y' : 'ies'} verified` });
-      for (const c of x.capabilities) c.state = 'verified';
+      x.capabilities = checked.capabilities;
+      const ready = x.capabilities.filter((c) => c.state === 'verified').length;
+      Object.assign(step(x, 'verify'), { status: 'done', detail: `${ready} of ${x.capabilities.length} capabilit${x.capabilities.length === 1 ? 'y' : 'ies'} verified` });
       x.contexts = Object.fromEntries(made.out.filter(({ adapter }) => adapter.id !== 'context').map(({ adapter, result }) => [adapter.id, result.context ?? '']).filter(([, text]) => text));
     });
     return handle(ctx, prepared, context, false, undoAll);
@@ -492,17 +524,26 @@ async function freshRun(ctx: PrepareContext, record: PreparedRecord, options: Pr
   }
 }
 
-/** The readiness check: the snapshot reloads whole with its digest, and every adapter's work verifies. Returns the worker's prompt section. */
-async function verifyRun(ctx: PrepareContext, runId: string, digest: string, results: Prepared, signal: AbortSignal, scope: string): Promise<string> {
+/**
+ * The readiness check: the snapshot reloads whole with its digest, and every adapter's work verifies.
+ * Returns the worker's prompt section and the capabilities as verified: an adapter's report sets the
+ * state of each of its capabilities (a probe that didn't answer leaves one `prepared`); without a
+ * report, passing verification makes all of the adapter's capabilities `verified`.
+ */
+async function verifyRun(ctx: PrepareContext, runId: string, digest: string, results: Prepared, signal: AbortSignal, scope: string, declared: Capability[]): Promise<{ context: string; capabilities: Capability[] }> {
   const snapshot = loadSnapshot(ctx.dataDir, runId);
   if (snapshot.digest !== digest) throw new HarnessError(`Run snapshot ${runId} reloaded with another digest.`, 409);
-  const actx: AdapterContext = { runId, dataDir: ctx.dataDir, repo: ctx.repo, card: snapshot.card, snapshot, scopeDir: scope, signal };
+  const actx: AdapterContext = { runId, dataDir: ctx.dataDir, repo: ctx.repo, card: snapshot.card, snapshot, scopeDir: scope, signal, runner: ctx.runner };
+  const capabilities: Capability[] = [];
   for (const { adapter, result } of results) {
     aborted(signal);
-    const why = await adapter.verify(actx, result);
+    const out = await adapter.verify(actx, result);
+    const why = typeof out === 'string' ? out : out?.reason;
     if (why) throw new HarnessError(`adapter ${adapter.id} did not verify: ${why}`, 422);
+    const reported = typeof out === 'object' && out.capabilities ? out.capabilities.filter((c) => c.adapter === adapter.id) : undefined;
+    capabilities.push(...(reported ?? declared.filter((c) => c.adapter === adapter.id).map((c) => ({ ...c, state: 'verified' as const }))));
   }
-  return results.map(({ result }) => result.context ?? '').join('');
+  return { context: results.map(({ result }) => result.context ?? '').join(''), capabilities };
 }
 
 /**
@@ -516,17 +557,18 @@ async function resumeRun(ctx: PrepareContext, record: PreparedRecord, options: P
   const { dataDir } = ctx, runId = record.runId;
   try {
     const ids = pre.r.adapters.map((a) => a.id);
-    if (pre.snapshot.digest !== record.digest || ids.join(',') !== record.adapters.join(',')) {
-      await finishRollback(dataDir, runId, 'its inputs changed since it was prepared (profile, elements or adapters); a new run is prepared');
+    if (pre.snapshot.digest !== record.digest || ids.join(',') !== record.adapters.join(',') || (record.launch && record.launch.runner !== ctx.runner)) {
+      await finishRollback(dataDir, runId, 'its inputs changed since it was prepared (profile, elements, adapters or runner); a new run is prepared');
       inFlight.delete(runId);
       return undefined;
     }
     const scope = recordScope(dataDir, record);
-    const results: Prepared = pre.r.adapters.map((adapter) => ({ adapter, result: { ok: true, steps: [], context: adapter.id === 'context' ? undefined : record.contexts[adapter.id], rollback: () => undefined } }));
+    const results: Prepared = pre.r.adapters.map((adapter) => ({ adapter, result: { ok: true, steps: [], context: adapter.id === 'context' ? undefined : record.contexts[adapter.id], rollback: () => undefined, ...(record.launch ? { launch: record.launch } : {}), ...(record.adapterState?.[adapter.id] ? { persist: record.adapterState[adapter.id] } : {}) } }));
     const contract = await contextAdapter.prepare({ runId, dataDir, repo: ctx.repo, card: pre.snapshot.card, snapshot: loadSnapshot(dataDir, runId), scopeDir: scope, signal: new AbortController().signal });
     results.find(({ adapter }) => adapter.id === 'context')!.result.context = contract.context;
-    const context = await bounded(stepTimeouts(options).verify, (signal) => verifyRun(ctx, runId, record.digest!, results, signal, scope));
-    const now = await updateRecord(dataDir, runId, ['prepared'], undefined, (x) => { x.history.push({ state: 'prepared', at: new Date().toISOString(), note: 'taken up again after a restart: inputs and snapshot unchanged, adapters verified, nothing prepared again' }); });
+    const checked = await bounded(stepTimeouts(options).verify, (signal) => verifyRun(ctx, runId, record.digest!, results, signal, scope, record.capabilities));
+    const context = checked.context + capabilitySection(checked.capabilities);
+    const now = await updateRecord(dataDir, runId, ['prepared'], undefined, (x) => { x.capabilities = checked.capabilities; x.history.push({ state: 'prepared', at: new Date().toISOString(), note: 'taken up again after a restart: inputs and snapshot unchanged, adapters verified, nothing prepared again' }); });
     return handle(ctx, now, context, true, async () => []);
   } catch (err) {
     await finishRollback(dataDir, runId, 'the prepared run could not be taken up again: ' + (err as Error).message).catch(() => undefined);

@@ -7,6 +7,8 @@ import { fillPrompt, type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
 import type { OporaCard, OporaState, WorkerInfo } from '../../shared/protocol.js';
 import { forgetForOpora, markForOpora, seatForOpora, withReaBrief } from '../rea/index.js';
+import { seatWithRun } from '../harness/launch-scope.js';
+import type { AgentProvider } from '../../shared/providers.js';
 import { OporaClient, OporaError } from './client.js';
 import { adoptedHeld, claimAndSeat, releasedAnyway, type AdoptedRun, type Held, type PreparedTask, type RunRecovery, type RunRef } from './prepared.js';
 import { ActivityFeed } from './live.js';
@@ -19,8 +21,8 @@ export interface BridgeFloor {
   readonly id: string;
   readonly dir: string;
   list(): WorkerInfo[];
-  /** Seats a worker at `deskId`, in its own worktree when the project is a git repo. */
-  seat(deskId: string, by: string, prompt: string, owner?: string): WorkerInfo | string;
+  /** Seats a worker at `deskId`, in its own worktree when the project is a git repo; with `runner`, only when that is who it would run (else why not). */
+  seat(deskId: string, by: string, prompt: string, owner?: string, runner?: AgentProvider): WorkerInfo | string;
   /** The desks a worker can be hired at now, in order (the back office's as far as it's built). */
   desks(): string[];
   deskOccupied(deskId: string): boolean;
@@ -281,7 +283,7 @@ export class OporaBridge {
         const design = card.group === 'design' ? fillPrompt(this.events.prompt('opora.design'), { ...where, card: card.name, ...views, found: describeSketches(sketches) }) : '';
         const prompt = fillPrompt(this.events.prompt('opora.card'), { ...where, card: card.name, sector: card.sectorName ?? '—', agent, token: lease.token, sketches: design ? '' : sketchesLine(sketches, views, project.id, workspace, card.id), design });
         // 🔬 REA, when it's on: its MCP server for taking a reference app apart, and how to use it (see rea/).
-        return seatForOpora(() => this.floor.seat(desk, by, withReaBrief(prompt + prepared.context, this.events.prompt), owner));
+        return seatForOpora(() => seatWithRun(prepared.snapshot?.runId, () => this.floor.seat(desk, by, withReaBrief(prompt + prepared.context, this.events.prompt), owner, prepared.runner)));
       },
     });
     if (typeof taken === 'string') return taken;

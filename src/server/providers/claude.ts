@@ -10,6 +10,7 @@ import { answered, notified, wantsPermission } from '../workers/lifecycle.js';
 import { shq } from '../workers/process.js';
 import type { WorkerHandle } from '../workers/types.js';
 import { truncate } from '../workers/util.js';
+import { claudeScopedLaunch } from '../harness/launch-scope.js';
 import type { ProviderAdapter } from './types.js';
 
 /**
@@ -204,12 +205,16 @@ export const claude: ProviderAdapter<undefined, ClaudeSetup> = {
     dir: dataDir,
   }),
   launch({ h: { info }, args, prompt, resumeSessionId, station, setup }) {
-    args.unshift('--settings', setup.settings);
+    // A prepared Opora run's own configuration, for this worker only (harness/launch-scope.ts): its MCP
+    // config (strict: only the listed servers) and its settings with the run's narrowing permissions.
+    const scoped = claudeScopedLaunch(info, setup.settings);
+    args.unshift('--settings', scoped.settings ?? setup.settings);
     // The office's MCP server: its workers, to list, hire, send home and tell (see office-workers.ts).
     // Ahead of --settings, which ends the list --mcp-config takes. 🔬 REA's is a file of its own, for
     // the workers its setting covers, so the office's own stays the same for everyone.
-    const mcp = [setup.mcp, reaFor(info) ? (setup.rea ??= writeReaClaudeConfig(setup.dir)) : undefined].filter((f): f is string => !!f);
+    const mcp = [setup.mcp, reaFor(info) ? (setup.rea ??= writeReaClaudeConfig(setup.dir)) : undefined, ...scoped.mcp].filter((f): f is string => !!f);
     if (mcp.length) args.unshift('--mcp-config', ...mcp);
+    if (scoped.strict) args.unshift('--strict-mcp-config');
     // A model/effort chosen for this worker overrides whatever --agent-args set office-wide.
     if (info.model) args.push('--model', info.model);
     if (info.effort) args.push('--effort', info.effort);
@@ -218,7 +223,7 @@ export const claude: ProviderAdapter<undefined, ClaudeSetup> = {
     if (resumeSessionId) args.push('--resume', resumeSessionId);
     // `--` so a prompt like "- fix login" is never parsed as a CLI option.
     if (prompt) args.push('--', prompt);
-    return { args };
+    return { args, ...(scoped.error ? { finishEnv: () => { throw new Error(scoped.error); } } : {}) };
   },
   signIn: 'claude',
   // SessionStart fires as soon as Claude can take input: still silent, it's blocked on a human.

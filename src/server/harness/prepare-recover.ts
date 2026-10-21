@@ -15,6 +15,7 @@ import { harnessRepoKey } from './profiles.js';
 import type { AdoptedRun, PreparedTask, RunRecovery } from '../opora/prepared.js';
 import type { HierarchyNode } from '../../shared/harness-hierarchy.js';
 import type { OporaPlace } from '../../shared/opora-identity.js';
+import type { AgentProvider } from '../../shared/providers.js';
 
 /** How long records are kept: a prepared run nobody claims, a run whose owning process seems alive, a final record, and how many final records at most. */
 export const PREPARE_RETENTION = { preparedMs: 30 * 60_000, ownerMs: OWNER_FRESH_MS, finalMs: FINAL_RETENTION.finalMs, finalKeep: FINAL_RETENTION.keep, budgetMs: FINAL_RETENTION.budgetMs };
@@ -23,13 +24,15 @@ export const PREPARE_RETENTION = { preparedMs: 30 * 60_000, ownerMs: OWNER_FRESH
  * The task for a card, prepared by the runner: the worker's prompt section, the run, and the moves the
  * bridge makes with it (claiming, claimed, seated, discard = roll back). Throws when the run can't be prepared.
  */
-export async function preparedCardRun(dataDir: string, repo: string, place: OporaPlace, card: string, nodes: readonly HierarchyNode[], local: boolean, options: PrepareOptions = {}, floor?: string): Promise<PreparedTask & { resumed: boolean }> {
-  const run = await prepareRun({ dataDir, repo, place, card, nodes, local, ...(floor ? { floor } : {}) }, options);
+export async function preparedCardRun(dataDir: string, repo: string, place: OporaPlace, card: string, nodes: readonly HierarchyNode[], local: boolean, options: PrepareOptions & { runner?: AgentProvider } = {}, floor?: string): Promise<PreparedTask & { resumed: boolean }> {
+  const { runner, ...rest } = options;
+  const run = await prepareRun({ dataDir, repo, place, card, nodes, local, ...(floor ? { floor } : {}), ...(runner ? { runner } : {}) }, rest);
   return {
     context: run.context,
     snapshot: { runId: run.runId, digest: run.digest },
     state: 'prepared',
     resumed: run.resumed,
+    ...(run.launch ? { runner: run.launch.runner } : {}),
     claiming: (agent, deskId) => run.claiming(agent, deskId),
     granted: (lease) => run.granted(lease),
     claimed: (lease) => run.claimed(lease),

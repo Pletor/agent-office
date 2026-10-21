@@ -26,7 +26,7 @@ export async function preparePlanRequest(ctx: Ctx, floor: Floor, res: http.Serve
     const place = binding ? { project: binding.project, workspace: binding.workspace } : view.project && view.workspace ? { project: view.project.id, workspace: view.workspace } : undefined;
     if (!place) throw new HarnessError('This floor reads no Opora project yet: link one in the Opora window, or bind the floor.', 409);
     if (!samePlace(place, card)) throw new HarnessError(`${key} is in project ${card.project}, workspace ${card.workspace}; this floor takes cards of project ${place.project}, workspace ${place.workspace}.`, 409);
-    send(res, 200, await preparePlan({ dataDir: ctx.cfg.dataDir, repo: floor.dir, place, card: card.nodeId, nodes: floor.opora.canvasNodes(), local }), headers);
+    send(res, 200, await preparePlan({ dataDir: ctx.cfg.dataDir, repo: floor.dir, place, card: card.nodeId, nodes: floor.opora.canvasNodes(), local, runner: floor.workers?.officeDefault?.provider }), headers);
   } catch (err) {
     // The server's folders are never in the answer: named in a refusal, and an unexpected error is logged, not sent.
     if (!(err instanceof HarnessError)) console.error('agent-office: preparation plan failed:', err);

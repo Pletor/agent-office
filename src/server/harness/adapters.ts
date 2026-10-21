@@ -1,7 +1,7 @@
 // Runner adapters for the preparation runner (prepare.ts, docs/harness.md "Preparation runner"). An
 // adapter turns a run's pinned snapshot into what one runner needs before its worker is seated: the
 // built-in `context` adapter renders the worker's contract from the snapshot (the behaviour every
-// Opora take had before), and later adapters (MCP, hooks, permissions: H13/H15) will write their scoped
+// Opora take had before), and the runner adapters (adapter-claude.ts: MCP and permissions; hooks: H15) write their scoped
 // configuration under the run's own folder. Nothing is active because it was named: an adapter's
 // capabilities start `declared`, become `prepared` only when its prepare step said so, and `verified`
 // only when the runner checked them afterwards. An adapter a profile names that this office doesn't
@@ -10,6 +10,7 @@ import path from 'node:path';
 import { runContract } from './run.js';
 import { SNAPSHOT_LIMITS, type StoredSnapshot } from './snapshot.js';
 import type { OporaPlace } from '../../shared/opora-identity.js';
+import type { AgentProvider } from '../../shared/providers.js';
 
 /** declared: named by the profile or the adapter; prepared: the adapter's prepare step made it; verified: the runner checked it after. */
 export type CapabilityState = 'declared' | 'prepared' | 'verified';
@@ -31,7 +32,26 @@ export interface AdapterContext {
   scopeDir: string;
   /** Aborted when the step's time is up: an adapter stops and leaves its rollback to the runner. */
   signal: AbortSignal;
+  /** The runner the worker is seated with (the office default at prepare time), when known: per-run configuration is per runner. */
+  runner?: AgentProvider;
 }
+
+/**
+ * What an adapter hands the worker's launch for THIS run only (launch-scope.ts): files under `scopeDir`
+ * the runner's own per-run flags point to. Never a secret, never a flag that widens what the runner may do.
+ */
+export interface LaunchContribution {
+  runner: AgentProvider;
+  /** A per-run MCP config file (Claude Code: --mcp-config), and whether only the listed servers load (--strict-mcp-config). */
+  mcpConfig?: string;
+  strictMcp?: boolean;
+  /** A per-run file of narrowing permission rules (deny/ask), merged into the runner's settings at launch. */
+  permissions?: string;
+}
+/** What `verify` may say beyond pass/fail: each capability's state as the probes found it (only `verified` ones are offered to the worker). */
+export interface VerifyReport { reason?: string; capabilities?: Capability[] }
+/** What a recovery hands an adapter after a restart, with no closure from `prepare` left. */
+export interface RecoverContext { runId: string; dataDir: string; scopeDir: string }
 
 /** One thing an adapter did (or, in a plan, would do): its id, what it is, and the files it writes (absolute, or relative to `scopeDir`). */
 export interface AdapterStep { id: string; detail: string; writes: string[] }
@@ -52,20 +72,32 @@ export interface AdapterResult {
   reason?: string;
   /** Undoes what `prepare` did that isn't inside `scopeDir` (the runner removes that folder itself). Must be safe to call twice. */
   rollback(): void | Promise<void>;
+  /** Per-run launch configuration for the worker (launch-scope.ts); kept in the run's record. */
+  launch?: LaunchContribution;
+  /** JSON state kept in the run's record (no secrets), handed to `recover` after a restart so a rollback survives it. */
+  persist?: Record<string, unknown>;
 }
 
 export interface HarnessAdapter {
   readonly id: string;
   readonly title: string;
-  /** Why this adapter can't run on this office now, or undefined when it can. */
-  unsupported?(): string | undefined;
+  /** Why this adapter can't run on this office now (for this runner), or undefined when it can. */
+  unsupported?(ctx?: { runner?: AgentProvider }): string | undefined;
   /** What the adapter provides for this run, all `declared`. */
   capabilities(ctx: Omit<AdapterContext, 'signal'>): Capability[];
   /** What `prepare` would do, for a dry run: nothing is written. */
   plan(ctx: Omit<AdapterContext, 'signal'>): AdapterStep[];
   prepare(ctx: AdapterContext): Promise<AdapterResult>;
-  /** Checks what `prepare` made is in place and usable: returns the reason when it isn't. */
-  verify(ctx: AdapterContext, result: AdapterResult): Promise<string | undefined>;
+  /**
+   * Checks what `prepare` made is in place and usable: returns the reason when it isn't. A report may set
+   * each of the adapter's capabilities' state as its probes found it; without one, all become `verified`.
+   */
+  verify(ctx: AdapterContext, result: AdapterResult): Promise<string | undefined | VerifyReport>;
+  /**
+   * Undoes, after a restart, what this adapter did for a run that is being rolled back, from the state it
+   * persisted (AdapterResult.persist). Idempotent; returns what could not be undone.
+   */
+  recover?(ctx: RecoverContext, persisted: Record<string, unknown>): Promise<string[] | void>;
 }
 
 const adapters = new Map<string, HarnessAdapter>();
@@ -84,11 +116,11 @@ export function listAdapters(): HarnessAdapter[] {
   return [...adapters.values()];
 }
 
-/** Names that will be adapters of their own (H13/H15) and are refused here with that reason. */
+/** Names of adapters in modules of their own, with why they are refused when that module isn't loaded (hooks: H15). */
 const LATER: Record<string, string> = {
-  mcp: 'MCP servers are configured by the runner adapters of H13; this office does not set them up yet',
-  hooks: 'hook installation belongs to the runner adapters of H13; this office does not install hooks yet',
-  permissions: 'runner permissions are configured by H13/H15; this office does not change a runner\'s permissions',
+  mcp: 'per-run MCP servers are the runner adapter in adapter-claude.ts, which is not loaded in this office',
+  hooks: 'hook installation belongs to the hook lifecycle adapter of H15; this office does not install hooks yet',
+  permissions: 'per-run narrowing permissions are the runner adapter in adapter-claude.ts, which is not loaded in this office',
 };
 
 /**
@@ -96,13 +128,13 @@ const LATER: Record<string, string> = {
  * id that isn't registered, or whose adapter says it can't run here, is refused with the reason; the
  * whole list is refused, so nothing is prepared for a run that couldn't be made ready.
  */
-export function resolveAdapters(ids: readonly string[]): { adapters: HarnessAdapter[]; refused: { id: string; reason: string }[] } {
+export function resolveAdapters(ids: readonly string[], runner?: AgentProvider): { adapters: HarnessAdapter[]; refused: { id: string; reason: string }[] } {
   const wanted = [...new Set(['context', ...ids.map((s) => s.trim().toLowerCase()).filter(Boolean)])];
   const out: HarnessAdapter[] = [], refused: { id: string; reason: string }[] = [];
   for (const id of wanted) {
     const adapter = adapters.get(id);
     if (!adapter) { refused.push({ id, reason: LATER[id] ?? (ADAPTER_ID.test(id) ? 'no adapter with this id is registered in this office' : 'not a valid adapter id') }); continue; }
-    const why = adapter.unsupported?.();
+    const why = adapter.unsupported?.({ runner });
     if (why) { refused.push({ id, reason: why }); continue; }
     out.push(adapter);
   }
@@ -153,6 +185,12 @@ export interface FakeAdapterOptions {
   /** Fail verification with this reason. */
   verifyFails?: string;
   unsupported?: string;
+  /** Capability ids it declares (default `<id>.config`). */
+  capabilities?: string[];
+  /** The state verify reports for each capability (default: no report, so all become verified). */
+  verifyStates?: Record<string, CapabilityState>;
+  /** State persisted in the record, for `recover`. */
+  persist?: Record<string, unknown>;
   /** Also write (and report) this file, relative to the data dir: outside the scoped folder, which the runner refuses. */
   outside?: string;
 }
@@ -164,11 +202,14 @@ export interface FakeAdapterOptions {
 export function fakeAdapter(options: FakeAdapterOptions = {}) {
   const id = options.id ?? 'fake';
   const calls = { prepare: 0, rollback: 0, verify: 0 };
+  /** The persisted states its `recover` was handed. */
+  const recovered: Record<string, unknown>[] = [];
+  const caps = options.capabilities ?? [id + '.config'];
   const adapter: HarnessAdapter = {
     id,
     title: 'Fake adapter (tests)',
     unsupported: () => options.unsupported,
-    capabilities: () => [{ id: id + '.config', adapter: id, state: 'declared', detail: 'a scoped config file' }],
+    capabilities: () => caps.map((c) => ({ id: c, adapter: id, state: 'declared' as const, detail: 'a scoped config file' })),
     plan: (ctx) => [{ id: id + '.config', detail: 'write the scoped config', writes: [ctx.scopeDir + '/' + id + '.json'] }],
     async prepare(ctx) {
       calls.prepare++;
@@ -184,12 +225,15 @@ export function fakeAdapter(options: FakeAdapterOptions = {}) {
       if (options.fails) return { ok: false, steps: [], reason: options.fails, rollback };
       const extra = options.outside ? [path.join(ctx.dataDir, options.outside)] : [];
       for (const other of extra) writeFileSync(other, 'outside');
-      return { ok: true, steps: [{ id: id + '.config', detail: 'wrote the scoped config', writes: [file, ...extra] }], rollback };
+      return { ok: true, steps: [{ id: id + '.config', detail: 'wrote the scoped config', writes: [file, ...extra] }], rollback, ...(options.persist ? { persist: options.persist } : {}) };
     },
     async verify() {
       calls.verify++;
-      return options.verifyFails;
+      if (options.verifyFails) return options.verifyFails;
+      const states = options.verifyStates;
+      return states ? { capabilities: caps.map((c) => ({ id: c, adapter: id, state: states[c] ?? 'prepared', detail: states[c] === 'verified' ? 'probed' : 'not probed' })) } : undefined;
     },
+    async recover(_ctx, persisted) { recovered.push(persisted); },
   };
-  return { adapter, calls };
+  return { adapter, calls, recovered };
 }
