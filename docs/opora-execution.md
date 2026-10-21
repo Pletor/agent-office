@@ -87,6 +87,14 @@ and a server log line and never changes the stored Canvas result. Without a GitH
 a toast. Implementation: `src/server/opora/pull-request-handoff.ts` and
 `pull-request-body.ts`; tests: `tests/opora-pull-request.test.ts`.
 
+Once linked, Canvas can queue automated review jobs for the pull request; the office's
+[review workers](opora-review-workers.md) run them when `AGENT_OFFICE_OPORA_REVIEWS=on`.
+
+Once open, those pull requests can be kept rebased on their base, and a red base
+branch bisected to the merge that broke it and reverted by pull request, with
+`AGENT_OFFICE_OPORA_UPKEEP=on` and `AGENT_OFFICE_OPORA_GUARD=on`: see
+[PR upkeep and the post-merge guard](opora-pr-upkeep.md).
+
 Implementation lives in `src/server/opora/execution-*.ts`. The generic
 `workers/launch-guards.ts` registry gates initial launches, restored terminals and
 resume; floor composition registers the Opora guard before `workers.start()`.
