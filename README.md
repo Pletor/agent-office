@@ -32,6 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 
 ## What it is
 
+- **Opora process wall.** Above the north-wall boards, aim and press E for a live view of workers, queue tasks, branches, GitHub checks and blockers. Switch the wall's view, inspect recent observations or open the detailed demo inside the same window. See [controls and data boundaries](docs/process-wall.md).
 - **Process Observatory (interactive demo).** Open `/process-studio` after signing in to explore a Czech-language simulation of an Opora plan, parallel office workers, failed checks and repair, GitHub delivery, and memory reuse. A six-phase delivery pipeline exposes 17 handoffs, from source investigation and worktrees through counterexamples, review, PR dependencies, staging and evaluation. Animated agents follow recorded events; repository-role inputs extend the local scenario. It uses sample data and does not connect accounts or change repositories. See [the scenario, controls and integration boundary](docs/process-studio.md).
 - **A floor per project.** Ride the elevator, pick one of your GitHub repos, and the office clones it (showing how far along it is) and opens a floor for it. Every worker, board and queue on that floor works in that checkout.
 - **Workers at desks.** Walk up to an empty desk, press **E**, and pick Claude Code, Codex, OpenCode, Grok, Muse, DeepSeek Harness, Pi or Cursor, each with its model and reasoning effort. The agent's live terminal shows on its laptop, and anyone can open it and type.

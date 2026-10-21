@@ -28,13 +28,14 @@ export function findPublicDir(): string {
   throw new Error(`Client bundle not found (looked in ${candidates.join(', ')}). Run \`npm run build\`.`);
 }
 
-export function serveFile(res: http.ServerResponse, file: string, cache: boolean) {
+export function serveFile(res: http.ServerResponse, file: string, cache: boolean, framing: 'DENY' | 'SAMEORIGIN' = 'DENY') {
   const ext = path.extname(file);
   res.writeHead(200, {
     'content-type': MIME[ext] ?? 'application/octet-stream',
     'cache-control': cache ? 'public, max-age=31536000, immutable' : 'no-store',
     'x-content-type-options': 'nosniff',
-    'x-frame-options': 'DENY',
+    'x-frame-options': framing,
+    'content-security-policy': `frame-ancestors ${framing === 'SAMEORIGIN' ? "'self'" : "'none'"}`,
     'referrer-policy': 'no-referrer',
   });
   createReadStream(file).pipe(res);

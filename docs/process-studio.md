@@ -4,6 +4,8 @@ The separate `/process-studio` page is an interactive Czech-language **simulatio
 
 It demonstrates how an Opora task, office workers, memory and GitHub could share an observable workflow. It does not connect to Canvas, OpenViking, GitHub or a running worker. Every event, test result, memory record, PR and merge displayed on the page is model data.
 
+The [office process wall](process-wall.md) embeds this demo alongside its separately labeled live views. Only this session-authenticated page allows same-origin framing (`X-Frame-Options: SAMEORIGIN` and CSP `frame-ancestors 'self'`). Other static pages retain denied framing.
+
 ## What the scenario demonstrates
 
 1. A card has a goal, scope, expected output and acceptance conditions. Recall brings earlier experiences into the plan.

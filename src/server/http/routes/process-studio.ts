@@ -8,6 +8,6 @@ export const processStudioRoute: Route = {
   method: 'GET',
   auth: 'session',
   handle(ctx, { res }) {
-    return serveFile(res, path.join(ctx.publicDir, 'process-studio.html'), false);
+    return serveFile(res, path.join(ctx.publicDir, 'process-studio.html'), false, 'SAMEORIGIN');
   },
 };

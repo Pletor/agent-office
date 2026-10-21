@@ -1,0 +1,24 @@
+.process-wall-modal { width: min(1400px, 96vw); height: min(900px, 92vh); display: flex; flex-direction: column; background: #0b1624; color: #d9e9f8; border: 1px solid #36546a; border-radius: 14px; padding: 22px; box-shadow: 0 25px 100px #0009; }
+.process-wall-modal > header { display: flex; justify-content: space-between; align-items: center; }
+.process-wall-modal h2 { margin: 6px 0 10px; font-size: 27px; color: #e9f8ff; }
+.process-wall-eyebrow { color: #73dfcf; font-size: 11px; letter-spacing: 2px; }
+.process-wall-modal .close { align-self: start; color: white; background: #233950; }
+.process-wall-status { color: #9fbed4; font-size: 12px; }
+.process-wall-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0; }
+.process-wall-modal button { cursor: pointer; border: 1px solid #36546a; border-radius: 7px; background: #14283a; color: #d9e9f8; padding: 9px 13px; font: inherit; font-size: 12px; }
+.process-wall-modal button.active { background: #25625d; border-color: #73dfcf; }
+.process-wall-modal button:focus-visible, .process-wall-modal a:focus-visible { outline: 2px solid #ffcf87; outline-offset: 2px; }
+.process-wall-controls { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; color: #9fbed4; padding: 6px 0 12px; }
+.process-wall-body { overflow-y: auto; min-height: 0; flex: 1; padding-right: 5px; }
+.process-wall-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.process-wall-metrics > div { padding: 16px; background: #14283a; border-radius: 8px; }
+.process-wall-metrics strong { display: block; font-size: 27px; color: #73dfcf; }.process-wall-metrics span { font-size: 12px; }
+.process-wall-notice, .process-wall-boundary { color: #acbfd1; font-size: 12px; line-height: 1.65; padding: 12px; border-left: 2px solid #ab94d4; background: #111e30; }
+.process-wall-card { background: #122437; padding: 18px; margin: 10px 0; border: 1px solid #2c435a; border-radius: 9px; overflow-wrap: anywhere; }
+.process-wall-card.blocked { border-color: #b58b51; }.process-wall-card h3 { margin: 0; font-size: 17px; }.process-wall-card p { font-size: 13px; }.process-wall-card code { font-size: 12px; color: #a1b8d1; }
+.process-wall-card-title { display: flex; justify-content: space-between; gap: 15px; }.process-wall-card-title > span { font-size: 12px; color: #73dfcf; }
+.process-wall-phases { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }.process-wall-phases span { padding: 5px 9px; background: #0b1827; color: #8eacc6; font-size: 11px; border-radius: 5px; }.process-wall-phases .current { color: #83f2dd; background: #204c4b; }
+.process-wall-card a { color: #83f2dd; font-size: 13px; }.process-wall-empty { padding: 30px; color: #b5c8d8; }
+.process-wall-event { display: flex; gap: 20px; border-bottom: 1px solid #2c435a; padding: 12px 0; font-size: 13px; }.process-wall-event time { color: #73dfcf; white-space: nowrap; }
+.process-wall-demo { width: 100%; height: 65vh; border: 1px solid #36546a; border-radius: 9px; background: #0b1624; }
+@media (max-width: 600px) { .process-wall-modal { padding: 12px; }.process-wall-modal h2 { font-size: 21px; }.process-wall-metrics { grid-template-columns: 1fr 1fr; }.process-wall-card-title { display: block; } }
