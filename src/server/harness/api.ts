@@ -8,6 +8,7 @@ import { HarnessLibrary, harnessSources } from './catalog.js';
 import { HarnessRegistry } from './registry.js';
 import { HarnessBindings, assertBoundWrite, bindingView } from './bindings.js';
 import { HarnessRequests } from './requests.js';
+import { assignedResources, ownAuditOf } from './resources.js';
 import { HARNESS_LEVELS, harnessLevel, oporaHarnessTask, pathNode, type HarnessProfile } from '../../shared/harness-cascade.js';
 import { harnessDeadEnd, harnessTarget, type HierarchyNode } from '../../shared/harness-hierarchy.js';
 import { oporaKey, parseOporaKey, samePlace } from '../../shared/opora-identity.js';
@@ -78,7 +79,7 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       try { preview = await harnessHandoff(ctx.cfg.dataDir, floor.dir, view.path, local, view); }
       catch (err) { warning = (err as Error).message; }
       if (!opora.connected) warning = [warning, `Opora isn't answering: this is the local store down the canvas as last read${opora.error ? ' (' + opora.error + ')' : ''}.`].filter(Boolean).join(' ');
-      const result = { ...view, ...rest, tasks, audit: store.audit(20, floor.dir, auditAll), binding: bindingView(binding), preview, warning };
+      const result = { ...view, ...rest, tasks, audit: store.audit(20, floor.dir, auditAll, ownAuditOf(url, view.path)), binding: bindingView(binding), preview, warning, resources: await assignedResources(ctx.cfg.dataDir, floor.dir, local, view) };
       // The write is done; remembering it is for the retry's sake and never fails the reply. The stored reply has no preview (a GET gives it).
       if (body && requests) try { requests.record(scope, body, 200, { ...result, preview: '' }, id); } catch (err) { console.error('harness: the request log was not written: ' + (err as Error).message); }
       send(res, 200, result);

@@ -28,6 +28,8 @@ export interface HarnessProjectView {
   binding: { project: string; workspace: string; projectName: string } | null;
   status: HarnessTreeStatus | 'error';
   notice: string;
+  /** For an unbound floor: the project and workspace its Opora window reads now, which "Bind this floor" offers to bind (an administrator confirms). */
+  window?: { project: string; workspace: string; projectName: string } | null;
 }
 
 /** The namespaces whose elements the global layer may bind on this floor (catalog.ts decides; this only asks it). */
@@ -47,7 +49,8 @@ function describe(ctx: Ctx, floor: Floor): HarnessProjectView {
     return { floor: floor.id, name, repo, binding: null, status: 'error', notice: 'The floor bindings could not be read: nothing is offered until an administrator repairs them.' };
   }
   const view = floor.opora.view();
-  if (!bound) return { floor: floor.id, name, repo, binding: null, status: 'unbound', notice: 'Not linked to an Opora project: only the project level can be edited here. An administrator binds the floor (office-harness --bind PROJECT WORKSPACE, or POST /api/harness/binding).' };
+  const window = view.connected && view.project && view.workspace ? { project: view.project.id, workspace: view.workspace, projectName: view.project.name } : null;
+  if (!bound) return { floor: floor.id, name, repo, binding: null, window, status: 'unbound', notice: 'Not linked to an Opora project: only the project level can be edited here. An administrator binds the floor with Bind this floor below (or office-harness --bind PROJECT WORKSPACE).' };
   const projectName = view.projects?.find((p) => p.id === bound.project)?.name || (view.project?.id === bound.project ? view.project.name : '');
   const binding = { project: bound.project, workspace: bound.workspace, projectName: projectName || bound.project };
   if (!view.connected) return { floor: floor.id, name, repo, binding, status: 'unreachable', notice: `Opora isn't answering${view.error ? ' (' + view.error + ')' : ''}: specializations need its canvas, so only the project level can be edited now.` };
@@ -62,7 +65,8 @@ export function harnessProjectsRequest(ctx: Ctx, req: http.IncomingMessage, res:
   const floors = [...ctx.floors.values()];
   const projects = floors.map((floor) => describe(ctx, floor));
   // Which elements belong to the Global view: the same for every floor (the pinned sources are the installation's).
-  send(res, 200, { projects, globalNamespaces: globalNamespaces({ dir: floors[0]?.dir ?? process.cwd() }, local) }, { 'cache-control': 'no-store' });
+  // `admin`: whether this reader may bind a floor and create elements (the library offers those actions only then; the routes check again).
+  send(res, 200, { projects, globalNamespaces: globalNamespaces({ dir: floors[0]?.dir ?? process.cwd() }, local), admin: local }, { 'cache-control': 'no-store' });
 }
 
 /** GET /api/harness/tree?floor=ID: that floor's specialization tree, or an empty one with the reason. */

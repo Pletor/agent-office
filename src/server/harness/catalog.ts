@@ -3,7 +3,7 @@ import { existsSync, constants, type BigIntStats } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
-import { HARNESS_CATEGORIES, type HarnessCategory, type HarnessCatalog, type HarnessEntry, type HarnessText, type HarnessResolution } from '../../shared/harness.js';
+import { HARNESS_CATALOG_LIMIT, HARNESS_CATEGORIES, type HarnessCategory, type HarnessCatalog, type HarnessEntry, type HarnessText, type HarnessResolution } from '../../shared/harness.js';
 import { HARNESS_GUIDES } from './guides.js';
 import { HarnessRegistry, sourceInstance, type Observed } from './registry.js';
 import { DigestCache } from './digests.js';
@@ -18,7 +18,7 @@ export interface HarnessSource {
   /** The folder is pinned installation-wide (an environment variable), so its elements are the same file in every project. */
   pinned?: boolean;
 }
-const MAX_FILES = 1200;
+const MAX_FILES = HARNESS_CATALOG_LIMIT;
 const MAX_VISITS = 6000;
 const MAX_BYTES = 128 * 1024;
 const SKIP = /^(?:node_modules|\.git|\.worktrees|worktrees|dist|build|\.venv|__pycache__|logs|sessions|credentials|secrets)$/i;
@@ -30,6 +30,20 @@ const SKIP = /^(?:node_modules|\.git|\.worktrees|worktrees|dist|build|\.venv|__p
  */
 const SECRET = /(?:^|[./_-])(?:secrets?|credentials?|auth|ovcli\.conf|ov\.conf)(?:[./_-]|$)|(?:^|\/)(?:id_rsa|id_ed25519|kubeconfig|service-account[^/]*\.json)|tokens?|password|api[_-]?key|\.env(?:\.|$)|\.(?:pem|key|p12)$/i;
 const TEXT = /\.(?:md|markdown|txt|ts|js|mjs|cjs|py|sh|ps1|yaml|yml|json|toml)$/i;
+/**
+ * Why a file at `rel` (relative to a published folder, either slash) would never be listed, or nothing when
+ * it would: a credential-like name anywhere on the path, a skipped folder, or not a text type. The element
+ * route (element-api.ts) refuses to create what the catalog would not show.
+ */
+export function unpublishable(rel: string): string | undefined {
+  const slash = posix(rel);
+  if (SECRET.test(slash)) return 'a credential-like name (secret, credential, auth, token, password, api key, key file, .env) is never published';
+  if (slash.split('/').slice(0, -1).some((part) => SKIP.test(part))) return 'that folder name is skipped by discovery (node_modules, .git, dist, build, logs, sessions, credentials, secrets…)';
+  if (!TEXT.test(slash)) return 'only text files are published: .md, .markdown, .txt, .ts, .js, .mjs, .cjs, .py, .sh, .ps1, .yaml, .yml, .json or .toml';
+  return undefined;
+}
+/** The largest file the catalog lists (bytes). */
+export const HARNESS_MAX_BYTES = MAX_BYTES;
 const inside = (root: string, file: string) => { const rel = path.relative(root, file); return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel); };
 const CASELESS = process.platform === 'win32' || process.platform === 'darwin';
 const samePath = (a: string, b: string) => CASELESS ? a.toLowerCase() === b.toLowerCase() : a === b;
@@ -147,14 +161,15 @@ export class HarnessLibrary {
         if (stat?.isDirectory() && !stat.isSymbolicLink()) root = await realpath(source.dir);
         if (root && source.boundary && !inside(boundary = await realpath(source.boundary), root)) root = undefined;
       } catch { root = undefined; /* optional source */ }
-      sources.push({ name: source.name, available: !!root });
-      if (!root) continue;
+      const status: HarnessCatalog['sources'][number] = { name: source.name, available: !!root };
+      sources.push(status);
+      if (!root) { status.reason = 'missing'; continue; }
       const verified = root, instance = sha256(CASELESS ? root.toLowerCase() : root).slice(0, 16);
       // The place this instance belongs to: the checkout for a project folder, else the folder itself (see registry pruning).
       roots[instance] = boundary ?? root;
-      let whole = true;
+      let whole = true, cut = false;
       const walk = async (rel: string, depth: number): Promise<void> => {
-        if (++visits > MAX_VISITS || entries.length >= MAX_FILES || depth > 10) { limited = true; whole = false; return; }
+        if (++visits > MAX_VISITS || entries.length >= MAX_FILES || depth > 10) { limited = cut = true; whole = false; return; }
         const file = path.join(source.dir, rel);
         let stat;
         // A path that vanished is simply absent; any other failure (permissions, a lock) leaves the walk incomplete, so nothing below it is declared missing.
@@ -165,7 +180,7 @@ export class HarnessLibrary {
           if (SKIP.test(path.basename(file))) return;
           const children = await readdir(file).catch(() => { whole = false; return []; });
           for (const name of children.sort()) {
-            if (visits >= MAX_VISITS || entries.length >= MAX_FILES) { limited = true; whole = false; break; }
+            if (visits >= MAX_VISITS || entries.length >= MAX_FILES) { limited = cut = true; whole = false; break; }
             await walk(path.join(rel, name), depth + 1);
           }
         } else if (stat.isFile() && TEXT.test(rel) && stat.size <= MAX_BYTES) {
@@ -190,6 +205,8 @@ export class HarnessLibrary {
       if (source.files) { for (const file of source.files) await walk(file, 0); }
       else await walk('', 0);
       if (whole) complete.add(sourceInstance(source.name, instance));
+      // Why a source was listed only in part: the discovery bounds (over budget), or a folder or file that could not be read.
+      else status.reason = cut ? 'over-budget' : 'unreadable';
     }
     this.digests.flush();
     this.versions = await this.registry?.observe(observed, complete, roots) ?? new Map();
