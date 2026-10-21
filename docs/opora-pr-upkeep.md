@@ -18,6 +18,8 @@ Each head commit gets at most `AGENT_OFFICE_OPORA_UPKEEP_ATTEMPTS` tries, at mos
 
 The check command runs in a fresh worktree, so it has to set itself up: `npm ci && npm test`, say, rather than `npm test` alone.
 
+With `AGENT_OFFICE_OPORA_SELF_CHECKS` set, every head upkeep pushes also gets its self-check evidence run in the rebased worktree and posted to Canvas ([self-check evidence](opora-review-evidence.md#self-check-evidence)).
+
 ## Post-merge guard (`AGENT_OFFICE_OPORA_GUARD=on`)
 
 Every pass the guard fetches the base branch (`AGENT_OFFICE_OPORA_GUARD_BRANCH`, default `main`) and reads the check runs on its head with `gh api repos/<repo>/commits/<sha>/check-runs`. A head whose checks all passed is remembered as the last green one. When the head goes red (a check failed, timed out or needs action):

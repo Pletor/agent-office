@@ -77,7 +77,8 @@ export class OporaUpkeep {
 }
 
 /** The floor's upkeep, started, while `AGENT_OFFICE_OPORA_UPKEEP` or `AGENT_OFFICE_OPORA_GUARD` is on; else undefined. */
-export function createOporaUpkeep(repo: string, dataDir: string, toast: Say, env: NodeJS.ProcessEnv = process.env): OporaUpkeep | undefined {
+export function createOporaUpkeep(repo: string, dataDir: string, toast: Say, env: NodeJS.ProcessEnv = process.env,
+  pushed?: UpkeepTools['pushed']): OporaUpkeep | undefined {
   const config = upkeepConfig(env);
   if (!config.upkeep && !config.guard) return undefined;
   const root = path.join(dataDir, 'opora-upkeep');
@@ -97,6 +98,7 @@ export function createOporaUpkeep(repo: string, dataDir: string, toast: Say, env
     gh: ghRunner,
     check: checkRunner(config.checkTimeoutMs),
     resolve: claude ? claudeResolver(claude, childEnv(), config.resolveTimeoutMs, config.model) : () => Promise.reject(new Error('no claude CLI')),
+    ...(pushed ? { pushed } : {}),
   }, say);
   upkeep.start();
   return upkeep;

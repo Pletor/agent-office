@@ -36,7 +36,9 @@ const data = (value: string) => `<<<DATA\n${value.replace(/DATA>>>/g, 'DATA> >>'
 function header(a: ReviewAssignment, m: ReviewMaterial): string {
   const j = a.job;
   return [
-    `Pull request ${j.repository}#${j.number}, review round ${j.round}, head ${j.headSha}.`,
+    `Pull request ${j.repository}#${j.number}, ${j.kind === 'security' ? 'security ' : ''}review round ${j.round}, head ${j.headSha}.`,
+    ...(j.kind === 'security' && Array.isArray(j.risk?.securityReasons) && j.risk.securityReasons.length
+      ? [`Why Canvas asked for a security review:\n${data(j.risk.securityReasons.slice(0, 20).map(String).join('\n'))}`] : []),
     m.incremental ? `This round reviews only what changed since the last reviewed head: git diff ${m.base}..${j.headSha}.` : `The diff is the whole pull request: git diff ${m.base}..${j.headSha}.`,
     `Changed files (${m.files.length}): ${m.files.slice(0, 200).join(', ')}${m.files.length > 200 ? ', …' : ''}`,
   ].join('\n');

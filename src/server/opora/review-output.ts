@@ -39,11 +39,14 @@ export function normalizeTitle(title: string): string {
 export function normalizeBugClass(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 }
-/** `rv:<bug class>:<sha256(path, normalized title, bug class)>`, inside Canvas's `[A-Za-z0-9_.:/#@-]{8,160}`. */
-export function findingFingerprint(path: string, title: string, bugClass: string): string {
+/**
+ * `rv:<bug class>:<sha256(path, normalized title, bug class)>` (`security:…` for a security job's
+ * finding, as Canvas recommends), inside Canvas's `[A-Za-z0-9_.:/#@-]{8,160}`.
+ */
+export function findingFingerprint(path: string, title: string, bugClass: string, prefix = 'rv'): string {
   const cls = normalizeBugClass(bugClass) || 'bug';
   const h = createHash('sha256').update(`${path}\n${normalizeTitle(title)}\n${cls}`).digest('hex').slice(0, 24);
-  return `rv:${cls}:${h}`;
+  return `${prefix}:${cls}:${h}`;
 }
 
 function repoPath(v: unknown): string | undefined {
@@ -52,7 +55,7 @@ function repoPath(v: unknown): string | undefined {
   return p;
 }
 
-export function checkFinder(raw: unknown, known: KnownFinding[]): Checked<FinderSubmission> {
+export function checkFinder(raw: unknown, known: KnownFinding[], prefix = 'rv'): Checked<FinderSubmission> {
   const errors: string[] = [];
   if (!isObject(raw) || !Array.isArray(raw.findings)) return { ok: false, errors: ['the answer must be {"findings": [...], "fixed": [...]}'] };
   const fixedRaw = raw.fixed ?? [];
@@ -78,7 +81,7 @@ export function checkFinder(raw: unknown, known: KnownFinding[]): Checked<Finder
     if (!SEVERITIES.includes(severity)) errors.push(`${at}.severity must be important, nit or pre_existing`);
     if (line !== undefined && line !== null && !(Number.isSafeInteger(line) && (line as number) >= 1 && (line as number) <= 10_000_000)) errors.push(`${at}.line must be a positive integer or null`);
     if (!path || !title || !rationale || !bugClass || !SEVERITIES.includes(severity)) return;
-    const fingerprint = findingFingerprint(path, title, bugClass);
+    const fingerprint = findingFingerprint(path, title, bugClass, prefix);
     // A known fingerprint, in any state, is never proposed again; a repeat in one answer keeps the worst severity.
     if (knownPrints.has(fingerprint)) return;
     const prior = byPrint.get(fingerprint);

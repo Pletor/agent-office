@@ -17,6 +17,8 @@ export interface UpkeepTools {
   check(command: string, cwd: string): Promise<CheckResult>;
   /** A fresh headless model run that edits conflicted files in `cwd` (conflict-resolver.ts). */
   resolve(run: ResolveRun): Promise<string>;
+  /** After a new head is pushed, while its worktree is still there (self-checks.ts evidence for it); never fails the pass. */
+  pushed?(pr: { number: number; body?: string; headRefName: string }, headSha: string, dir: string): Promise<unknown>;
 }
 
 export function gitRunner(timeoutMs = 180_000): UpkeepTools['git'] {

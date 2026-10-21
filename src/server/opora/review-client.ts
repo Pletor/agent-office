@@ -11,6 +11,8 @@ export interface ReviewJob {
   reviewJobId: string; executionId?: string; cardId?: string;
   repository: string; number: number; baseSha: string | null; headSha: string;
   round: number; sinceSha: string | null; phase: string; riskTier?: string;
+  /** `code` or `security` (Canvas's "Druh úlohy"); missing on an older Canvas, which means `code`. */
+  kind?: string; risk?: { reasons?: string[]; securityReasons?: string[] };
   finders?: number; voters?: number; requiredVotes?: number; completedAt?: string | null;
 }
 export interface KnownFinding {
