@@ -11,6 +11,7 @@ import { ActivityFeed } from './live.js';
 import { oporaProcess } from './process.js';
 import { ExecutionDispatch, type ExecutionHeld } from './execution-dispatch.js';
 import { requestExecutionStop } from './execution-stop.js';
+import { createReviewRunner, type ReviewJobRunner } from './review-runner.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
 export interface BridgeFloor {
@@ -87,6 +88,8 @@ export class OporaBridge {
   private statePath: string;
   private pollTimer: NodeJS.Timeout;
   readonly executions: ExecutionDispatch;
+  /** Review workers for the linked project's review jobs, while AGENT_OFFICE_OPORA_REVIEWS is on (review-runner.ts). */
+  readonly reviews?: ReviewJobRunner;
   /** The read under way, which another call to poll waits for rather than starting a second. */
   private polling?: Promise<void>;
   private stopped = false;
@@ -108,6 +111,7 @@ export class OporaBridge {
         requestExecutionStop(run, id, reason, this.floor.stop?.bind(this.floor),
           () => this.changed(), message => this.events.toast(message, 'warn'));
       });
+    this.reviews = createReviewRunner(url, `office-${floor.id}`, floor.dir, dataDir, (message, level) => (level === 'info' ? console.log : console.warn)(`[opora] ${message}`));
     this.restore();
     this.live = new ActivityFeed(this.client, () => ({ project: this.state.project?.id, workspace: this.state.workspace ?? undefined }), () => this.events.update(this.view()));
     this.pollTimer = setInterval(() => void this.poll(), POLL_MS);
@@ -208,6 +212,7 @@ export class OporaBridge {
         void this.letGo(run);
       }
       await this.read();
+      if (this.state.connected && this.state.project && this.state.workspace) void this.reviews?.tick({ project: this.state.project.id, workspace: this.state.workspace });
       if (this.state.handOut) await this.handOut();
       if (this.state.autopilot) await this.autopilot();
     } finally {
@@ -302,6 +307,7 @@ export class OporaBridge {
     this.stopped = true;
     clearInterval(this.pollTimer);
     this.executions.controller.shutdown();
+    this.reviews?.shutdown();
     this.live.stop();
     this.persist();
   }
