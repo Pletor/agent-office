@@ -24,6 +24,7 @@ import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
 import { PlanningRoom } from './planning.js';
 import { OporaBridge, type PreparedTask } from './opora/bridge.js';
+import type { AdoptedRun, RunRecovery } from './opora/prepared.js';
 import type { CanvasNode } from '../shared/opora-scope.js';
 import { harnessPlannerBrief } from './harness/handoff.js';
 import { PLANNER_SEAT } from '../shared/planning.js';
@@ -38,6 +39,8 @@ type ToastLevel = 'info' | 'warn' | 'error';
 /** What a floor needs from the building around it. */
 export interface FloorContext {
   prepareTask?(dir: string, project: string, workspace: string, card: string, owner: string | undefined, nodes: readonly CanvasNode[]): Promise<string | PreparedTask>;
+  /** Finishes the prepared runs of the floor checked out at `dir` that an earlier office left (harness/prepare-recover.ts). */
+  recoverRuns?(dir: string, recovery: RunRecovery): Promise<AdoptedRun[]>;
   agentCmd: string;
   agentArgs: string[];
   /** The DSH profile DeepSeek Harness workers boot (see server/dsh.ts). */
@@ -339,6 +342,7 @@ export class Floor {
       {
         update: (state) => ctx.emit(this, { t: 'opora', state }),
         prepareTask: (project, workspace, card, owner, nodes) => ctx.prepareTask?.(def.dir, project, workspace, card, owner, nodes) ?? Promise.resolve(''),
+        recoverRuns: (recovery) => ctx.recoverRuns?.(def.dir, recovery) ?? Promise.resolve([]),
         toast: (text, level) => ctx.toast(this, text, level),
         prompt: (id) => ctx.prompts.text(id),
       },
