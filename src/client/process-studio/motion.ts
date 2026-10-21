@@ -27,11 +27,15 @@ export class SpiderMotion {
   }
   update(s: StudioState, running: boolean) {
     this.running = running;
-    const spider = this.spiders.get(s.actor);
-    if (spider) spider.target = this.graph.position(s.active);
-    // The second worker stays active while the first completes its own branch.
-    if (s.nodes.backend.status === 'working') this.spiders.get('reviewer')!.target = this.graph.position('backend');
-    if (s.nodes.frontend.status === 'working') this.spiders.get('developer')!.target = this.graph.position('frontend');
+    // Derive every actor from this snapshot, so replay never retains a future position.
+    const destinations: Record<string, string> = {
+      planner: s.nodes.contract.status === 'done' ? 'contract' : 'plan',
+      developer: s.repairRequired && (s.repaired || s.nodes.repair?.status === 'working') ? 'repair' : s.nodes.frontend.status !== 'queued' ? 'frontend' : 'office',
+      reviewer: s.nodes.review.status === 'done' ? 'review' : s.nodes.checks.status !== 'queued' ? 'checks' : s.nodes.backend.status !== 'queued' ? 'backend' : 'checks',
+      memory: s.memory === 'proposed' || s.memory === 'persisted' ? 'learn' : 'recall',
+    };
+    destinations[s.actor] = s.active;
+    for (const [id, actor] of this.spiders) actor.target = this.graph.position(destinations[id]);
     for (const [id, actor] of this.spiders) actor.group.classList.toggle('engaged', id === s.actor);
     if (!running || this.reduced.matches) for (const actor of this.spiders.values()) actor.at = { ...actor.target };
   }
