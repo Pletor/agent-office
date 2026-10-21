@@ -615,7 +615,7 @@ export class WorkerManager {
           // already gone
         }
       }
-      if (keep && w.pty?.id) continue;
+      if (keep && w.pty?.id && this.launchGuards.keepOnRestart(w.info)) continue;
       // A restart only takes this one down because it runs in-process: the next office carries on its turn.
       if (keep && midTurn(w)) w.interrupted = true;
       try {

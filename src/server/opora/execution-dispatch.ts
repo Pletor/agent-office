@@ -3,6 +3,7 @@ import type { WorkerLaunchGuard } from '../workers/launch-guards.js';
 import { ExecutionClient, validateExecution, type ExecutionLease, type ExecutionScope } from './execution-client.js';
 import { ExecutionController } from './execution-controller.js';
 import { executionPrompt } from './execution-prompt.js';
+import { validateBudgetFiles } from './execution-budget-files.js';
 
 export interface ExecutionHeld { workerId?: string; execution?: ExecutionLease; deadlineUnixMs?: number; leaseUntil?: string; state?: string }
 
@@ -22,6 +23,7 @@ export class ExecutionDispatch {
   }
   readonly guard: WorkerLaunchGuard = {
     applies: info => info.via === 'opora' || this.runs().some(run => run.workerId === info.id),
+    keepOnRestart: info => this.runs().find(run => run.workerId === info.id)?.execution?.executionProtocolVersion !== 2,
     check: info => {
       if (!this.controller.allowed(info.id) && this.seating && info.prompt === this.seating.prompt
         && !this.runs().some(run => run.workerId === info.id) && (!this.seating.workerId || this.seating.workerId === info.id)) {
@@ -36,6 +38,7 @@ export class ExecutionDispatch {
       try {
         if (!run?.execution) throw new Error('missing authority');
         const lease = validateExecution(run.execution, run.execution);
+        validateBudgetFiles(this.directory, this.client.base, this.agent, lease);
         const restored = await this.controller.revalidate(lease);
         this.controller.watch(info.id, restored.lease, restored.deadline);
         return undefined;

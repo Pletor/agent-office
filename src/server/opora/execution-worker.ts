@@ -1,9 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { validateExecution } from './execution-client.js';
+import { sameBudget, validateBudget } from './execution-budget.js';
 
 /** Capability never leaves this process; stdout contains a small public receipt only. */
 export async function reportExecution(bundlePath: string, resultPath: string, transport: typeof fetch = fetch) {
   const bundle = JSON.parse(readFileSync(bundlePath, 'utf8'));
+  const lease = validateExecution(bundle, bundle);
   const raw = readFileSync(resultPath, 'utf8');
   if (Buffer.byteLength(raw, 'utf8') > 64000) throw new Error('Result is too large');
   const result = JSON.parse(raw);
@@ -17,6 +20,8 @@ export async function reportExecution(bundlePath: string, resultPath: string, tr
   if (!response.ok) throw new Error(`Canvas refused result (${response.status})`);
   const receipt = await response.json() as Record<string, unknown>;
   if (receipt.executionId !== bundle.executionId || receipt.state !== 'reported' || typeof receipt.receiptId !== 'string') throw new Error('Invalid receipt');
+  if (lease.executionProtocolVersion === 2 && (receipt.executionProtocolVersion !== 2
+    || !sameBudget(validateBudget(receipt.budget), lease.budget!))) throw new Error('Invalid Canvas budget receipt');
   return { receiptId: receipt.receiptId, executionId: bundle.executionId, state: 'reported', verification: 'agent-reported; not independently verified' };
 }
 

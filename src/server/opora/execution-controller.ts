@@ -1,3 +1,4 @@
+import { ExecutionBudgetClock } from './execution-budget-clock.js';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { ExecutionClient, ExecutionError, type ExecutionClaim, type ExecutionLease, type ExecutionScope } from './execution-client.js';
@@ -12,6 +13,8 @@ export function executionDeadline(lease: Pick<ExecutionLease, 'serverNow' | 'exp
 
 /** Scope guards and monotonic deadlines survive slow/network-hung heartbeats without extending authority. */
 export class ExecutionController {
+  private caps = new ExecutionBudgetClock();
+  private closed = false;
   private pending = new Set<string>();
   private watches = new Map<string, Watch>();
   private claims = new Map<string, ExecutionClaim>();
@@ -27,17 +30,27 @@ export class ExecutionController {
     try { return await run(); } finally { this.pending.delete(key); }
   }
   async claim(scope: ExecutionScope): Promise<{ lease: ExecutionLease; deadline: number }> {
+    if (this.closed) throw new ExecutionError(409, true, 'Office execution controller is shutting down');
     const key = JSON.stringify(scope);
     let payload = this.claims.get(key);
     if (!payload) {
       const context = await this.client.context(scope);
       if (!context.available || !context.acceptedHead || !context.contextVersion) throw new ExecutionError(409, true, 'Canvas needs an accepted, unchanged plan before dispatch');
       payload = { ...scope, expectedAcceptedHead: context.acceptedHead, expectedContextVersion: context.contextVersion, requestId: randomUUID(), ttlSeconds: EXECUTION_TTL };
+      if (context.executionProtocolVersion === 2) {
+        if (!context.budget?.enrolled || !context.budget.policyHead || context.budget.blockedReason)
+          throw new ExecutionError(409, true, 'Canvas budget policy is unavailable');
+        payload.expectedBudgetPolicyHead = context.budget.policyHead;
+        payload.previousExecutionId = context.budget.latestExecutionId;
+      }
       this.claims.set(key, payload);
     }
     let claimed: ExecutionLease | undefined;
     try {
+      const started = this.clock();
       claimed = await this.client.claim(payload);
+      const cap = this.caps.observe(claimed, started);
+      if (this.closed || this.clock() >= cap) throw new ExecutionError(409, true, 'Office execution controller is shutting down');
       // Idempotent claim replay can contain the original serverNow. Renew before launch.
       const { lease, deadline } = await this.revalidate(claimed);
       if (this.clock() >= deadline) { void this.client.release(lease).catch(() => {}); throw new ExecutionError(409, true, 'Execution expired before dispatch'); }
@@ -52,8 +65,9 @@ export class ExecutionController {
     }
   }
   watch(workerId: string, lease: ExecutionLease, deadline: number) {
+    if (this.closed) throw new ExecutionError(409, true, 'Office execution controller is shutting down');
     this.forget(workerId);
-    const watch: Watch = { lease, deadline, stopped: false };
+    const watch: Watch = { lease, deadline: Math.min(deadline, this.caps.observe(lease, this.clock())), stopped: false };
     this.watches.set(workerId, watch);
     this.arm(workerId, watch);
     this.schedule(workerId, watch, 30_000);
@@ -62,8 +76,8 @@ export class ExecutionController {
   async revalidate(lease: ExecutionLease): Promise<{ lease: ExecutionLease; deadline: number }> {
     const started = this.clock();
     const next = await this.client.heartbeat(lease, EXECUTION_TTL);
-    const deadline = executionDeadline(next, started);
-    if (deadline <= this.clock()) throw new ExecutionError(409, true, 'Restored execution already expired');
+    const deadline = Math.min(executionDeadline(next, started), this.caps.observe(next, started));
+    if (this.closed || deadline <= this.clock()) throw new ExecutionError(409, true, 'Restored execution already expired');
     return { lease: next, deadline };
   }
   allowed(workerId: string) { const watch = this.watches.get(workerId); return !!watch && !watch.stopped && this.clock() < watch.deadline; }
@@ -71,7 +85,13 @@ export class ExecutionController {
     const watch = this.watches.get(workerId);
     if (watch) { watch.stopped = true; clearTimeout(watch.expiry); clearTimeout(watch.beat); this.watches.delete(workerId); }
   }
-  shutdown() { for (const id of this.watches.keys()) this.forget(id); }
+  shutdown() {
+    this.closed = true;
+    for (const [id, watch] of this.watches) {
+      if (watch.lease.executionProtocolVersion === 2) this.stop(id, watch, 'Office shutdown: Canvas worker stop requested');
+      else this.forget(id);
+    }
+  }
   private stop(workerId: string, watch: Watch, reason: string) {
     if (watch.stopped) return;
     this.forget(workerId);
@@ -96,7 +116,8 @@ export class ExecutionController {
       const lease = await this.client.heartbeat(watch.lease, EXECUTION_TTL);
       if (watch.stopped) return;
       if (this.clock() >= watch.deadline) { this.stop(workerId, watch, 'Canvas execution deadline expired'); return; }
-      watch.lease = lease; watch.deadline = executionDeadline(lease, started);
+      watch.lease = lease;
+      watch.deadline = Math.min(executionDeadline(lease, started), this.caps.observe(lease, started));
       this.arm(workerId, watch);
       this.schedule(workerId, watch, 30_000);
     } catch (error) {

@@ -20,10 +20,12 @@ server's numeric timestamps and request duration, so machine clock skew cannot
 extend authority. An uncertain claim retries the same request; replay is revalidated
 before any worker starts.
 
-The deadline watchdog runs inside Office. While Office itself is down, a hosted
-terminal retained by shutdown may continue local computation; Canvas still rejects
-expired/revoked result writes. This is not a standalone OS process sandbox or
-watchdog.
+The deadline watchdog runs inside Office. For unbudgeted v1 executions, a hosted
+terminal retained by shutdown may continue computation while Office is down.
+Budgeted v2 executions request a stop on shutdown instead of retaining their
+terminal, while keeping their worktrees. Canvas rejects expired/revoked result
+writes in either case. A stop request or a returned stop adapter is not proof
+that every descendant process exited. This is not an OS process sandbox.
 
 On restart, old Opora terminal processes are stopped before authority is checked.
 Saved executions must revalidate their original epoch before automatic resume.
@@ -52,6 +54,40 @@ Implementation lives in `src/server/opora/execution-*.ts`. The generic
 `workers/launch-guards.ts` registry gates initial launches, restored terminals and
 resume; floor composition registers the Opora guard before `workers.start()`.
 Focused tests are `tests/opora-execution.test.ts` and `tests/opora.test.ts`.
+
+## Budget protocol v2
+
+Canvas advertises the protocol in execution context. Unenrolled cards retain v1;
+once a human configures budgets, the card requires v2 with the current budget
+policy head and previous execution ID. Office never falls back to v1 after v2
+failure, and uncertain delivery reuses the original request and allocation.
+Another owner, release, failed spawn or restart does not refund attempts.
+
+Each v2 execution pins its policy, allocation, attempt, repair round and fixed
+server deadline. Office validates these immutable fields on renewal and restore.
+The monotonic watchdog is capped at the original locally observed run deadline,
+including request latency. Renewing a lease cannot buy more runtime. Saved
+workers revalidate their original authority and cannot claim replacement budget.
+Graceful shutdown conservatively marks budgeted runs ended after requesting stop;
+it does not automatically resume them or claim another attempt on restart. An
+unreleased Canvas lease can remain until release or expiry. Crash recovery of a
+saved working run still requires the original allocation and deadline.
+
+Configure or raise limits in Canvas OporaHub as a human. After accepting a new
+plan revision, configure its new budget family before dispatching an enrolled
+card again. Cancellation in Canvas revokes write authority immediately; Office
+observes it through bounded renewal and requests worker stop. During a network
+partition the last known deadline is the local stop trigger.
+
+An observed server clock regression freezes budget authority for the whole
+Canvas project. Read history and cancel affected runs in Canvas; investigate the
+server clock. This release has no clock-reset API. Do not delete budget tables
+or claim a different owner to recover authority.
+
+These are authority and launch-count limits. Current CLI usage reports do not
+enforce a provider dollar/token cap, and the process adapter does not prove
+containment of all descendants. Do not treat a successful stop call as a hard
+process-tree guarantee. Reported results still need independent review.
 
 Development verification: `npm run typecheck`, `npm test`, `npm run build` and
 `tests/size.test.ts`. On Windows the untouched baseline has unrelated shell-fixture,

@@ -1,12 +1,17 @@
+import { isDeepStrictEqual } from 'node:util';
+import { sameBudget, validateBudget, validateContext, type ExecutionBudget, type ExecutionContext } from './execution-budget.js';
+
 /** Server-private execution capability. Never include this object in browser state. */
 export interface ExecutionLease {
   executionId: string; project: string; workspace: string; nodeId: string; token: string; epoch: number;
   acceptedRevision: string; assignmentDigest: string; assignment: Record<string, unknown>;
   serverNow: number; expiresAt: number; state: 'running';
+  executionProtocolVersion?: 1 | 2; budget?: ExecutionBudget;
 }
 export interface ExecutionScope { project: string; workspace: string; nodeId: string }
 export interface ExecutionClaim extends ExecutionScope {
   expectedAcceptedHead: string; expectedContextVersion: string; requestId: string; ttlSeconds: number;
+  expectedBudgetPolicyHead?: string; previousExecutionId?: string | null;
 }
 export class ExecutionError extends Error {
   constructor(readonly status: number, readonly terminal: boolean, message = 'Canvas execution authority is unavailable') { super(message); }
@@ -23,19 +28,31 @@ export function validateExecution(value: unknown, scope: ExecutionScope): Execut
     || !Number.isFinite(v.serverNow) || !Number.isFinite(v.expiresAt) || v.expiresAt <= v.serverNow || v.state !== 'running') {
     throw new ExecutionError(409, true, 'Canvas returned invalid execution authority');
   }
+  if (v.executionProtocolVersion !== undefined && v.executionProtocolVersion !== 1 && v.executionProtocolVersion !== 2)
+    throw new ExecutionError(409, true, 'Canvas returned unsupported execution authority');
+  if (v.executionProtocolVersion === 2) {
+    try { validateBudget(v.budget); } catch { throw new ExecutionError(409, true, 'Canvas returned invalid budget authority'); }
+    if (v.expiresAt > v.budget!.runDeadlineAt || v.serverNow >= v.budget!.runDeadlineAt)
+      throw new ExecutionError(409, true, 'Canvas budget authority expired or exceeded its fixed deadline');
+  } else if (v.budget !== undefined) throw new ExecutionError(409, true, 'Canvas budget version is missing');
   return v;
 }
 
 export class ExecutionClient {
   constructor(readonly base: string, readonly agent: string, private transport: typeof fetch = fetch) {}
 
-  context(scope: ExecutionScope): Promise<{ available: boolean; unavailableReason: string; acceptedHead: string | null; contextVersion: string }> {
-    return this.call(ROOT + '/context?' + new URLSearchParams({ ...scope }), undefined);
+  async context(scope: ExecutionScope): Promise<ExecutionContext> {
+    const value = await this.call(ROOT + '/context?' + new URLSearchParams({ ...scope }), undefined);
+    try { return validateContext(value); } catch { throw new ExecutionError(409, true, 'Canvas returned unsupported execution context'); }
   }
   async claim(payload: ExecutionClaim): Promise<ExecutionLease> {
     const lease = validateExecution(await this.call(ROOT + '/claim', payload), payload);
     if (lease.acceptedRevision !== payload.expectedAcceptedHead || lease.assignment.contextVersion !== payload.expectedContextVersion)
       throw new ExecutionError(409, true, 'Canvas returned a different assignment context');
+    const version = payload.expectedBudgetPolicyHead !== undefined ? 2 : 1;
+    if ((lease.executionProtocolVersion ?? 1) !== version
+      || (version === 2 && lease.budget!.policyHead !== payload.expectedBudgetPolicyHead))
+      throw new ExecutionError(409, true, 'Canvas returned a different budget protocol or policy');
     return lease;
   }
   async heartbeat(lease: ExecutionLease, ttlSeconds: number): Promise<ExecutionLease> {
@@ -43,7 +60,10 @@ export class ExecutionClient {
       ...this.credentials(lease), ttlSeconds,
     }), lease);
     if (next.executionId !== lease.executionId || next.epoch !== lease.epoch || next.token !== lease.token
-      || next.acceptedRevision !== lease.acceptedRevision || next.assignmentDigest !== lease.assignmentDigest) {
+      || next.acceptedRevision !== lease.acceptedRevision || next.assignmentDigest !== lease.assignmentDigest
+      || (next.executionProtocolVersion ?? 1) !== (lease.executionProtocolVersion ?? 1)
+      || !isDeepStrictEqual(next.assignment, lease.assignment)
+      || (lease.executionProtocolVersion === 2 && !sameBudget(next.budget!, lease.budget!))) {
       throw new ExecutionError(409, true, 'Canvas execution identity changed');
     }
     return next;

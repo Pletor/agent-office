@@ -10,6 +10,7 @@ import { OporaClient } from './client.js';
 import { ActivityFeed } from './live.js';
 import { oporaProcess } from './process.js';
 import { ExecutionDispatch, type ExecutionHeld } from './execution-dispatch.js';
+import { requestExecutionStop } from './execution-stop.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
 export interface BridgeFloor {
@@ -102,9 +103,8 @@ export class OporaBridge {
     this.executions = new ExecutionDispatch(url, `office-${floor.id}`, dataDir, () => this.runs,
       () => this.changed(), (id, reason) => {
         const run = this.runs.find(run => run.workerId === id);
-        if (run) { run.state = 'gone'; run.error = reason; this.changed(); }
-        void this.floor.stop?.(id).catch(() => this.events.toast("Worker stop failed; stop the process manually", "warn"));
-        this.events.toast(reason, 'warn');
+        requestExecutionStop(run, id, reason, this.floor.stop?.bind(this.floor),
+          () => this.changed(), message => this.events.toast(message, 'warn'));
       });
     this.restore();
     this.live = new ActivityFeed(this.client, () => ({ project: this.state.project?.id, workspace: this.state.workspace ?? undefined }), () => this.events.update(this.view()));
