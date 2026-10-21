@@ -2,11 +2,14 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { validateExecution } from './execution-client.js';
 import { sameBudget, validateBudget } from './execution-budget.js';
+import { EXECUTION_INSTRUCTIONS_VERSION, validateContextProof, validateContextVersion } from './execution-context.js';
 
 /** Capability never leaves this process; stdout contains a small public receipt only. */
 export async function reportExecution(bundlePath: string, resultPath: string, transport: typeof fetch = fetch) {
   const bundle = JSON.parse(readFileSync(bundlePath, 'utf8'));
   const lease = validateExecution(bundle, bundle);
+  if (lease.contextProtocolVersion === 2 && bundle.executionInstructionsVersion !== EXECUTION_INSTRUCTIONS_VERSION)
+    throw new Error('Invalid execution instruction version');
   const raw = readFileSync(resultPath, 'utf8');
   if (Buffer.byteLength(raw, 'utf8') > 64000) throw new Error('Result is too large');
   const result = JSON.parse(raw);
@@ -22,6 +25,8 @@ export async function reportExecution(bundlePath: string, resultPath: string, tr
   if (receipt.executionId !== bundle.executionId || receipt.state !== 'reported' || typeof receipt.receiptId !== 'string') throw new Error('Invalid receipt');
   if (lease.executionProtocolVersion === 2 && (receipt.executionProtocolVersion !== 2
     || !sameBudget(validateBudget(receipt.budget), lease.budget!))) throw new Error('Invalid Canvas budget receipt');
+  if (validateContextVersion(receipt.contextProtocolVersion) !== (lease.contextProtocolVersion ?? 1)) throw new Error('Invalid Canvas context receipt');
+  if (lease.contextProtocolVersion === 2) validateContextProof(receipt.contextValidation, lease.acceptedRevision);
   return { receiptId: receipt.receiptId, executionId: bundle.executionId, state: 'reported', verification: 'agent-reported; not independently verified' };
 }
 

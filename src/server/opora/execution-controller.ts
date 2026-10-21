@@ -2,6 +2,7 @@ import { ExecutionBudgetClock } from './execution-budget-clock.js';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { ExecutionClient, ExecutionError, type ExecutionClaim, type ExecutionLease, type ExecutionScope } from './execution-client.js';
+import type { ContextVersion } from './execution-context.js';
 
 export const EXECUTION_TTL = 900;
 type Watch = { lease: ExecutionLease; deadline: number; expiry?: ReturnType<typeof setTimeout>; beat?: ReturnType<typeof setTimeout>; stopped: boolean };
@@ -29,14 +30,17 @@ export class ExecutionController {
     this.pending.add(key);
     try { return await run(); } finally { this.pending.delete(key); }
   }
-  async claim(scope: ExecutionScope): Promise<{ lease: ExecutionLease; deadline: number }> {
+  async claim(scope: ExecutionScope, contextVersion: ContextVersion = 1): Promise<{ lease: ExecutionLease; deadline: number }> {
     if (this.closed) throw new ExecutionError(409, true, 'Office execution controller is shutting down');
     const key = JSON.stringify(scope);
     let payload = this.claims.get(key);
+    if (payload && (payload.contextProtocolVersion ?? 1) !== contextVersion)
+      throw new ExecutionError(409, true, 'Pending Canvas claim uses another context protocol');
     if (!payload) {
-      const context = await this.client.context(scope);
+      const context = await this.client.context(scope, contextVersion);
       if (!context.available || !context.acceptedHead || !context.contextVersion) throw new ExecutionError(409, true, 'Canvas needs an accepted, unchanged plan before dispatch');
       payload = { ...scope, expectedAcceptedHead: context.acceptedHead, expectedContextVersion: context.contextVersion, requestId: randomUUID(), ttlSeconds: EXECUTION_TTL };
+      if (contextVersion === 2) payload.contextProtocolVersion = 2;
       if (context.executionProtocolVersion === 2) {
         if (!context.budget?.enrolled || !context.budget.policyHead || context.budget.blockedReason)
           throw new ExecutionError(409, true, 'Canvas budget policy is unavailable');
@@ -88,7 +92,7 @@ export class ExecutionController {
   shutdown() {
     this.closed = true;
     for (const [id, watch] of this.watches) {
-      if (watch.lease.executionProtocolVersion === 2) this.stop(id, watch, 'Office shutdown: Canvas worker stop requested');
+      if (watch.lease.executionProtocolVersion === 2 || watch.lease.contextProtocolVersion === 2) this.stop(id, watch, 'Office shutdown: Canvas worker stop requested');
       else this.forget(id);
     }
   }

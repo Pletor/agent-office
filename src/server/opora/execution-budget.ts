@@ -11,6 +11,7 @@ export interface BudgetContext {
 export interface ExecutionContext {
   available: boolean; unavailableReason: string | null; acceptedHead: string | null; contextVersion: string | null;
   executionProtocolVersion?: 1 | 2; budget?: BudgetContext | null;
+  contextProtocolVersion?: 1 | 2;
 }
 const KEYS = ['policyHead', 'familyId', 'allocationId', 'attempt', 'repairRound', 'kind', 'admittedAt', 'runDeadlineAt', 'maxRunSeconds'] as const;
 const hash = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);

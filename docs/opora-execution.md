@@ -93,3 +93,36 @@ Development verification: `npm run typecheck`, `npm test`, `npm run build` and
 `tests/size.test.ts`. On Windows the untouched baseline has unrelated shell-fixture,
 symlink-permission and process-lifecycle failures; use a bounded Node test run to
 compare those separately from these protocol tests.
+
+## Context protocol v2
+
+Set `AGENT_OFFICE_OPORA_CONTEXT_VERSION=2` before starting Office to explicitly
+select sparse context validation. Leave the variable unset for existing v1 behavior.
+Other values are rejected. Canvas must provide the context-v2 API; Office sends
+POST `/api/oporahub/executions/context` with `contextProtocolVersion: 2`, then claims
+that exact version. It never retries an unsupported or refused v2 request as v1.
+Context version and budget execution version are negotiated independently, so a
+sparse execution can use either unbudgeted v1 or budgeted v2 authority.
+
+Canvas pins the original accepted revision and dependency context. A heartbeat can
+advance the checked accepted head when all intermediate accepted and live changes
+preserve that context. Office validates the public proof, its original revision
+and bounded counts; it retains the original assignment, epoch, token and budget.
+Missing proofs, context downgrades or changed origins prevent launch or renewal.
+Private raw context pins and project secrets remain in Canvas and are not part of
+the Office lease, worker prompt or result receipt.
+
+Sparse dispatch skips both dynamic task preparation and prompt decoration, including
+the live harness context and REA brief normally appended by those callbacks. It uses
+only the immutable assignment and static protocol `opora-office-execution/2`.
+The private bundle records that instruction version. Restart validates the original
+bundle and assignment files before revalidating the original execution, even when
+the execution has no authority budget. Missing or inconsistent files leave the
+worker stopped; Office does not recapture task data or claim a replacement run.
+Sparse shutdown requests a stop and keeps the worktree, with the same process-tree
+limitations described above. Changing the environment setting does not downgrade
+a saved sparse run.
+
+These proofs cover Canvas's declared accepted/live dependency sources. They do not
+independently verify external file or link bytes, provider usage, process isolation
+or reported worker results. Focused coverage includes `tests/opora-context.test.ts`.
