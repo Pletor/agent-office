@@ -1,0 +1,69 @@
+/* "This level's own settings" as a slot list (slot-editor.ts): state per slot, the draft, the conflict, the legend. */
+.harness-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0 10px; padding: 0; list-style: none; font-size: 13px; font-weight: 700; }
+.harness-legend li { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 99px; border: 2px solid transparent; }
+.harness-legend .harness-mark-draft { border-color: var(--warn); border-style: dashed; }
+.harness-legend .harness-mark-saved { border-color: #32a89a; }
+.harness-legend .harness-mark-pack { border-color: #8b5cf6; border-style: dotted; }
+.harness-mark-pack b { color: #8b5cf6; }
+.harness-mark-saved b { color: #32a89a; }
+.harness-readonly { margin: 4px 0 10px; padding: 8px 10px; border-left: 4px solid var(--info); background: color-mix(in srgb, var(--info) 14%, transparent); font-weight: 700; overflow-wrap: anywhere; }
+.harness-readonly[hidden], .harness-slots-empty[hidden], .harness-conflict[hidden], .harness-create[hidden], .harness-detail[hidden], .harness-bind-confirm[hidden] { display: none; }
+.harness-slots { display: grid; gap: 8px; margin: 0 0 10px; padding: 0; list-style: none; }
+.harness-slot { display: grid; gap: 4px; padding: 9px 11px; border: 1px solid #8884; border-left: 5px solid #8886; border-radius: 9px; min-width: 0; }
+.harness-slot[data-state=own] { border-left-color: #32a89a; }
+.harness-slot[data-state=disabled] { border-left-color: var(--bad); }
+.harness-slot[data-state=inherited], .harness-slot[data-state=unset] { border-left-style: dotted; }
+.harness-slot[data-draft=true] { border-color: var(--warn); border-style: dashed; background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.harness-slot-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.harness-slot-name { font-weight: 800; overflow-wrap: anywhere; }
+.harness-state { font-size: 12px; font-weight: 800; padding: 1px 8px; border-radius: 99px; background: #8882; }
+.harness-state[data-state=own] { background: #32a89a; color: #fff; }
+.harness-state[data-state=disabled] { background: var(--bad); color: #fff; }
+.harness-draft-mark { font-size: 12px; font-weight: 800; color: #9a6b00; }
+.harness-saved-mark { font-size: 12px; font-weight: 700; color: #32a89a; }
+.harness-slot-value { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.harness-slot-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.harness-slot-actions .btn, .harness-slot-add .btn { min-height: 34px; padding: 4px 10px; font-size: 13px; }
+.harness-cascade .harness-slot-actions input { width: auto; flex: 1 1 140px; min-width: 0; padding: 6px 8px; }
+.harness-slot-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 0; border-top: 1px dashed #8886; }
+.harness-cascade .harness-slot-add input, .harness-cascade .harness-slot-add select { width: auto; flex: 1 1 130px; min-width: 0; padding: 6px 8px; }
+.harness-slot-add strong { flex-basis: 100%; font-size: 13px; }
+.harness-field-error { margin: 0; font-size: 13px; font-weight: 700; color: var(--bad); overflow-wrap: anywhere; }
+.harness-field-error:empty { display: none; }
+.harness-draft { margin: 6px 0; padding: 10px 12px; border: 2px dashed #8886; border-radius: 9px; }
+.harness-draft[data-dirty=true] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.harness-draft h4 { margin: 0 0 6px; font-size: 14px; }
+.harness-diff { margin: 0 0 6px; padding-left: 18px; font-size: 13px; overflow-wrap: anywhere; }
+.harness-from { text-decoration: line-through; opacity: .75; }
+.harness-to { font-weight: 800; }
+.harness-diff-none { list-style: none; margin-left: -18px; color: var(--muted); }
+.harness-conflict { margin: 6px 0 10px; padding: 10px 12px; border: 2px solid var(--bad); border-radius: 9px; background: color-mix(in srgb, var(--bad) 10%, transparent); overflow-wrap: anywhere; }
+.harness-conflict p { margin: 6px 0; font-size: 13px; }
+.harness-advanced { margin: 8px 0; }
+/* The element detail (detail.ts) and the forms beside the list (create-element.ts, bind-floor.ts). */
+.harness-detail { width: 100%; display: grid; gap: 6px; margin: 4px 0 6px; }
+.harness-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.harness-chip { font-size: 12px; font-weight: 800; padding: 2px 9px; border-radius: 99px; background: #32a89a22; border: 1px solid #32a89a; text-transform: capitalize; overflow-wrap: anywhere; }
+.harness-chip-group { text-transform: none; background: transparent; }
+.harness-detail-purpose { margin: 0; color: var(--muted); font-size: 13px; }
+.harness-meta { display: grid; gap: 3px; margin: 0; font-size: 13px; }
+.harness-meta-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.harness-meta dt { font-weight: 800; color: var(--muted); }
+.harness-meta dd { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; overflow-wrap: anywhere; min-width: 0; }
+.harness-meta code { overflow-wrap: anywhere; word-break: break-all; }
+.harness-copy { min-height: 28px; padding: 2px 9px; font-size: 12px; }
+.harness-detail[data-available=false] .harness-availability { color: var(--bad); font-weight: 800; }
+.harness-assign { display: flex; flex-wrap: wrap; gap: 6px; align-items: end; }
+.harness-assign label { display: grid; gap: 3px; font-size: 12px; font-weight: 800; color: var(--muted); flex: 1 1 220px; min-width: 0; }
+.harness-assign input { padding: 7px 8px; border-radius: 8px; min-width: 0; font-weight: 400; }
+.harness-assign-status { flex-basis: 100%; margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.harness-assign-status:empty { display: none; }
+.harness-create { display: grid; gap: 6px; margin: 0 0 10px; padding: 10px; border: 2px solid #32a89a; border-radius: 9px; }
+.harness-create input, .harness-create select, .harness-create textarea { padding: 7px 8px; border-radius: 8px; min-width: 0; box-sizing: border-box; width: 100%; }
+.harness-create textarea { font: 12px/1.5 ui-monospace, monospace; }
+.harness-create-where { margin: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.harness-bind { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.harness-bind:empty, .harness-bind-slot:empty { display: none; }
+.harness-bind-confirm { display: grid; gap: 6px; padding: 8px 10px; border: 2px solid var(--warn); border-radius: 9px; }
+.harness-bind-confirm p { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.harness-pack-count { font-weight: 800; color: #8b5cf6; }

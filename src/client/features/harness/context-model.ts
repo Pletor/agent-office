@@ -21,6 +21,8 @@ export interface ProjectChoice {
   binding: { project: string; workspace: string; projectName: string } | null;
   status: HarnessTreeStatus | 'error';
   notice: string;
+  /** An unbound floor's Opora window place, which an administrator may bind ("Bind this floor"). */
+  window?: { project: string; workspace: string; projectName: string } | null;
 }
 /** GET /api/harness/tree?floor=: the floor's tree, or an empty one and why. */
 export interface TreeReply extends ProjectChoice { tree: HarnessTreeNode[] }

@@ -10,6 +10,7 @@
 import { h } from '../../ui/dom';
 import { treeTrail, type HarnessTreeNode } from '../../../shared/harness-tree';
 import { latest, levelName, type HarnessContext, type ProjectChoice, type TreeReply } from './context-model';
+import { bindFloorAction } from './bind-floor';
 
 /** What the picker says after a floor's name: its Opora project, or why there's none. */
 export function projectStatus(p: Pick<ProjectChoice, 'binding' | 'status'>): string {
@@ -29,6 +30,8 @@ export function contextBar(opts: { opened: string; signal: AbortSignal; onReques
   let ctx: HarnessContext = { kind: 'global' };
   let projects: ProjectChoice[] = [];
   let globalNs: string[] = DEFAULT_GLOBAL;
+  /** Whether this reader may bind floors and create elements (GET /api/harness/projects `admin`; the routes check again). */
+  let admin = false;
   /** The tree of the floor last asked for, once its reply is in (`floor` says whose). */
   let tree: { floor: string; reply?: TreeReply; error?: string } | undefined;
   /** The last project chosen, so Project comes back to it after a look at Global. */
@@ -43,6 +46,7 @@ export function contextBar(opts: { opened: string; signal: AbortSignal; onReques
   const spec = h('div.harness-spec', { role: 'group', 'aria-label': 'Specialization' });
   const trail = h('p.harness-trail', { 'aria-live': 'polite' });
   const notice = h('p.harness-notice.harness-context-notice', { role: 'note', hidden: '' });
+  const bind = h('div.harness-bind-slot');
   const guardText = h('span');
   const discard = h('button.btn', { type: 'button' }, 'Discard changes and switch');
   const keep = h('button.btn.primary', { type: 'button' }, 'Keep editing');
@@ -51,7 +55,7 @@ export function contextBar(opts: { opened: string; signal: AbortSignal; onReques
     h('div.harness-context-row', {}, segmented,
       h('label.harness-field', {}, h('span', {}, 'Project'), picker),
       h('div.harness-field.harness-spec-field', {}, h('span', {}, 'Specialization'), spec)),
-    trail, notice, guardEl);
+    trail, notice, bind, guardEl);
 
   const projectName = (floor: string) => projects.find((p) => p.floor === floor)?.name ?? floor;
   const repoOf = (floor: string) => projects.find((p) => p.floor === floor)?.repo;
@@ -113,6 +117,8 @@ export function contextBar(opts: { opened: string; signal: AbortSignal; onReques
     const why = ctx.kind === 'global' ? '' : tree?.floor === ctx.floor && tree.error ? tree.error : reply && reply.status !== 'ready' ? reply.notice : '';
     notice.textContent = why;
     notice.hidden = !why;
+    const unbound = admin && reply?.status === 'unbound' && ctx.kind !== 'global' ? reply : undefined;
+    bind.replaceChildren(...(unbound?.window ? [bindFloorAction({ floor: unbound.floor, floorName: unbound.name, window: unbound.window, signal: opts.signal, onBound: () => { void loadProjects(); if (ctx.kind !== 'global') void loadTree(ctx.floor); } })] : []));
   }
   async function loadTree(floor: string) {
     const turn = trees.next();
@@ -139,6 +145,7 @@ export function contextBar(opts: { opened: string; signal: AbortSignal; onReques
       if (!turn.current() || !response.ok) return;
       projects = data.projects ?? [];
       globalNs = data.globalNamespaces ?? DEFAULT_GLOBAL;
+      admin = data.admin === true;
       render();
       opts.onProjects?.();
       // A remembered project this office no longer has falls back to the floor the library was opened on.
@@ -159,6 +166,7 @@ export function contextBar(opts: { opened: string; signal: AbortSignal; onReques
     projectName,
     repoOf,
     globalNamespaces: () => globalNs,
+    admin: () => admin,
     /** Shows `next` (the tree of its project is fetched when it isn't the one in hand). */
     set(next: HarnessContext) {
       ctx = next;

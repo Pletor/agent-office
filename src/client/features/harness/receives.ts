@@ -5,9 +5,18 @@
 import { h } from '../../ui/dom';
 import { resolveHarness, type HarnessProfile } from '../../../shared/harness-cascade';
 import { levelName, type HarnessContext } from './context-model';
+import { shortDigest, type HarnessResourceState } from '../../../shared/harness';
 
 /** The profile reply the panel reads (GET /api/harness/profile). */
-export type ReceivedView = HarnessProfile & { preview: string; warning: string };
+export type ReceivedView = HarnessProfile & { preview: string; warning: string; resources?: Record<string, HarnessResourceState> };
+
+/** An assigned element as the worker gets it: its ID, and when the library knows it, its title, revision and short digest (or why it's unavailable). */
+export function resourceText(id: string, state: HarnessResourceState | undefined): string {
+  if (!state) return 'resource ' + id;
+  if (state.status === 'available') return `resource ${state.title} · ${id} · revision ${state.version} · sha256:${shortDigest(state.digest)}`;
+  if (state.status === 'missing') return `resource ${id} · unavailable: ${state.missingSince ? 'missing since ' + state.missingSince.slice(0, 10) : 'not published in this project'} (${state.path})`;
+  return `resource ${id} · unknown here`;
+}
 
 /** The snapshot digest of a handoff preview (harness/handoff.ts writes it as `Snapshot SHA-256: <hex>`). */
 export function previewDigest(preview: string): string | undefined {
@@ -50,7 +59,7 @@ export function receivesPanel() {
       const names = new Map(view.path.map((p) => [p.node, p.name ?? '']));
       const from = (e: HarnessProfile['effective'][string]) => e.scope === 'global' ? 'Global' : e.scope === 'project' ? projectName : (e.nodeName || (e.node && names.get(e.node)) || e.node || '—');
       const rows = Object.entries(effective).map(([slot, e]) => h('tr', {}, h('td', {}, slot),
-        h('td', {}, e.binding === null ? 'null (disabled)' : 'resource' in e.binding ? 'resource ' + e.binding.resource : JSON.stringify(e.binding.value)),
+        h('td', {}, e.binding === null ? 'null (disabled)' : 'resource' in e.binding ? resourceText(e.binding.resource, view.resources?.[e.binding.resource]) : JSON.stringify(e.binding.value)),
         h('td', {}, levelName(e.scope)), h('td', { title: e.node ?? '' }, from(e))));
       if (rows.length) body.replaceChildren(...rows);
       else message(global ? 'Global sets no slots.' : 'No slots are set at any level.');
