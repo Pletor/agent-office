@@ -3,14 +3,14 @@
 // office, and `GET /office/harness?worker=ID&preparePlan=1&task=KEY` for a worker with its hook token
 // (what `office-harness --prepare-plan --task KEY` calls). The same reads as the catalog: an
 // administrator, the shared-password session or the admin-owned orchestrator sees machine resources,
-// everyone else the project-published ones. Nothing is written by either.
+// everyone else the project-published ones. Nothing is written by either (the library is listed read-only).
 import type http from 'node:http';
 import type { Ctx } from '../office/context.js';
 import type { Floor } from '../floor.js';
 import { send } from '../http/util.js';
 import { HarnessError } from './profiles.js';
 import { HarnessBindings } from './bindings.js';
-import { preparePlan } from './prepare.js';
+import { preparePlan, redactPaths } from './prepare.js';
 import { parseOporaKey, samePlace } from '../../shared/opora-identity.js';
 
 /** The dry-run plan for the card `?task=` (or `?node=`) names, on the floor's project and workspace. */
@@ -28,6 +28,9 @@ export async function preparePlanRequest(ctx: Ctx, floor: Floor, res: http.Serve
     if (!samePlace(place, card)) throw new HarnessError(`${key} is in project ${card.project}, workspace ${card.workspace}; this floor takes cards of project ${place.project}, workspace ${place.workspace}.`, 409);
     send(res, 200, await preparePlan({ dataDir: ctx.cfg.dataDir, repo: floor.dir, place, card: card.nodeId, nodes: floor.opora.canvasNodes(), local, runner: floor.workers?.officeDefault.provider }), headers);
   } catch (err) {
-    send(res, err instanceof HarnessError ? err.status : 500, { error: (err as Error).message }, headers);
+    // The server's folders are never in the answer: named in a refusal, and an unexpected error is logged, not sent.
+    if (!(err instanceof HarnessError)) console.error('agent-office: preparation plan failed:', err);
+    const message = err instanceof HarnessError ? redactPaths(err.message, { '<dataDir>': ctx.cfg.dataDir, '<checkout>': floor.dir }) : 'The preparation plan could not be made (an internal error; the office log has it).';
+    send(res, err instanceof HarnessError ? err.status : 500, { error: message }, headers);
   }
 }

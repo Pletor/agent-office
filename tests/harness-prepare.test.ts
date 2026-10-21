@@ -5,70 +5,20 @@
 // are real processes that exit in the middle of a take (tests/fixtures/prepare-crash.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { promisify } from 'node:util';
-import { HarnessProfiles } from '../src/server/harness/profiles.js';
 import { HarnessLibrary, harnessSources } from '../src/server/harness/catalog.js';
 import { HarnessRegistry } from '../src/server/harness/registry.js';
-import { fakeAdapter, listAdapters, registerAdapter, resolveAdapters, type FakeAdapterOptions } from '../src/server/harness/adapters.js';
-import { finishRollback, prepareRun, preparePlan, type PrepareOptions } from '../src/server/harness/prepare.js';
-import { preparedCardRun, recoverRuns } from '../src/server/harness/prepare-recover.js';
-import { listRecords, PREPARE_TRANSITIONS, scopeDir, type PreparedRecord } from '../src/server/harness/prepare-store.js';
+import { fakeAdapter, listAdapters, registerAdapter, resolveAdapters } from '../src/server/harness/adapters.js';
+import { finishRollback, prepareRun, preparePlan } from '../src/server/harness/prepare.js';
+import { recoverRuns } from '../src/server/harness/prepare-recover.js';
+import { PREPARE_TRANSITIONS, recordScope, scopeDir, type PreparedRecord } from '../src/server/harness/prepare-store.js';
 import { preparePlanRequest } from '../src/server/harness/prepare-api.js';
 import { loadSnapshot } from '../src/server/harness/snapshot.js';
 import { claimAndSeat } from '../src/server/opora/prepared.js';
 import { remoteHarness } from '../bin/harness-remote.js';
-import { bridgeOn, fakeFloor, fakeOpora } from './fixtures/prepare-opora.js';
+import { crash, leaseOps, place, records, restarted, setup, snapshots, tree } from './fixtures/prepare-setup.js';
 import type { WorkerInfo } from '../src/shared/protocol.js';
-
-const place = { project: 'p1', workspace: 'draft' };
-
-/** Shop's checkout with a rule bound at the project, the fake adapter registered and named by the profile when `adapters` says so. */
-async function setup(t: { after(fn: () => void | Promise<void>): void }, o: { adapters?: string; fake?: FakeAdapterOptions; options?: PrepareOptions; seat?: (deskId: string, prompt: string) => string | undefined; workersFile?: boolean } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'office-prepare-'));
-  const op = await fakeOpora(dir);
-  const cleanup: (() => void | Promise<void>)[] = [() => op.close(), () => rmSync(dir, { recursive: true, force: true })];
-  t.after(async () => { for (const step of cleanup.splice(0).reverse()) await step(); });
-  mkdirSync(path.join(dir, '.harness', 'rules'), { recursive: true });
-  writeFileSync(path.join(dir, '.harness', 'rules', 'review.md'), 'Review every change.\n');
-  const catalog = await new HarnessLibrary(harnessSources(dir, false), new HarnessRegistry(dir)).list();
-  const rule = catalog.entries.find((e) => e.path === 'rules/review.md')!.id;
-  const profiles = new HarnessProfiles(dir);
-  await profiles.save(dir, '', 'global', { language: { value: 'en' } }, 0);
-  await profiles.save(dir, '', 'repository', { 'rules.review': { resource: rule }, ...(o.adapters !== undefined ? { adapters: { value: o.adapters } } : {}) }, 1);
-  const fake = fakeAdapter(o.fake);
-  const off = registerAdapter(fake.adapter);
-  const { floor, workers } = fakeFloor(dir, o.workersFile ? path.join(dir, 'workers.json') : undefined, o.seat);
-  const { bridge, toasts } = bridgeOn(floor, dir, op.url, {
-    prepareTask: (project, workspace, card, _owner, nodes) => preparedCardRun(dir, dir, { project, workspace }, card, nodes, false, o.options),
-    recoverRuns: async (recovery) => (await recoverRuns(dir, dir, recovery)).adopted,
-  });
-  cleanup.push(off, () => bridge.shutdown());
-  await bridge.poll();
-  return { dir, op, bridge, toasts, workers, fake, profiles, rule };
-}
-
-const records = (dir: string) => listRecords(dir).records;
-const snapshots = (dir: string) => (existsSync(path.join(dir, 'harness-snapshots')) ? readdirSync(path.join(dir, 'harness-snapshots')) : []);
-const leaseOps = (op: { calls: { path: string; body?: Record<string, unknown> }[] }, kind: string) => op.calls.filter((c) => c.path === '/api/desktop-v3/lease' && c.body?.op === kind);
-
-/** Every file under `dir` with a digest of its content: what a dry run must leave exactly as it was. */
-function tree(dir: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  const walk = (at: string) => {
-    for (const name of readdirSync(at)) {
-      const file = path.join(at, name);
-      if (statSync(file).isDirectory()) walk(file);
-      else out[path.relative(dir, file)] = createHash('sha256').update(readFileSync(file)).digest('hex');
-    }
-  };
-  walk(dir);
-  return out;
-}
 
 /** Asserts a failed take left nothing: no lease of ours on Opora, no snapshot, no scoped files, the run rolled back with the step that failed. */
 function assertRolledBack(f: Awaited<ReturnType<typeof setup>>, step: string) {
@@ -95,7 +45,11 @@ test('prepare → claim → seat through the bridge and Opora: the run walks the
   assert.match(f.workers[0].prompt!, new RegExp('Run: ' + r.runId + '\\nSnapshot SHA-256: ' + r.digest));
   assert.match(f.workers[0].prompt!, /Review every change\./);
   assert.equal(loadSnapshot(f.dir, r.runId).digest, r.digest);
-  assert.ok(existsSync(path.join(scopeDir(f.dir, r.runId), 'fake.json')), 'the adapter’s scoped config is in place');
+  assert.equal(r.scope, `harness-prepared/${r.runId}/1`, 'the first adapters attempt’s own folder');
+  assert.ok(existsSync(path.join(recordScope(f.dir, r), 'fake.json')), 'the adapter’s scoped config is in place');
+  assert.deepEqual(r.steps.find((s) => s.id === 'adapters')!.writes, [`harness-prepared/${r.runId}/1/fake.json`], 'writes are relative to the data dir, with forward slashes');
+  assert.equal(r.floor, 'shop');
+  assert.equal(r.deskId, f.workers[0].deskId, 'the desk is recorded from the claim on');
   assert.deepEqual(f.fake.calls, { prepare: 1, rollback: 0, verify: 1 });
   assert.equal(f.bridge.snapshotOf(f.workers[0].id)?.runId, r.runId);
   // Claim before prepared and seat before claimed are refused by the state machine itself.
@@ -161,9 +115,10 @@ test('an adapter the office does not have, or one that belongs to H13, is refuse
   const f = await setup(t, { adapters: 'mcp, nope' });
   const reply = (await f.bridge.take('c2', 'Ana'))!;
   assert.match(reply, /Unsupported adapters, refused before anything was prepared: mcp \(the runner this card's worker is seated with is not known[^)]*\); nope \(no adapter with this id is registered/);
+  assert.match(reply, /Nothing was written; the card was not claimed\.$/);
   assert.equal(leaseOps(f.op, 'claim').length, 0);
-  assertRolledBack(f, 'availability');
-  assert.equal(records(f.dir)[0].steps.find((s) => s.id === 'snapshot')!.status, 'pending', 'the snapshot step was never reached');
+  assert.deepEqual(records(f.dir), [], 'a refusal before anything was created leaves no record');
+  assert.deepEqual(snapshots(f.dir), []);
   const plan = await preparePlan({ dataDir: f.dir, repo: f.dir, place, card: 'c2', nodes: f.bridge.canvasNodes(), local: false });
   assert.equal(plan.ok, false);
   assert.deepEqual(plan.refused.map((x) => x.id), ['mcp', 'nope']);
@@ -183,7 +138,7 @@ test('a dry run reports every step, the requirements and what would be written, 
   assert.deepEqual(plan.steps.map((s) => [s.id, s.status]), [['resolve', 'planned'], ['availability', 'planned'], ['snapshot', 'planned'], ['adapters', 'planned'], ['verify', 'planned']]);
   assert.deepEqual(plan.adapters, ['context', 'fake']);
   assert.ok(plan.requirements.every((c) => c.state === 'declared'), 'a plan only declares');
-  assert.ok(plan.writes.some((w) => w.endsWith(path.join('harness-prepared', '<runId>.json'))));
+  assert.ok(plan.writes.includes('harness-prepared/<runId>.json'), JSON.stringify(plan.writes));
   assert.ok(plan.steps.find((s) => s.id === 'adapters')!.writes.some((w) => w.endsWith('fake.json')));
   assert.equal(plan.options.retry.max, 1);
   assert.equal(f.fake.calls.prepare, 0);
@@ -252,8 +207,6 @@ test('a run moved meanwhile (a recovery rolled it back) is never claimed: the le
   assert.equal(claims, 0);
 });
 
-const crash = (mode: string, dir: string, url: string) => promisify(execFile)(process.execPath, ['--import', 'tsx', path.join(import.meta.dirname, 'fixtures', 'prepare-crash.ts'), mode, dir, url, path.join(dir, 'workers.json')], { cwd: path.join(import.meta.dirname, '..'), timeout: 110_000 });
-
 test('restart after the run was prepared: the next take finds it and uses it, without preparing it again', async (t) => {
   const f = await setup(t, { adapters: 'fake', workersFile: true });
   f.bridge.shutdown();
@@ -261,11 +214,9 @@ test('restart after the run was prepared: the next take finds it and uses it, wi
   const [before] = records(f.dir);
   assert.equal(before.state, 'prepared');
   assert.equal(leaseOps(f.op, 'claim').length, 0);
-  const scoped = statSync(path.join(scopeDir(f.dir, before.runId), 'fake.json')).mtimeMs;
+  const scoped = statSync(path.join(recordScope(f.dir, before), 'fake.json')).mtimeMs;
   // The office starts again: the prepared run is left for the next take of its card, which takes it up.
-  const { floor, workers } = fakeFloor(f.dir, path.join(f.dir, 'workers.json'));
-  const again = bridgeOn(floor, f.dir, f.op.url, { prepareTask: (project, workspace, card, _o, nodes) => preparedCardRun(f.dir, f.dir, { project, workspace }, card, nodes, false), recoverRuns: async (r) => (await recoverRuns(f.dir, f.dir, r)).adopted });
-  t.after(() => again.bridge.shutdown());
+  const again = restarted(t, f.dir, f.op.url), workers = again.workers;
   await again.bridge.poll();
   assert.equal(records(f.dir)[0].state, 'prepared', 'a fresh prepared run survives the recovery');
   assert.equal(await again.bridge.take('c2', 'Ana'), undefined);
@@ -276,7 +227,7 @@ test('restart after the run was prepared: the next take finds it and uses it, wi
   assert.ok(after[0].history.some((h) => /taken up again after a restart/.test(h.note ?? '')));
   assert.equal(snapshots(f.dir).length, 1, 'no second snapshot');
   assert.deepEqual(f.fake.calls, { prepare: 0, rollback: 0, verify: 1 }, 'the adapter was verified, not prepared again');
-  assert.equal(statSync(path.join(scopeDir(f.dir, before.runId), 'fake.json')).mtimeMs, scoped, 'the scoped config was not rewritten');
+  assert.equal(statSync(path.join(recordScope(f.dir, before), 'fake.json')).mtimeMs, scoped, 'the scoped config was not rewritten');
   assert.equal(workers.length, 1);
   assert.match(workers[0].prompt!, new RegExp('Run: ' + before.runId));
 });
@@ -288,9 +239,7 @@ test('restart after the claim, before the seat: the lease is released, the run r
   const [before] = records(f.dir);
   assert.equal(before.state, 'claimed');
   assert.equal(f.op.leases.get('c2'), before.lease!.token, 'the stopped office held the lease');
-  const { floor, workers } = fakeFloor(f.dir, path.join(f.dir, 'workers.json'));
-  const again = bridgeOn(floor, f.dir, f.op.url, { prepareTask: (project, workspace, card, _o, nodes) => preparedCardRun(f.dir, f.dir, { project, workspace }, card, nodes, false), recoverRuns: async (r) => (await recoverRuns(f.dir, f.dir, r)).adopted });
-  t.after(() => again.bridge.shutdown());
+  const again = restarted(t, f.dir, f.op.url), workers = again.workers;
   await again.bridge.poll();
   const [r] = records(f.dir);
   assert.equal(r.state, 'rolledBack');
@@ -310,10 +259,8 @@ test('restart right after the seat, before it was recorded: the run is recorded 
   await crash('seat-window', f.dir, f.op.url);
   const [before] = records(f.dir);
   assert.equal(before.state, 'claimed');
-  const { floor, workers } = fakeFloor(f.dir, path.join(f.dir, 'workers.json'));
+  const again = restarted(t, f.dir, f.op.url), workers = again.workers;
   assert.equal(workers.length, 1, 'the worker the stopped office seated is still at its desk');
-  const again = bridgeOn(floor, f.dir, f.op.url, { prepareTask: (project, workspace, card, _o, nodes) => preparedCardRun(f.dir, f.dir, { project, workspace }, card, nodes, false), recoverRuns: async (r) => (await recoverRuns(f.dir, f.dir, r)).adopted });
-  t.after(() => again.bridge.shutdown());
   await again.bridge.poll();
   const [r] = records(f.dir);
   assert.equal(r.state, 'seated');

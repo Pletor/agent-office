@@ -7,7 +7,7 @@
 import { lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { listRecords, readRecord, scopeDir } from './prepare-store.js';
+import { listRecords, readRecord, recordScope, type PreparedRecord } from './prepare-store.js';
 import type { LaunchContribution } from './adapters.js';
 import type { AgentProvider } from '../../shared/providers.js';
 
@@ -42,10 +42,11 @@ export function seatWithRun<T>(runId: string | undefined, seat: () => T): T {
   try { return seat(); } finally { pending = before; }
 }
 
-/** A launch from a record, its files checked to be inside the run's scoped folder (a record edited by hand is not followed out of it). */
-function launchOf(dataDir: string, runId: string, launch: RunLaunch | undefined): RunLaunch | null {
+/** A launch from a record, its files checked to be inside the record's scoped folder, `<runId>/<attempt>/` (a record edited by hand is not followed out of it). */
+function launchOf(dataDir: string, record: Pick<PreparedRecord, 'runId' | 'scope' | 'launch'>): RunLaunch | null {
+  const { runId, launch } = record;
   if (!launch || launch.runId !== runId) return null;
-  const scope = scopeDir(dataDir, runId);
+  const scope = recordScope(dataDir, record);
   for (const file of [launch.mcpConfig, launch.permissions]) {
     if (file === undefined) continue;
     const rel = path.relative(scope, path.resolve(file));
@@ -62,13 +63,13 @@ export function runLaunchFor(info: { id: string; provider?: AgentProvider; promp
   let found: RunLaunch | null = null;
   if (pending) {
     const r = readRecord(store, pending);
-    if (r && r.state === 'claimed' && !r.workerId) found = launchOf(store, r.runId, r.launch);
+    if (r && r.state === 'claimed' && !r.workerId) found = launchOf(store, r);
   }
   if (!found) {
     // Seated by its id, or claimed by an office that stopped before recording the seat (no worker id yet): then the run its contract names.
     const named = /\nRun: ([a-z0-9-]{8,64})\n/.exec(info.prompt ?? '')?.[1];
     const r = listRecords(store).records.find((x) => (x.state === 'seated' && x.workerId === info.id) || (x.state === 'claimed' && !x.workerId && x.runId === named));
-    if (r) found = launchOf(store, r.runId, r.launch);
+    if (r) found = launchOf(store, r);
   }
   if (found) byWorker.set(info.id, found);
   return found ?? undefined;

@@ -6,6 +6,7 @@
 // capabilities start `declared`, become `prepared` only when its prepare step said so, and `verified`
 // only when the runner checked them afterwards. An adapter a profile names that this office doesn't
 // have, or that says it can't run here, is refused with the reason, before anything is written.
+import path from 'node:path';
 import { runContract } from './run.js';
 import { SNAPSHOT_LIMITS, type StoredSnapshot } from './snapshot.js';
 import type { OporaPlace } from '../../shared/opora-identity.js';
@@ -22,7 +23,12 @@ export interface AdapterContext {
   repo: string;
   card: OporaPlace & { nodeId: string };
   snapshot: StoredSnapshot;
-  /** `<dataDir>/harness-prepared/<runId>/`: the only place an adapter writes; it is removed whole when the run rolls back. */
+  /**
+   * `<dataDir>/harness-prepared/<runId>/<attempt>/` (each attempt of the adapters step has its own): the
+   * only place an adapter writes. It is removed when the attempt fails and with the run when it rolls back.
+   * The runner refuses a result whose reported `writes` reach outside it (writesOutside); what an adapter
+   * writes without reporting it is its own `rollback()`'s to undo.
+   */
   scopeDir: string;
   /** Aborted when the step's time is up: an adapter stops and leaves its rollback to the runner. */
   signal: AbortSignal;
@@ -47,8 +53,14 @@ export interface VerifyReport { reason?: string; capabilities?: Capability[] }
 /** What a recovery hands an adapter after a restart, with no closure from `prepare` left. */
 export interface RecoverContext { runId: string; dataDir: string; scopeDir: string }
 
-/** One thing an adapter did (or, in a plan, would do): its id, what it is, and the files it writes. */
+/** One thing an adapter did (or, in a plan, would do): its id, what it is, and the files it writes (absolute, or relative to `scopeDir`). */
 export interface AdapterStep { id: string; detail: string; writes: string[] }
+
+/** The reported writes of `steps` that aren't inside `scopeDir` (relative ones are taken from it): a result with any is refused. */
+export function writesOutside(scopeDir: string, steps: readonly AdapterStep[]): string[] {
+  const root = path.resolve(scopeDir);
+  return steps.flatMap((s) => s.writes).filter((w) => { const at = path.resolve(root, w); return at !== root && !at.startsWith(root + path.sep); });
+}
 
 /** What `prepare` returns: whether it worked, what it did, the worker's prompt section, and how to undo it. */
 export interface AdapterResult {
@@ -163,8 +175,9 @@ export interface FakeAdapterOptions {
   /** Throw from prepare (the first `throwTimes` calls, or every call when undefined and `throws` is set). */
   throws?: string;
   throwTimes?: number;
-  /** Resolve prepare only after this many ms (to exceed a step's timeout). */
+  /** Resolve prepare only after this many ms (to exceed a step's timeout); only in the first `delayTimes` calls when that is set. */
   delayMs?: number;
+  delayTimes?: number;
   /** Write the scoped config only after the delay, as a slow runner would (a write that lands after its step timed out). */
   lateWrite?: boolean;
   /** Return ok: false with this reason. */
@@ -178,6 +191,8 @@ export interface FakeAdapterOptions {
   verifyStates?: Record<string, CapabilityState>;
   /** State persisted in the record, for `recover`. */
   persist?: Record<string, unknown>;
+  /** Also write (and report) this file, relative to the data dir: outside the scoped folder, which the runner refuses. */
+  outside?: string;
 }
 
 /**
@@ -202,12 +217,15 @@ export function fakeAdapter(options: FakeAdapterOptions = {}) {
       const { mkdirSync, writeFileSync } = await import('node:fs');
       const file = ctx.scopeDir + '/' + id + '.json';
       const write = () => { mkdirSync(ctx.scopeDir, { recursive: true }); writeFileSync(file, JSON.stringify({ run: ctx.runId, digest: ctx.snapshot.digest })); };
-      if (!options.lateWrite) write();
-      if (options.delayMs) await new Promise((r) => setTimeout(r, options.delayMs));
-      if (options.lateWrite) write();
+      const delay = options.delayMs && (options.delayTimes === undefined || calls.prepare <= options.delayTimes) ? options.delayMs : 0;
+      if (!options.lateWrite || !delay) write();
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+      if (options.lateWrite && delay) write();
       const rollback = () => { calls.rollback++; };
       if (options.fails) return { ok: false, steps: [], reason: options.fails, rollback };
-      return { ok: true, steps: [{ id: id + '.config', detail: 'wrote the scoped config', writes: [file] }], rollback, ...(options.persist ? { persist: options.persist } : {}) };
+      const extra = options.outside ? [path.join(ctx.dataDir, options.outside)] : [];
+      for (const other of extra) writeFileSync(other, 'outside');
+      return { ok: true, steps: [{ id: id + '.config', detail: 'wrote the scoped config', writes: [file, ...extra] }], rollback, ...(options.persist ? { persist: options.persist } : {}) };
     },
     async verify() {
       calls.verify++;

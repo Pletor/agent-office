@@ -14,12 +14,15 @@ export interface FakeOpora {
   url: string;
   leases: Map<string, string>;
   calls: { path: string; body?: Record<string, unknown> }[];
+  /** While set, a release answers with this status and keeps the lease (Opora down: 503). */
+  failRelease: number;
   close(): Promise<void>;
 }
 
 /** Shop: one sector (Checkout) with two developer cards (c1, c2), its folder `dir`, in workspace `draft`. */
 export async function fakeOpora(dir: string, leases = new Map<string, string>()): Promise<FakeOpora> {
   const calls: FakeOpora['calls'] = [];
+  const knobs = { failRelease: 0 };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
     let raw = '';
@@ -48,6 +51,7 @@ export async function fakeOpora(dir: string, leases = new Map<string, string>())
             return send(200, { token, expiresAt: '2030-01-01T00:00:00Z' });
           }
           if (body?.op === 'release') {
+            if (knobs.failRelease) return send(knobs.failRelease, { detail: 'unavailable' });
             if (leases.get(node) !== body.token) return send(409, { detail: 'not your lease' });
             leases.delete(node);
           }
@@ -58,7 +62,10 @@ export async function fakeOpora(dir: string, leases = new Map<string, string>())
     });
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, leases, calls, close: () => new Promise((r) => server.close(() => r())) };
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, leases, calls, close: () => new Promise((r) => server.close(() => r())),
+    get failRelease() { return knobs.failRelease; }, set failRelease(v: number) { knobs.failRelease = v; },
+  };
 }
 
 /** A floor whose workers are an array (kept in `file` when given, so they outlive a process); `seat` runs first and may refuse (a string) or throw. */

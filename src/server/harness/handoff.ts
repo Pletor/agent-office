@@ -31,12 +31,13 @@ export interface ResolvedHandoff { profile: HarnessProfile; task: string; level:
  * distinct resources, a project or unpinned OpenViking element in the global layer, or a resource that
  * can't be read now (missing, tombstoned, unknown, unreadable) throws before anything is handed out.
  */
-export async function resolveHandoff(dataDir: string, repo: string, target: HarnessTarget, local: boolean, profile: HarnessProfile = new HarnessProfiles(dataDir).view(repo, target)): Promise<ResolvedHandoff> {
+export async function resolveHandoff(dataDir: string, repo: string, target: HarnessTarget, local: boolean, profile: HarnessProfile = new HarnessProfiles(dataDir).view(repo, target), options: { persist?: boolean } = {}): Promise<ResolvedHandoff> {
   const library = new HarnessLibrary(harnessSources(repo, local), new HarnessRegistry(dataDir));
   const bound = Object.entries(profile.effective).flatMap(([slot, { binding, scope, node, nodeName }]) => binding && 'resource' in binding ? [{ id: binding.resource, slot, scope, ...(node ? { node } : {}), ...(nodeName ? { nodeName } : {}) }] : []);
   const ids = [...new Set(bound.map((b) => b.id))];
   if (ids.length > 24) throw new HarnessError('The effective harness exceeds 24 resources.');
-  if (ids.length) await library.list();
+  // `persist: false` (a dry run): the library is listed without writing its registry or digest cache.
+  if (ids.length) await library.list({ persist: options.persist });
   for (const { id, scope } of bound) {
     // A global binding to a project element (saved before the rule, or by hand), or to an OpenViking element discovered per project, would quietly pick this project's same-path file: refused, never rebound.
     const canonical = library.resolve(id);
