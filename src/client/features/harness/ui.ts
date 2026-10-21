@@ -192,7 +192,7 @@ export function openHarness(opened: string) {
     context = next;
     shown = undefined;
     allowCreate();
-    if (floorChanged) selected.clear();
+    if (floorChanged) { selected.clear(); create.close(); }
     // The reader shows an element of the list it belongs to, never one of the context left behind.
     if (floorChanged || (current && !listed(current.id))) {
       current = undefined;

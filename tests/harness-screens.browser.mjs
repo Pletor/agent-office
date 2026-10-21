@@ -63,8 +63,11 @@ try {
       }
       await page.getByRole('button', { name: /Start here/ }).focus();
       await page.keyboard.press('ArrowDown');
+      // The next element of the category's shelves (the navigator lists one category at a time).
+      const next = await page.evaluate(() => document.activeElement?.querySelector('strong')?.textContent);
+      assert.ok(next && next !== 'Start here', 'ArrowDown moves to the next element');
       await page.keyboard.press('Enter');
-      await page.getByRole('heading', { name: /Skills/ }).waitFor();
+      await page.getByRole('heading', { name: next, exact: true }).waitFor();
       await page.locator('.harness-text:not([aria-busy])').waitFor();
       assert.equal(await retryShown(page), false, 'no Try again after a successful read');
       await page.keyboard.press('/');

@@ -40,9 +40,10 @@ export function categoryNavigator(opts: { onPick(id: string): void; current(): s
   const all = () => scope.value === 'all' && words().length > 0;
   const problem = (source: string) => sources.find((s) => s.name === source)?.reason;
 
-  function categoryButton(c: HarnessCategory, count: number, partial: number) {
+  /** A category in the column: while searching, its count is "matches/elements", so the search shows where else it finds something. */
+  function categoryButton(c: HarnessCategory, count: number, partial: number, found: number | undefined) {
     const b = h('button.harness-cat', { type: 'button', 'aria-pressed': String(c === category && !all()), title: HARNESS_CATEGORY_PURPOSE[c], 'data-empty': String(count === 0) },
-      h('span.harness-cat-name', {}, c), h('span.harness-count', { 'aria-label': count + (count === 1 ? ' element' : ' elements') }, String(count)),
+      h('span.harness-cat-name', {}, c), h('span.harness-count', { 'aria-label': found === undefined ? count + (count === 1 ? ' element' : ' elements') : `${found} of ${count} match` }, found === undefined ? String(count) : `${found}/${count}`),
       partial ? h('span.harness-badge.harness-badge-warn', { title: `${partial} of these come from a source that was not read in full (see Sources and availability)` }, 'partial') : null,
       h('small.harness-cat-purpose', {}, HARNESS_CATEGORY_PURPOSE[c]));
     b.onclick = () => { category = c; if (scope.value === 'all') scope.value = 'category'; render(); };
@@ -52,7 +53,8 @@ export function categoryNavigator(opts: { onPick(id: string): void; current(): s
     const flags = [marks.draft.has(e.id) ? '✎' : '', marks.saved.has(e.id) ? '●' : '', marks.pack.has(e.id) ? '◆' : ''].filter(Boolean).join(' ');
     const why = problem(e.source);
     const b = h('button.harness-entry', { type: 'button', 'aria-pressed': String(opts.current() === e.id), title: `${e.id} · revision ${e.version}${flags ? ' · ' + [marks.draft.has(e.id) ? 'in the draft' : '', marks.saved.has(e.id) ? 'assigned in the saved profile' : '', marks.pack.has(e.id) ? 'in the ad-hoc pack' : ''].filter(Boolean).join(', ') : ''}` },
-      h('strong', {}, (flags ? flags + ' ' : '') + e.title), h('small', {}, e.group + ' · ' + e.source + (why ? ' · source ' + why : '')), h('small', {}, e.path));
+      // The marks sit beside the title, never in it: the title reads (and is found) as it is.
+      flags ? h('span.harness-marks', { 'aria-hidden': 'true' }, flags) : null, h('strong', {}, e.title), h('small', {}, e.group + ' · ' + e.source + (why ? ' · source ' + why : '')), h('small', {}, e.path));
     b.onclick = () => opts.onPick(e.id);
     return b;
   }
@@ -83,12 +85,13 @@ export function categoryNavigator(opts: { onPick(id: string): void; current(): s
   /** Renders the column and the shelves; returns how many elements match (for the library's empty states). */
   function render(): number {
     const w = words();
-    const counts = new Map<HarnessCategory, number>(), partial = new Map<HarnessCategory, number>();
+    const counts = new Map<HarnessCategory, number>(), partial = new Map<HarnessCategory, number>(), found = new Map<HarnessCategory, number>();
     for (const e of entries) {
       counts.set(e.category, (counts.get(e.category) ?? 0) + 1);
       if (problem(e.source)) partial.set(e.category, (partial.get(e.category) ?? 0) + 1);
+      if (w.length && matches(e, w)) found.set(e.category, (found.get(e.category) ?? 0) + 1);
     }
-    cats.replaceChildren(...HARNESS_CATEGORIES.map((c) => categoryButton(c, counts.get(c) ?? 0, partial.get(c) ?? 0)));
+    cats.replaceChildren(...HARNESS_CATEGORIES.map((c) => categoryButton(c, counts.get(c) ?? 0, partial.get(c) ?? 0, w.length ? found.get(c) ?? 0 : undefined)));
     const marks = opts.marks();
     const hits = entries.filter((e) => (all() || e.category === category) && matches(e, w));
     const inCategory = counts.get(category) ?? 0;
@@ -104,7 +107,11 @@ export function categoryNavigator(opts: { onPick(id: string): void; current(): s
     if (entries.length && !hits.length) {
       const clear = h('button.btn', { type: 'button' }, 'Clear filters');
       clear.onclick = () => { search.value = ''; scope.value = 'category'; opts.onClear?.(); changed(); search.focus?.(); };
-      list.append(h('div.harness-state', {}, h('p', {}, w.length ? 'No matching resources.' : `No ${category} here yet.`), w.length ? clear : null));
+      // Nothing in this category, but the search finds something elsewhere: say where, and offer the wider search.
+      const elsewhere = w.length && !all() ? [...found.values()].reduce((a, b) => a + b, 0) : 0;
+      const wider = h('button.btn.primary', { type: 'button' }, 'Search all categories');
+      wider.onclick = () => { scope.value = 'all'; changed(); };
+      list.append(h('div.harness-state', {}, h('p', {}, elsewhere ? `No match in ${category}; ${elsewhere} ${elsewhere === 1 ? 'match' : 'matches'} in other categories.` : w.length ? 'No matching resources.' : `No ${category} here yet.`), elsewhere ? wider : null, w.length ? clear : null));
     }
     return hits.length;
   }

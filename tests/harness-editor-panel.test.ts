@@ -78,9 +78,10 @@ test('search is an add-on: within the chosen category, or across all; long names
   search.value = 'element-0014';
   (search as unknown as { oninput(): void }).oninput();
   assert.deepEqual(texts(list, 'button.harness-entry').map((t) => t.replace(/\s.*/, '')), [], 'element-0014 is a skill: not in instructions');
-  assert.match(list.textContent, /No matching resources\./);
-  scope.value = 'all';
-  (scope as unknown as { onchange(): void }).onchange();
+  assert.match(list.textContent, /No match in instructions; 1 match in other categories\./);
+  assert.equal(node(nav.el).querySelectorAll('button.harness-cat')[1].querySelector('span.harness-count')!.textContent, '1/93', 'the column shows where the search finds something');
+  click(byText(list, 'Search all categories'));
+  assert.equal(scope.value, 'all');
   const hits = list.querySelectorAll('button.harness-entry');
   assert.equal(hits.length, 1);
   assert.match(hits[0].textContent, /element-0014\.md/);
@@ -102,9 +103,10 @@ test('the marks: ✎ in the draft, ● assigned in the saved profile, ◆ in the
   const nav = categoryNavigator({ onPick: () => {}, current: () => entries[0].id, marks: () => marks });
   nav.set(entries, { sources: [], limited: false });
   const items = node(nav.list).querySelectorAll('button.harness-entry');
-  assert.match(items[0].textContent, /^◆ element-0000\.md/);
+  assert.match(items[0].textContent, /^◆element-0000\.md/);
+  assert.equal(items[0].querySelector('strong')!.textContent, 'element-0000.md', 'the title stays as it is');
   assert.equal(items[0].getAttribute('aria-pressed'), 'true');
-  assert.match(items[1].textContent, /^✎ ● element-0013\.md/);
+  assert.match(items[1].textContent, /^✎ ●element-0013\.md/);
 });
 
 test('the legend names the three things apart: Draft | Saved profile (revision N) | Ad-hoc pack', () => {

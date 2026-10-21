@@ -46,6 +46,8 @@ export function cascadePanel(opts: {
   let jsonShown = '';
   let jsonError = '';
   let saving = false;
+  /** A plain load is in flight (edits wait for it), or a 409 is being read back (the editor stays locked until it is shown). */
+  let loading = false, resolving = false;
   /** Whether the view on show is the answer to a save (it says "Saved as revision N"). */
   let saved = false;
   /** After a 409: the store's profile now, until the user picks Reload or Keep editing. */
@@ -72,7 +74,7 @@ export function cascadePanel(opts: {
   const level = (): HarnessLevel => (ctx ? contextLevel(ctx) : 'project');
   /** The level as the loaded path has it: a specialization must still be on the canvas, at the level it was chosen at. */
   const placed = () => !!view && !!ctx && (ctx.kind !== 'node' || pathNode(view.path, ctx.level)?.node === ctx.node);
-  const canSave = () => !!view && !saving && !server && view.writable && !(level() === 'global' && !view.globalWrite) && placed();
+  const canSave = () => !!view && !saving && !loading && !resolving && !server && view.writable && !(level() === 'global' && !view.globalWrite) && placed();
   const changes = () => diffLayers(base, draft);
   const dirty = () => !!view && (changes().length > 0 || json.value !== jsonShown);
   function readOnlyReason(): string {
@@ -86,7 +88,9 @@ export function cascadePanel(opts: {
     json.disabled = !canSave();
     slots.save.disabled = !canSave() || !dirty() || !!jsonError;
     slots.discard.disabled = saving || !dirty();
-    reload.disabled = saving;
+    // Reload would drop a draft: Discard changes first (the switcher's guard asks for the same reason).
+    reload.disabled = saving || resolving || dirty();
+    reload.title = dirty() ? 'Discard changes first: Reload would drop the draft.' : '';
   }
   /** The slot list and the draft bar, from `base`, `draft` and the loaded profile. */
   function renderSlots() {
@@ -167,14 +171,17 @@ export function cascadePanel(opts: {
     const opened = view?.revision;
     const body = write ? JSON.stringify({ scope: level(), layer: draft, revision: opened, ...(at ? { at } : {}) }) : undefined;
     saving = write;
+    loading = !write;
     renderSlots();
     status.textContent = write ? 'Saving…' : 'Loading…';
     try {
       const response = await fetch(url(c), { signal: turn.signal, method: write ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, ...(body ? { body } : {}) });
       const data = await response.json();
       if (!turn.current() || !ctx || !sameContext(c, ctx)) return;
+      loading = false;
       if (write && response.status === 409) { saving = false; return void (await showConflict(c, opened, data.error ?? 'The profile changed elsewhere.')); }
       if (!response.ok) throw Object.assign(new Error(data.error ?? 'Could not load profiles'), { code: response.status });
+      if (!data || typeof data.layers !== 'object' || data.layers === null) throw new Error('The profile could not be read: the reply is not a profile.');
       // An incomplete answer to a save keeps the audit on show rather than blanking it.
       view = data.incomplete && view ? { ...data, tasks: view.tasks, audit: view.audit } : data;
       saved = write;
@@ -185,7 +192,7 @@ export function cascadePanel(opts: {
       opts.onView(view!, c);
     } catch (err) {
       if (!turn.current() || opts.signal.aborted) return;
-      saving = false;
+      saving = loading = false;
       status.textContent = failure((err as { code?: number }).code, (err as Error).message, write);
       if (!view) opts.onError?.(c, (err as Error).message);
       renderSlots();
@@ -194,19 +201,24 @@ export function cascadePanel(opts: {
   /** A 409: reads the store's profile now and lists what changed at this level since the draft was opened. */
   async function showConflict(c: HarnessContext, opened: number | undefined, detail: string) {
     status.textContent = 'Not saved: ' + detail;
+    // Its own turn: a reload or a switch meanwhile drops this reply; until it is shown nothing can be edited.
+    const turn = requests.next();
+    resolving = true;
+    renderSlots();
     try {
-      const response = await fetch(url(c), { signal: opts.signal });
+      const response = await fetch(url(c), { signal: turn.signal });
       const data = await response.json();
-      if (!ctx || !sameContext(c, ctx)) return;
+      if (!turn.current() || !ctx || !sameContext(c, ctx)) return;
       if (!response.ok) throw new Error(data.error ?? 'The profile could not be read.');
       server = data as CascadeView;
       const resources = { ...(view?.resources ?? {}), ...(server.resources ?? {}) };
       const lines = diffLayers(base, server.layers[level()] ?? {}).map((d) => ({ slot: d.slot, from: describeBinding(d.from, resources, opts.titleOf), to: describeBinding(d.to, resources, opts.titleOf) }));
       conflict.show(opened, server.revision, lines, detail);
     } catch (err) {
+      if (!turn.current()) return;
       server = undefined;
-      status.textContent = 'Not saved: ' + detail + ' The current profile could not be read (' + (err as Error).message + '): Reload to start again.';
-    }
+      status.textContent = 'Not saved: ' + detail + ' The current profile could not be read (' + (err as Error).message + '): Discard changes and Reload to start again.';
+    } finally { if (turn.current()) resolving = false; }
     renderSlots();
   }
   /** Reload: the store's profile, draft dropped. Keep editing: the store's profile with the draft's edits on top. */
@@ -237,7 +249,7 @@ export function cascadePanel(opts: {
     el,
     dirty,
     /** A save is in flight: the context must not change under it. */
-    busy: () => saving,
+    busy: () => saving || resolving,
     /** Shows `next`'s own level, dropping whatever was loaded or loading for the one before. */
     show(next: HarnessContext) {
       ctx = next;
@@ -245,7 +257,7 @@ export function cascadePanel(opts: {
       base = draft = {};
       jsonShown = json.value = '';
       jsonError = '';
-      saving = false;
+      saving = loading = resolving = false;
       conflict.hide();
       title(next);
       where.textContent = '';

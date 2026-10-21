@@ -21,7 +21,7 @@ export function formProblem(group: string, name: string, content: string): strin
 }
 
 export function createElementForm(opts: { floor(): string; category(): HarnessCategory; groups(category: HarnessCategory): string[]; onCreated(entry: HarnessEntry | null, id: string, warning: string): void; signal: AbortSignal }) {
-  const toggle = h('button.btn', { type: 'button', 'aria-expanded': 'false' }, '+ New element');
+  const toggle = h('button.btn.harness-create-toggle', { type: 'button', 'aria-expanded': 'false' }, '+ New element');
   const category = h('select', { 'aria-label': 'New element category' }, ...HARNESS_CATEGORIES.map((c) => h('option', { value: c }, c)));
   const group = h('input', { 'aria-label': 'New element group folder', placeholder: 'group folder (optional)', list: 'harness-group-names', maxlength: 64, spellcheck: false });
   const groups = h('datalist', { id: 'harness-group-names' });
@@ -78,6 +78,7 @@ export function createElementForm(opts: { floor(): string; category(): HarnessCa
   };
   return {
     toggle, form,
+    close,
     /** Who may create here: '' for an administrator in a project, else why not (the button stays visible, disabled, with the reason). */
     allow(reason: string) {
       blocked = reason;

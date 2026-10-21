@@ -13,7 +13,7 @@ export function bindFloorAction(opts: { floor: string; floorName: string; window
   const yes = h('button.btn.primary', { type: 'button' }, 'Bind floor');
   const no = h('button.btn', { type: 'button' }, 'Cancel');
   const status = h('p.harness-field-error', { role: 'status' });
-  const confirm = h('div.harness-bind-confirm', { role: 'alertdialog', 'aria-label': 'Confirm binding', hidden: '' }, question, h('div.harness-actions', {}, yes, no));
+  const confirm = h('div.harness-bind-confirm', { role: 'group', 'aria-label': 'Confirm binding', hidden: '' }, question, h('div.harness-actions', {}, yes, no));
   const el = h('div.harness-bind', {}, offer, confirm, status);
   offer.onclick = () => { confirm.hidden = false; offer.hidden = true; yes.focus?.(); };
   no.onclick = () => { confirm.hidden = true; offer.hidden = false; status.textContent = ''; offer.focus?.(); };

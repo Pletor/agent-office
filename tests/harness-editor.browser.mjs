@@ -249,7 +249,7 @@ try {
   {
     const { page, errors } = await open(1440, 900, 'loose');
     await page.getByRole('button', { name: 'Bind this floor to Opora Ample' }).click();
-    const confirm = page.getByRole('alertdialog', { name: 'Confirm binding' });
+    const confirm = page.getByRole('group', { name: 'Confirm binding' });
     await confirm.getByText(/Bind floor loose-repo to Opora project Ample \(p-ample\), workspace w-ample\?/).waitFor();
     await shot(page, 'editor-bind-desktop.png');
     await confirm.getByRole('button', { name: 'Bind floor' }).click();

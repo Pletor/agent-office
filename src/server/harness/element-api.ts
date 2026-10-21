@@ -13,7 +13,7 @@
 // text up to 128 KiB. Each creation is audited in `<dataDir>/harness-elements.json` (the newest 200), and
 // the reply carries the element as a fresh listing of the catalog sees it (its ID, revision and digest).
 import type http from 'node:http';
-import { lstat, mkdir, open, realpath, rename, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { constants, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { HARNESS_CATEGORIES, type HarnessCategory, type HarnessEntry } from '../../shared/harness.js';
@@ -102,11 +102,21 @@ export async function createElementFile(checkout: string, request: ElementReques
     if (code === 'ELOOP') throw new HarnessError('That name is a link: the library never writes through a link.');
     throw err;
   }
-  try { await handle.writeFile(request.content, 'utf8'); } finally { await handle.close(); }
+  // A write that fails leaves no stub behind (a stub would answer every retry with 409).
+  try { await handle.writeFile(request.content, 'utf8'); }
+  catch (err) { await handle.close(); await unlink(file).catch(() => {}); throw err; }
+  await handle.close();
+  // The folders were checked before the open; the file is checked after it, so a folder swapped for a link in between keeps nothing.
+  const real = await realpath(file).catch(() => '');
+  const stat = await lstat(file).catch(() => undefined);
+  if (!real || !same(real, file) || !inside(project, real) || !stat?.isFile()) {
+    await unlink(file).catch(() => {});
+    throw new HarnessError('The target folder changed while the file was written (a link appeared): nothing was kept. Check the .harness folder and try again.');
+  }
   return [request.category, request.group, request.name].filter(Boolean).join('/');
 }
 
-/** The newest creations, oldest dropped first; a damaged file is replaced only by a new creation, never read as entries. */
+/** The newest creations, oldest dropped first; a damaged file is replaced only by a new creation, never read as entries. Best effort: two creations at the same instant may keep only one audit entry (the files are both created). */
 function readAudit(file: string): ElementAudit[] {
   if (!existsSync(file)) return [];
   try { const data = JSON.parse(readFileSync(file, 'utf8')); return Array.isArray(data.audit) ? data.audit : []; } catch { return []; }

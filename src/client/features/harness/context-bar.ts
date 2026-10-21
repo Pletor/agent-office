@@ -32,6 +32,7 @@ export function contextBar(opts: { opened: string; signal: AbortSignal; onReques
   let globalNs: string[] = DEFAULT_GLOBAL;
   /** Whether this reader may bind floors and create elements (GET /api/harness/projects `admin`; the routes check again). */
   let admin = false;
+  let bindKey = '';
   /** The tree of the floor last asked for, once its reply is in (`floor` says whose). */
   let tree: { floor: string; reply?: TreeReply; error?: string } | undefined;
   /** The last project chosen, so Project comes back to it after a look at Global. */
@@ -118,6 +119,10 @@ export function contextBar(opts: { opened: string; signal: AbortSignal; onReques
     notice.textContent = why;
     notice.hidden = !why;
     const unbound = admin && reply?.status === 'unbound' && ctx.kind !== 'global' ? reply : undefined;
+    // Built once per floor and window place, so a reply arriving mid-confirmation doesn't close it.
+    const key = unbound?.window ? unbound.floor + ' ' + unbound.window.project + ' ' + unbound.window.workspace : '';
+    if (key === bindKey) return;
+    bindKey = key;
     bind.replaceChildren(...(unbound?.window ? [bindFloorAction({ floor: unbound.floor, floorName: unbound.name, window: unbound.window, signal: opts.signal, onBound: () => { void loadProjects(); if (ctx.kind !== 'global') void loadTree(ctx.floor); } })] : []));
   }
   async function loadTree(floor: string) {
