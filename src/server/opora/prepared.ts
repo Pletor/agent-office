@@ -16,7 +16,7 @@ export interface PreparedTask {
   state?: string;
   /** Records the lease once the card is claimed (refused when the run was moved meanwhile: the bridge lets the lease go then). */
   claimed?(lease: { token: string; agent: string; card?: { name: string; group: 'dev' | 'design'; sectorName?: string } }): Promise<void> | void;
-  /** Records the worker once it is seated. */
+  /** Records the worker once it is seated; the bridge calls it after it holds the run, so a poll never finds the run seated and not held. */
   seated?(workerId: string): Promise<void> | void;
   /** Drops what was prepared when the card is not taken after all (the claim or the seat failed). */
   discard?(reason?: string): Promise<void> | void;
@@ -32,8 +32,8 @@ export interface Held extends OporaRun {
 
 /** What a restarted bridge hands the preparation runner to recover the runs an earlier office left. */
 export interface RunRecovery {
-  /** The floor's workers now: a run whose worker is here (by id, or by the run named in its prompt) was seated. */
-  workers: readonly Pick<WorkerInfo, 'id' | 'name' | 'deskId' | 'prompt'>[];
+  /** The floor's workers now (read again under a run's lock): a run whose worker is here (by id, or by the run named in its prompt) was seated. */
+  workers(): readonly Pick<WorkerInfo, 'id' | 'name' | 'deskId' | 'prompt'>[];
   /** The run ids the bridge holds (not gone). */
   held: ReadonlySet<string>;
   /** Lets a lease go: 'unreachable' when Opora didn't answer (the recovery tries again at the next poll). */
@@ -53,7 +53,8 @@ const undo = async (prepared: PreparedTask, why: string) => { try { await prepar
  * Claims the card and seats its worker for a prepared task, in that order and only for a run in
  * `prepared` (or plain context). A refused claim drops what was prepared; anything that fails after the
  * claim (recording it, the seat refusing or throwing) lets the lease go and drops it too, so a failed
- * take never keeps a lease. Resolves to the lease and the worker, or to why it couldn't.
+ * take never keeps a lease. Resolves to the lease and the worker, or to why it couldn't. The caller
+ * holds the run and then calls `prepared.seated` (until then the run stays in flight, untouched by a recovery).
  */
 export async function claimAndSeat(prepared: PreparedTask, card: { name: string; group: 'dev' | 'design'; sectorName?: string }, agent: string, ops: {
   claim(): Promise<Lease>;
@@ -80,7 +81,6 @@ export async function claimAndSeat(prepared: PreparedTask, card: { name: string;
   let worker: WorkerInfo | string;
   try { worker = await ops.seat(lease); } catch (err) { worker = (err as Error).message || 'The worker could not be seated'; }
   if (typeof worker === 'string') return fail(worker);
-  try { await prepared.seated?.(worker.id); } catch { /* seated anyway: the recovery records it from the worker's prompt */ }
   return { lease, worker };
 }
 

@@ -133,6 +133,8 @@ export interface FakeAdapterOptions {
   throwTimes?: number;
   /** Resolve prepare only after this many ms (to exceed a step's timeout). */
   delayMs?: number;
+  /** Write the scoped config only after the delay, as a slow runner would (a write that lands after its step timed out). */
+  lateWrite?: boolean;
   /** Return ok: false with this reason. */
   fails?: string;
   /** Fail verification with this reason. */
@@ -157,10 +159,11 @@ export function fakeAdapter(options: FakeAdapterOptions = {}) {
       calls.prepare++;
       if (options.throws && (options.throwTimes === undefined || calls.prepare <= options.throwTimes)) throw new Error(options.throws);
       const { mkdirSync, writeFileSync } = await import('node:fs');
-      mkdirSync(ctx.scopeDir, { recursive: true });
       const file = ctx.scopeDir + '/' + id + '.json';
-      writeFileSync(file, JSON.stringify({ run: ctx.runId, digest: ctx.snapshot.digest }));
+      const write = () => { mkdirSync(ctx.scopeDir, { recursive: true }); writeFileSync(file, JSON.stringify({ run: ctx.runId, digest: ctx.snapshot.digest })); };
+      if (!options.lateWrite) write();
       if (options.delayMs) await new Promise((r) => setTimeout(r, options.delayMs));
+      if (options.lateWrite) write();
       const rollback = () => { calls.rollback++; };
       if (options.fails) return { ok: false, steps: [], reason: options.fails, rollback };
       return { ok: true, steps: [{ id: id + '.config', detail: 'wrote the scoped config', writes: [file] }], rollback };

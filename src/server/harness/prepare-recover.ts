@@ -8,7 +8,7 @@
 import { readdirSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { prepareRun, finishRollback, runsInFlight, type PrepareOptions } from './prepare.js';
-import { deleteRecord, listRecords, ownerAlive, preparedDir, updateRecord, type PreparedRecord } from './prepare-store.js';
+import { deleteRecord, listRecords, ownerAlive, OWNER_FRESH_MS, preparedDir, PrepareFenceError, updateRecord, type PreparedRecord } from './prepare-store.js';
 import { harnessRepoKey } from './profiles.js';
 import type { AdoptedRun, PreparedTask, RunRecovery } from '../opora/prepared.js';
 import type { HierarchyNode } from '../../shared/harness-hierarchy.js';
@@ -16,7 +16,7 @@ import type { OporaPlace } from '../../shared/opora-identity.js';
 
 const HOUR = 60 * 60_000;
 /** How long records are kept: a prepared run nobody claims, a run whose owning process seems alive, and a final record. */
-export const PREPARE_RETENTION = { preparedMs: 30 * 60_000, ownerMs: 15 * 60_000, finalMs: 7 * 24 * HOUR };
+export const PREPARE_RETENTION = { preparedMs: 30 * 60_000, ownerMs: OWNER_FRESH_MS, finalMs: 7 * 24 * HOUR };
 
 /**
  * The task for a card, prepared by the runner: the worker's prompt section, the run, and the moves the
@@ -37,7 +37,7 @@ export async function preparedCardRun(dataDir: string, repo: string, place: Opor
 
 /** A worker on the floor seated for this run: by the id recorded, or by the run its contract names. */
 function seatedWorker(r: PreparedRecord, deps: RunRecovery) {
-  return deps.workers.find((w) => (r.workerId && w.id === r.workerId) || (w.prompt ?? '').includes('\nRun: ' + r.runId + '\n'));
+  return deps.workers().find((w) => (r.workerId && w.id === r.workerId) || (w.prompt ?? '').includes('\nRun: ' + r.runId + '\n'));
 }
 
 /**
@@ -65,10 +65,17 @@ export async function recoverRuns(dataDir: string, repo: string, deps: RunRecove
         done.push({ runId: r.runId, action: 'rolled back (stale)' });
       } else if (r.state === 'claimed') {
         if (elsewhere) continue;
-        const worker = seatedWorker(r, deps);
+        // Decided under the run's lock on the record as it is now, never on the listing above: a take of
+        // this office that has the run in flight, or seated it meanwhile, is never touched.
+        let worker: ReturnType<typeof seatedWorker>;
+        await updateRecord(dataDir, r.runId, ['claimed'], undefined, (x) => {
+          if (inFlight.has(x.runId)) throw new PrepareFenceError(`run ${x.runId} is under way in this office`);
+          worker = seatedWorker(x, deps);
+        });
         if (worker) {
-          const seated = await updateRecord(dataDir, r.runId, ['claimed'], 'seated', (x) => { x.workerId = worker.id; }, 'the worker was seated before the office stopped: recorded, not seated again');
-          if (!deps.held.has(r.runId)) adopted.push(adopt(seated, worker));
+          const found = worker;
+          const seated = await updateRecord(dataDir, r.runId, ['claimed'], 'seated', (x) => { x.workerId = found.id; }, 'the worker was seated before the office stopped: recorded, not seated again');
+          if (!deps.held.has(r.runId)) adopted.push(adopt(seated, found));
           done.push({ runId: r.runId, action: 'recorded as seated' });
           continue;
         }
@@ -97,7 +104,7 @@ export async function recoverRuns(dataDir: string, repo: string, deps: RunRecove
   return { adopted, done };
 }
 
-function adopt(r: PreparedRecord, worker: RunRecovery['workers'][number]): AdoptedRun {
+function adopt(r: PreparedRecord, worker: ReturnType<RunRecovery['workers']>[number]): AdoptedRun {
   return { runId: r.runId, digest: r.digest ?? '', card: { ...r.card }, ...(r.cardMeta ? { cardMeta: { ...r.cardMeta } } : {}), worker: { id: worker.id, name: worker.name, deskId: worker.deskId }, ...(r.lease ? { lease: { token: r.lease.token, agent: r.lease.agent } } : {}) };
 }
 

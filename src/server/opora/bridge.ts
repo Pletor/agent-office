@@ -238,8 +238,9 @@ export class OporaBridge {
       }
       // Runs an earlier office prepared, claimed or seated and never finished (harness/prepare-recover.ts).
       const held = new Set(this.runs.flatMap((r) => (r.state !== 'gone' && r.snapshot ? [r.snapshot.runId] : [])));
-      const release = (place: OporaPlace, card: string, token: string) => this.client.release(place.project, place.workspace, card, token).then(() => 'released' as const, (err) => (err instanceof OporaError && err.status === 0 ? 'unreachable' as const : 'released' as const));
-      for (const adopted of (await this.events.recoverRuns?.({ workers: this.floor.list(), held, release }).catch(() => [])) ?? []) this.runs.unshift(adoptedHeld(adopted));
+      // Only Opora saying the lease isn't there (404, 409, 410) counts as released; anything else is tried again next poll.
+      const release = (place: OporaPlace, card: string, token: string) => this.client.release(place.project, place.workspace, card, token).then(() => 'released' as const, (err) => (err instanceof OporaError && [404, 409, 410].includes(err.status) ? 'released' as const : 'unreachable' as const));
+      for (const adopted of (await this.events.recoverRuns?.({ workers: () => this.floor.list(), held, release }).catch(() => [])) ?? []) this.runs.unshift(adoptedHeld(adopted));
       await this.read();
       if (this.state.handOut) await this.handOut();
       if (this.state.autopilot) await this.autopilot();
@@ -304,6 +305,7 @@ export class OporaBridge {
     });
     card.status = 'claimed';
     this.changed();
+    try { await prepared.seated?.(seated.id); } catch { /* seated anyway: a recovery records it from the worker's contract */ }
     this.events.toast(`🛰️ ${seated.name} took “${card.name}” from the Opora canvas${card.group === 'design' ? ' (design)' : ''}`, 'info');
     return undefined;
   }

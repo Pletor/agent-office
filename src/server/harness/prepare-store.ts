@@ -69,6 +69,11 @@ export interface PreparedRecord {
 const RUN_ID = /^[a-z0-9][a-z0-9-]{7,63}$/;
 /** This process, for `owner`: a record of another token is a restarted (or another) office's. */
 export const PROCESS_TOKEN = randomUUID();
+/**
+ * How long a record of another process counts as that process's work in progress while its pid is alive;
+ * past it the run is taken for an office that stopped (Windows reuses pids after a restart).
+ */
+export const OWNER_FRESH_MS = 15 * 60_000;
 /** Records the dir is read for, at most, in one scan: a store over this is swept by age first. */
 const MAX_RECORDS = 2000;
 

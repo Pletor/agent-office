@@ -17,7 +17,7 @@ import { cardBinding, resolveHandoff, type ResolvedHandoff } from './handoff.js'
 import { HARNESS_GUIDES } from './guides.js';
 import { buildSnapshot, loadSnapshot, persistSnapshot, snapshotDir, type StoredSnapshot } from './snapshot.js';
 import { contextAdapter, resolveAdapters, type AdapterContext, type AdapterResult, type Capability, type HarnessAdapter } from './adapters.js';
-import { cardLockFile, createRecord, listRecords, ownerAlive, preparedDir, PROCESS_TOKEN, readRecord, removeRunFiles, removeScope, scopeDir, STEP_IDS, updateRecord, type PreparedRecord, type StepId, type StepReport } from './prepare-store.js';
+import { cardLockFile, createRecord, listRecords, OWNER_FRESH_MS, ownerAlive, preparedDir, PROCESS_TOKEN, readRecord, removeRunFiles, removeScope, scopeDir, STEP_IDS, updateRecord, type PreparedRecord, type StepId, type StepReport } from './prepare-store.js';
 import { withFileLock } from './lock.js';
 import { harnessPath, type HierarchyNode } from '../../shared/harness-hierarchy.js';
 import type { HarnessProfile } from '../../shared/harness-cascade.js';
@@ -84,7 +84,11 @@ export interface PreparePlan {
 export class PrepareError extends HarnessError {
   constructor(message: string, status: number, readonly record?: PreparedRecord) { super(message, status); }
 }
-class StepTimeout extends Error {}
+class StepTimeout extends Error {
+  constructor(message: string, readonly settled?: Promise<void>) { super(message); }
+}
+/** How long a timed-out attempt is waited for before its step is retried or rolled back. */
+const SETTLE_MS = 5000;
 
 /** Runs this process has under way (between creating or taking up a record and seating or rolling back). */
 const inFlight = new Set<string>();
@@ -105,12 +109,13 @@ const retryable = (err: unknown) => err instanceof StepTimeout || !(err instance
  * Runs `work` with a time limit: past it the signal is aborted and a StepTimeout thrown; a result that
  * comes in after that is handed to `late` (to undo it), never used.
  */
-async function bounded<T>(ms: number, work: (signal: AbortSignal) => Promise<T>, late?: (value: T) => void): Promise<T> {
+async function bounded<T>(ms: number, work: (signal: AbortSignal) => Promise<T>, late?: (value: T | undefined) => void): Promise<T> {
   const controller = new AbortController();
   let timer: NodeJS.Timeout | undefined, expired = false;
-  const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => { expired = true; controller.abort(); reject(new StepTimeout(`timed out after ${ms} ms`)); }, ms); });
   const running = work(controller.signal);
-  running.then((value) => { if (expired) late?.(value); }, () => undefined);
+  // The attempt itself, settled either way: a retry or a rollback waits for it (a little), so the two never write at once.
+  const settled = running.then((value) => { if (expired) late?.(value); }, () => { if (expired) late?.(undefined); });
+  const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => { expired = true; controller.abort(); reject(new StepTimeout(`timed out after ${ms} ms`, settled)); }, ms); });
   try { return await Promise.race([running, timeout]); } finally { clearTimeout(timer); }
 }
 
@@ -161,14 +166,16 @@ export async function preparePlan(ctx: PrepareContext, options: PrepareOptions =
   let snapshot: StoredSnapshot;
   try { snapshot = buildSnapshot({ card, binding: r.binding, resolved: handoff, guides: HARNESS_GUIDES, runId: 'plan-' + randomUUID() }); } catch (err) { return fail('snapshot', err); }
   plan.digest = snapshot.digest;
-  const files = { record: path.join(preparedDir(ctx.dataDir), runId + '.json'), snapshot: path.join(snapshotDir(ctx.dataDir), runId + '.json'), scope: path.join(preparedDir(ctx.dataDir), runId) };
+  // Paths relative to the office data dir: the plan is read by sessions and workers, who don't need the server's folders.
+  const rel = (p: string) => path.relative(ctx.dataDir, p);
+  const files = { record: rel(path.join(preparedDir(ctx.dataDir), runId + '.json')), snapshot: rel(path.join(snapshotDir(ctx.dataDir), runId + '.json')), scope: path.join(preparedDir(ctx.dataDir), runId) };
   plan.steps.push({ id: 'snapshot', status: 'planned', detail: `snapshot sha256:${snapshot.digest} (${snapshot.eager.length} essential, ${snapshot.lazy.length} by ID)`, writes: [files.snapshot] });
   const actx = { runId, dataDir: ctx.dataDir, repo: ctx.repo, card, snapshot, scopeDir: files.scope };
-  const writes = r.adapters.flatMap((a) => a.plan(actx).flatMap((s) => s.writes));
+  const writes = r.adapters.flatMap((a) => a.plan(actx).flatMap((s) => s.writes.map(rel)));
   plan.steps.push({ id: 'adapters', status: 'planned', detail: r.adapters.map((a) => `${a.id}: ${a.plan(actx).map((s) => s.detail).join('; ') || 'nothing to do'}`).join(' | '), writes });
   plan.requirements = r.adapters.flatMap((a) => a.capabilities(actx));
   plan.steps.push({ id: 'verify', status: 'planned', detail: `reload the snapshot against its digest, then verify ${plan.requirements.length} capabilit${plan.requirements.length === 1 ? 'y' : 'ies'} (declared → prepared → verified)`, writes: [] });
-  plan.writes = [files.record, files.snapshot, ...(writes.length ? [files.scope] : [])];
+  plan.writes = [files.record, files.snapshot, ...(writes.length ? [rel(files.scope)] : [])];
   return plan;
 }
 
@@ -186,7 +193,7 @@ export async function prepareRun(ctx: PrepareContext, options: PrepareOptions = 
     const mine = listRecords(ctx.dataDir).records.filter((r) => r.repo === repo && r.card.project === card.project && r.card.workspace === card.workspace && r.card.nodeId === card.nodeId);
     for (const r of mine) {
       if (r.state === 'seated' || r.state === 'rolledBack') continue;
-      const alive = ownerAlive(r.owner, inFlight, r.runId);
+      const alive = ownerAlive(r.owner, inFlight, r.runId) && (r.owner.token === PROCESS_TOKEN || Date.now() - Date.parse(r.updatedAt) < OWNER_FRESH_MS);
       if (alive && r.state !== 'failed') throw new PrepareError(`Run ${r.runId} of this card is ${r.state} by ${r.owner.token === PROCESS_TOKEN ? 'this office' : 'another office process (pid ' + r.owner.pid + ')'}; it is not prepared or started a second time.`, 409);
       if (r.state === 'claimed') throw new PrepareError(`Run ${r.runId} of this card was claimed by an office that stopped; its lease is released at the next poll, then the card can be taken again.`, 409);
       if (r.state === 'prepared') {
@@ -252,7 +259,7 @@ export async function finishRollback(dataDir: string, runId: string, reason: str
 }
 
 /** One step with its timeout and retry budget; each failed attempt goes into the record with its reason. */
-async function runStep<T>(ctx: PrepareContext, runId: string, id: StepId, options: PrepareOptions, work: (signal: AbortSignal) => Promise<T>, undoAttempt?: () => Promise<void>, late?: (value: T) => void): Promise<T> {
+async function runStep<T>(ctx: PrepareContext, runId: string, id: StepId, options: PrepareOptions, work: (signal: AbortSignal) => Promise<T>, undoAttempt?: () => Promise<void>, late?: (value: T | undefined) => void): Promise<T> {
   const timeout = stepTimeouts(options)[id], budget = retryBudget(options);
   await updateRecord(ctx.dataDir, runId, ['planned', 'preparing'], 'preparing', (r) => { step(r, id).status = 'running'; });
   for (let attempt = 1; ; attempt++) {
@@ -263,6 +270,8 @@ async function runStep<T>(ctx: PrepareContext, runId: string, id: StepId, option
       const reason = (err as Error).message;
       const final = !retryable(err) || attempt > budget.max;
       await updateRecord(ctx.dataDir, runId, ['preparing'], undefined, (r) => { const s = step(r, id); s.attempts.push({ at: new Date().toISOString(), ms: Date.now() - started, error: reason }); if (final) s.status = 'failed'; });
+      // A timed-out attempt may still be writing: wait for it (bounded) before undoing it or trying again.
+      if (err instanceof StepTimeout && err.settled) await Promise.race([err.settled, sleep(SETTLE_MS)]);
       if (undoAttempt) await undoAttempt().catch(() => undefined);
       if (final) {
         const spent = attempt > 1 || budget.max > 0 ? ` after ${attempt} attempt${attempt === 1 ? '' : 's'} (retry budget ${budget.max})` : '';
@@ -306,7 +315,7 @@ async function freshRun(ctx: PrepareContext, record: PreparedRecord, options: Pr
       const out: { adapter: HarnessAdapter; result: AdapterResult }[] = [];
       try {
         for (const adapter of r.adapters) {
-          if (signal.aborted) throw new StepTimeout('timed out');
+          if (signal.aborted) throw new Error('aborted: the step timed out');
           const result = await adapter.prepare({ runId, dataDir, repo: ctx.repo, card: snapshot.card, snapshot, scopeDir: scope, signal });
           out.push({ adapter, result });
           if (!result.ok) throw new HarnessError(`adapter ${adapter.id} could not prepare: ${result.reason ?? 'no reason given'}`, 500);
@@ -317,7 +326,8 @@ async function freshRun(ctx: PrepareContext, record: PreparedRecord, options: Pr
         throw err;
       }
     }, async () => removeScope(dataDir, runId), (late) => {
-      for (const { result } of late) void Promise.resolve(result.rollback()).catch(() => undefined);
+      // An attempt that came in after its time: undone, never used (and the run's files go again once it is rolled back).
+      for (const { result } of late ?? []) void Promise.resolve(result.rollback()).catch(() => undefined);
       if (finished) removeRunFiles(dataDir, runId);
     });
     for (const { result } of results) undos.push(() => result.rollback());

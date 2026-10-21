@@ -330,7 +330,7 @@ test('stale records are swept by age: a prepared run nobody claims is rolled bac
   const f = await setup(t, { adapters: 'fake', workersFile: true });
   f.bridge.shutdown();
   await crash('prepared', f.dir, f.op.url);
-  const deps = { workers: [], held: new Set<string>(), release: async () => 'released' as const };
+  const deps = { workers: () => [], held: new Set<string>(), release: async () => 'released' as const };
   const { done } = await recoverRuns(f.dir, f.dir, deps, Date.now() + 31 * 60_000);
   assert.deepEqual(done.map((d) => d.action), ['rolled back (stale)']);
   const [r] = records(f.dir) as PreparedRecord[];
@@ -339,4 +339,51 @@ test('stale records are swept by age: a prepared run nobody claims is rolled bac
   assert.equal(existsSync(scopeDir(f.dir, r.runId)), false);
   await recoverRuns(f.dir, f.dir, deps, Date.now() + 8 * 24 * 60 * 60_000);
   assert.deepEqual(records(f.dir), []);
+});
+
+test('a timed-out adapter that writes late is waited for and undone: no scoped file outlives the rollback', async (t) => {
+  const f = await setup(t, { adapters: 'fake', fake: { delayMs: 300, lateWrite: true }, options: { timeoutMs: { adapters: 50 }, retry: { max: 0 } } });
+  assert.match((await f.bridge.take('c2', 'Ana'))!, /adapters failed: timed out after 50 ms/);
+  const [r] = records(f.dir);
+  await new Promise((done) => setTimeout(done, 400));
+  assert.equal(existsSync(scopeDir(f.dir, r.runId)), false, 'the late write was undone');
+  assert.equal(f.fake.calls.rollback, 1, 'the late result was rolled back, never used');
+  assertRolledBack(f, 'adapters');
+});
+
+test('a poll’s recovery while a take is under way leaves the run alone: the lease is kept and the run ends seated', async (t) => {
+  let recovery: Promise<unknown> | undefined;
+  let seen = '';
+  const f = await setup(t, { adapters: 'fake', seat: () => {
+    const [r] = records(f.dir);
+    seen = r.state;
+    // The run is claimed and in flight; no worker is at a desk yet. A recovery now must not release its lease.
+    recovery = recoverRuns(f.dir, f.dir, { workers: () => [], held: new Set(), release: async () => { throw new Error('the lease of a take under way was released'); } });
+    return undefined;
+  } });
+  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
+  const { done } = (await recovery) as { done: { action: string }[] };
+  assert.equal(seen, 'claimed');
+  assert.ok(done.every((d) => !/released|rolled back/.test(d.action)), JSON.stringify(done));
+  const [r] = records(f.dir);
+  assert.equal(r.state, 'seated');
+  assert.equal(f.op.leases.get('c2'), r.lease?.token, 'the lease is still held');
+  // And a poll right after holds the run once, not twice.
+  await f.bridge.poll();
+  assert.equal(f.bridge.view().runs.filter((x) => x.cardId === 'c2' && x.state !== 'gone').length, 1);
+});
+
+test('a lease Opora could not release (it did not answer) keeps the run claimed until a later poll releases it', async (t) => {
+  const f = await setup(t, { adapters: 'fake', workersFile: true });
+  f.bridge.shutdown();
+  await crash('claimed', f.dir, f.op.url);
+  const tries: string[] = [];
+  const deps = (answer: 'released' | 'unreachable') => ({ workers: () => [], held: new Set<string>(), release: async (_p: unknown, _c: string, token: string) => { tries.push(token); return answer; } });
+  await recoverRuns(f.dir, f.dir, deps('unreachable'));
+  assert.equal(records(f.dir)[0].state, 'claimed');
+  assert.match(records(f.dir)[0].error!.reason, /did not answer/);
+  assert.equal(snapshots(f.dir).length, 1, 'nothing is rolled back while the lease may still be held');
+  await recoverRuns(f.dir, f.dir, deps('released'));
+  assert.equal(records(f.dir)[0].state, 'rolledBack');
+  assert.equal(tries.length, 2);
 });
