@@ -5,12 +5,12 @@ existing desk workers, handout and autopilot keep their current local path.
 Missing configuration makes the isolated path unavailable before a Canvas claim;
 it never selects a host CLI as a fallback.
 
-The implementation has 43 passing focused tests, a passing typecheck and build,
-and an actual Office-to-Canvas HTTP integration check for both context versions.
-The integration check uses a synthetic provider. It does not prove operational
-provider isolation, billing or a termination SLA. A real staging run on an
-explicitly configured account remains required. The complete Office test suite
-is not green; see the validation limits below.
+The implementation has 46 passing focused tests, a passing typecheck and build,
+synthetic cross-language checks for both context versions, and a completed live
+Managed Agents staging check on 2026-10-21. The live context-v2 run returned one
+native Canvas receipt, confirmed provider termination and signed cumulative
+usage. This bounded check does not establish an invoice guarantee or physical
+termination SLA. The complete Office test suite is not green; see below.
 
 ## Operator configuration
 
@@ -144,17 +144,35 @@ a local attempted marker is not proof that Canvas committed a result.
 
 ## Validation limits
 
-The focused executor, route, result and size tests pass (43 cases), as do
+The focused executor, route, result and size tests pass (46 cases), as do
 `npm run typecheck` and `npm run build`. The standard complete `npm test` run
 exceeded 150 seconds and was stopped. A diagnostic run with a 10-second per-test
-limit recorded 750 passes, 23 failures, 7 cancellations and 1 skip. Of its 30
-non-success entries, 28 also occur in the recorded baseline. Two candidate-only
-file timeouts passed separately on both the candidate and clean baseline
-(20/20 cases in each). This does not establish a fully green suite or attribute
-the full-run variability to the new executor.
+limit recorded 755 passes, 24 failures, 5 cancellations and 1 skip (785 tests).
+All 29 non-success records match the recorded e93 baseline in name and critical
+diagnostics after normalizing worktree paths, temporary IDs and CRLF. Timing,
+stack and location were excluded. This does not establish a fully green suite.
 
-The cross-language integration uses the real Office service/routes and real
+The earlier synthetic cross-language integration uses the real Office service/routes and real
 Canvas APIs, with only the external provider simulated. Both original context
 versions produced one claim, provider session and native result receipt;
 duplicate requests and recovery produced no replacement work. No paid provider
-request, production deployment or global security change was used as proof.
+request was used in that earlier synthetic check.
+
+The live staging check used published product commit `bc25ebb` and an explicitly
+configured Haiku 4.5 agent in a cloud environment with limited networking,
+delegation/MCP/skills/package installation disabled, and a pinned private GitHub
+commit. Provider tool-result outputs corroborated the commit, Linux execution
+and the permitted workspace probe. The context-v2 run produced exactly one
+receipt and the exact context proof; replay and reconciliation preserved the
+original session and receipt. It ended `terminated`, with 2 USD cents list cost
+and 25.12 active seconds. These readings are not an invoice or universal sandbox
+security proof. Agent result contents remain agent-reported.
+
+The first live context-v1 attempt exposed the event-filter wire bug and ended
+with no receipt. Its original session was terminated; list cost was 1 cent and
+active time 15.71 seconds. It was not relaunched or retrospectively submitted.
+Both allowed session creations are accounted for; combined list cost is 3 cents.
+The query correction and whole-JSON-fence handling were independently reviewed
+and regression-tested before the second attempt. No merge, production deployment
+or global security change was made. The Canvas completion audit retains the
+sanitized evidence and explicitly distinguishes the negative and positive runs.
