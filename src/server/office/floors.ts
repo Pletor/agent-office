@@ -72,8 +72,9 @@ export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen
   const { cfg, floors, clients } = ctx;
   const floorContext: FloorContext = {
     // The preparation runner (harness/prepare.ts): a card is claimed only once its run is prepared and verified.
-    prepareTask: (dir, project, workspace, card, owner, nodes) => preparedCardRun(cfg.dataDir, dir, { project, workspace }, card, nodes, !owner || ctx.accounts.get(owner)?.role === 'admin'),
-    recoverRuns: async (dir, recovery) => (await recoverRuns(cfg.dataDir, dir, recovery)).adopted,
+    prepareTask: (dir, project, workspace, card, owner, nodes, floorId) => preparedCardRun(cfg.dataDir, dir, { project, workspace }, card, nodes, !owner || ctx.accounts.get(owner)?.role === 'admin', {}, floorId),
+    // A run without a floor id (an older record) is recovered only while no other floor shares its checkout.
+    recoverRuns: async (dir, recovery) => (await recoverRuns(cfg.dataDir, dir, { ...recovery, sharedCheckout: [...floors.values()].filter((f) => f.dir === dir).length > 1 })).adopted,
     agentCmd: cfg.agentCmd,
     agentArgs: cfg.agentArgs,
     dshProfile: cfg.dshProfile,
