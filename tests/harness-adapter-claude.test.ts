@@ -5,7 +5,7 @@
 // user's global runner configuration never touched. Capability states through the fake adapter too.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fakeAdapter, registerAdapter, type HarnessAdapter } from '../src/server/harness/adapters.js';
@@ -13,7 +13,7 @@ import { claudeAdapterDeps, SCOPED_FILES } from '../src/server/harness/adapter-c
 import { clearRunnerCache } from '../src/server/harness/capabilities.js';
 import { stdioProber } from '../src/server/harness/mcp-probe.js';
 import { finishRollback, prepareRun, preparePlan, PrepareError } from '../src/server/harness/prepare.js';
-import { listRecords, readRecord, scopeDir } from '../src/server/harness/prepare-store.js';
+import { claimFile, listRecords, readRecord, recordScope, scopeDir } from '../src/server/harness/prepare-store.js';
 import { bindRunLaunches, mergeClaudeSettings, runLaunchFor, seatWithRun } from '../src/server/harness/launch-scope.js';
 import { claude } from '../src/server/providers/claude.js';
 import { checkout, fence, filesContaining, place, stubDetection, stubMcpServer, tree } from './fixtures/runner-adapters.js';
@@ -48,7 +48,8 @@ test('happy path: a stub MCP server and narrowing rules are written under the ru
   assert.equal(existsSync(path.join(f.dir, 'harness-prepared')), false, 'the dry run wrote nothing');
 
   const run = await prepareRun(ctx(f.dir), opts);
-  const scope = scopeDir(f.dir, run.runId);
+  // The adapters' files live in the record's scope folder, `<runId>/<attempt>/`.
+  const scope = recordScope(f.dir, readRecord(f.dir, run.runId)!);
   const mcpFile = path.join(scope, SCOPED_FILES.mcp), permFile = path.join(scope, SCOPED_FILES.permissions);
   assert.deepEqual(JSON.parse(readFileSync(mcpFile, 'utf8')), { mcpServers: { stub: { type: 'stdio', command: 'node', args: [server], env: { STUB_TOKEN: '${STUB_TOKEN}' } } } });
   assert.deepEqual(JSON.parse(readFileSync(permFile, 'utf8')), { permissions: { deny: ['Bash(git push:*)', 'WebFetch'], ask: ['Edit(./docs/**)'] } });
@@ -118,6 +119,30 @@ test('recover: an adapter\'s persisted state survives in the record and is hande
   assert.equal(existsSync(scopeDir(f.dir, run.runId)), false);
 });
 
+test('a recovery after a restart gets the scope folder of the record (the attempt folder), and the rollback removes the adapter files and the claim token with it', async (t) => {
+  let seen: string | undefined, filesThen: string[] = [];
+  const spy: HarnessAdapter = {
+    id: 'scope-spy', describe: () => 'writes one file under the attempt scope', available: () => undefined, capabilities: () => [], plan: () => [],
+    async prepare(c) { mkdirSync(c.scopeDir, { recursive: true }); writeFileSync(path.join(c.scopeDir, 'spy.json'), '{}'); return { ok: true, steps: [{ id: 'spy', detail: 'wrote spy.json', writes: ['spy.json'] }], rollback: () => undefined, persist: { kept: true } }; },
+    verify: () => undefined,
+    recover(c) { seen = c.scopeDir; filesThen = existsSync(c.scopeDir) ? readdirSync(c.scopeDir) : []; return []; },
+  } as HarnessAdapter;
+  t.after(registerAdapter(spy));
+  const f = await checkout(t, { adapters: 'scope-spy' });
+  const run = await prepareRun(ctx(f.dir), opts);
+  const record = readRecord(f.dir, run.runId)!;
+  assert.match(record.scope!, new RegExp(`${run.runId}/1$`), 'the scope is per attempt');
+  await run.claiming('agent');
+  run.granted({ token: 'tok', agent: 'agent' });
+  assert.equal(existsSync(claimFile(f.dir, run.runId)), true);
+  await finishRollback(f.dir, run.runId, 'the office stopped');
+  assert.equal(seen, recordScope(f.dir, record));
+  assert.deepEqual(filesThen, ['spy.json'], 'recover ran before the folder was removed');
+  assert.equal(existsSync(scopeDir(f.dir, run.runId)), false);
+  assert.equal(existsSync(claimFile(f.dir, run.runId)), false);
+  assert.equal(readRecord(f.dir, run.runId)!.state, 'rolledBack');
+});
+
 test('a handshake that does not answer leaves the server prepared, not verified, and says why', async (t) => {
   t.after(stubDetection());
   const stubDir = mkdtempSync(path.join(tmpdir(), 'office-stub-mcp-'));
@@ -142,10 +167,9 @@ test('a runner without per-run support is refused with the precise reason before
     assert.match(err.message, /Unsupported adapters, refused before anything was prepared: mcp \(Codex: Codex takes MCP servers per run only as `-c mcp_servers\.\*` TOML overrides[^)]*\); permissions \(Codex: /);
     return true;
   });
-  const [r] = listRecords(f.dir).records;
-  assert.equal(r.state, 'rolledBack');
-  assert.equal(r.error?.step, 'availability');
-  assert.equal(existsSync(scopeDir(f.dir, r.runId)), false);
+  // A refusal before anything was created leaves no record and no scoped folder (H10 fixes).
+  assert.deepEqual(listRecords(f.dir).records, []);
+  assert.equal(existsSync(path.join(f.dir, 'harness-prepared')), false);
   const plan = await preparePlan(ctx(f.dir, 'c2', null));
   assert.match(plan.refused.map((x) => x.reason).join(' '), /not known.*refused rather than guessed/);
 });
@@ -229,7 +253,7 @@ test('auth isolation: a secret in the office environment and in the runner\'s na
   assert.equal(run.capabilities.find((c) => c.id === 'mcp.server.gh')?.state, 'verified', 'the probe answered without the secret');
   assert.deepEqual(filesContaining(f.dir, SECRET), [], 'no file under the data dir (record, snapshot, scoped config, settings) holds the secret');
   for (const text of [JSON.stringify(plan), run.context, JSON.stringify(run.capabilities), JSON.stringify(launched.args), JSON.stringify(readRecord(f.dir, run.runId))]) assert.ok(!text.includes(SECRET));
-  assert.match(readFileSync(path.join(scopeDir(f.dir, run.runId), SCOPED_FILES.mcp), 'utf8'), /"OFFICE_TEST_TOKEN": "\$\{OFFICE_TEST_TOKEN\}"/);
+  assert.match(readFileSync(path.join(recordScope(f.dir, readRecord(f.dir, run.runId)!), SCOPED_FILES.mcp), 'utf8'), /"OFFICE_TEST_TOKEN": "\$\{OFFICE_TEST_TOKEN\}"/);
   assert.deepEqual(tree(home), homeBefore, 'the global runner configuration (~/.claude, ~/.claude.json, ~/.codex, AppData) is untouched');
 });
 
@@ -272,7 +296,7 @@ test('a worker whose run narrows its permissions never starts without them (fail
   const run = await prepareRun(ctx(f.dir), opts);
   await run.claimed({ token: 't', agent: 'a' });
   bindRunLaunches(f.dir);
-  rmSync(path.join(scopeDir(f.dir, run.runId), SCOPED_FILES.permissions));
+  rmSync(path.join(recordScope(f.dir, readRecord(f.dir, run.runId)!), SCOPED_FILES.permissions));
   const plan = seatWithRun(run.runId, () => launchClaude(f.dir, 'w-closed', officeSettingsFile(f.dir)));
   assert.ok(plan.finishEnv, 'the start fails');
   assert.throws(() => plan.finishEnv!({}), /permission rules could not be applied.*not started without them/);
