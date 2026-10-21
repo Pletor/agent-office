@@ -13,6 +13,7 @@ import { harnessRepoKey } from './profiles.js';
 import type { AdoptedRun, PreparedTask, RunRecovery } from '../opora/prepared.js';
 import type { HierarchyNode } from '../../shared/harness-hierarchy.js';
 import type { OporaPlace } from '../../shared/opora-identity.js';
+import type { AgentProvider } from '../../shared/providers.js';
 
 const HOUR = 60 * 60_000;
 /** How long records are kept: a prepared run nobody claims, a run whose owning process seems alive, and a final record. */
@@ -22,8 +23,9 @@ export const PREPARE_RETENTION = { preparedMs: 30 * 60_000, ownerMs: OWNER_FRESH
  * The task for a card, prepared by the runner: the worker's prompt section, the run, and the moves the
  * bridge makes with it (claimed, seated, discard = roll back). Throws when the run can't be prepared.
  */
-export async function preparedCardRun(dataDir: string, repo: string, place: OporaPlace, card: string, nodes: readonly HierarchyNode[], local: boolean, options: PrepareOptions = {}): Promise<PreparedTask & { resumed: boolean }> {
-  const run = await prepareRun({ dataDir, repo, place, card, nodes, local }, options);
+export async function preparedCardRun(dataDir: string, repo: string, place: OporaPlace, card: string, nodes: readonly HierarchyNode[], local: boolean, options: PrepareOptions & { runner?: AgentProvider } = {}): Promise<PreparedTask & { resumed: boolean }> {
+  const { runner, ...rest } = options;
+  const run = await prepareRun({ dataDir, repo, place, card, nodes, local, ...(runner ? { runner } : {}) }, rest);
   return {
     context: run.context,
     snapshot: { runId: run.runId, digest: run.digest },

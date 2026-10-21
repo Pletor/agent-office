@@ -12,6 +12,7 @@ import { HarnessError } from './profiles.js';
 import { withFileLock } from './lock.js';
 import { discardSnapshot } from './snapshot.js';
 import type { Capability } from './adapters.js';
+import type { RunLaunch } from './launch-scope.js';
 import type { OporaPlace } from '../../shared/opora-identity.js';
 
 export const PREPARED_SCHEMA = 'harness.prepared/1';
@@ -57,6 +58,10 @@ export interface PreparedRecord {
   capabilities: Capability[];
   /** Prompt text of adapters other than `context` (which is rendered from the snapshot again). */
   contexts: Record<string, string>;
+  /** What the adapters handed the worker's launch for this run only (launch-scope.ts): scoped files, never secrets. */
+  launch?: RunLaunch;
+  /** Each adapter's persisted state (AdapterResult.persist), for its `recover` after a restart. */
+  adapterState?: Record<string, Record<string, unknown>>;
   steps: StepReport[];
   /** The Opora lease the run holds once claimed (the file is private, like opora.json): a restart releases it with this. */
   lease?: { token: string; agent: string; at: string };
