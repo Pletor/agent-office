@@ -7,6 +7,7 @@ import { authRoutes } from './auth.js';
 import { fileRoutes } from './files.js';
 import { githubRoutes } from './github.js';
 import { pageRoutes } from './pages.js';
+import { processStudioRoute } from './process-studio.js';
 import { searchRoutes } from './search.js';
 import { serviceRoutes } from './services.js';
 
@@ -38,5 +39,6 @@ export const routes: readonly Route[] = [
   githubRoutes.github,
   pageRoutes.office,
   pageRoutes.lite,
+  processStudioRoute,
   pageRoutes.bundle,
 ];

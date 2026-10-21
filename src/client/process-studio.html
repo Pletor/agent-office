@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#090c14" />
+  <title>Opora · Process Observatory</title>
+  <script type="module" src="/process-studio/index.ts"></script>
+</head>
+<body>
+<main class="studio">
+  <header class="masthead">
+    <a class="wordmark" href="/" aria-label="Agent Office">OPORA<span> / </span></a>
+    <span class="product-name">PROCESS OBSERVATORY <small>agent-office</small></span>
+    <div class="mode-badge"><span class="status-dot"></span> INTERAKTIVNÍ DEMO</div>
+    <button class="quiet-button" id="about-open" aria-label="Jak ukázka funguje">ⓘ Jak to funguje</button>
+  </header>
+  <section class="hero">
+    <div><p class="eyebrow">PLÁN, PRÁCE A ZKUŠENOST V JEDNOM OBRAZU</p><h1>Sledujte, jak vzniká výsledek<span>.</span></h1><p class="hero-copy">Workflow roste. Agenti pracují. Každý výsledek má svůj důkaz.</p></div>
+    <div class="play-controls">
+      <button id="play" class="primary-button">Ⅱ Pozastavit</button>
+      <button id="step" class="quiet-button" title="Pozastavit a přehrát další událost">Krok →</button>
+      <label class="speed-control"><span>Tempo</span><select id="speed" aria-label="Rychlost ukázky"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+      <button id="reset" class="icon-button" title="Nový běh se stejnými moduly" aria-label="Spustit od začátku">↺</button>
+    </div>
+  </section>
+  <section class="metrics" aria-label="Stav procesu">
+    <div><span>PLÁN OPORY</span><strong id="metric-plan">revize 1</strong><small id="metric-plan-note">čeká na doplnění</small></div>
+    <div><span>DOLOŽENÉ KONTROLY</span><strong id="metric-checks">0 / 3</strong><small>typy · testy · sestavení</small></div>
+    <div><span>PROPOJENÉ MODULY</span><strong id="metric-repos">4</strong><small>Opora · kancelář · paměť · GitHub</small></div>
+    <div><span>PAMĚŤ AGENTA</span><strong id="metric-memory">čeká</strong><small id="metric-memory-note">přínos zatím nezměřen</small></div>
+  </section>
+  <div class="workspace">
+    <aside class="context-pane">
+      <div class="pane-label">ZADÁNÍ / OP-128 <span class="tiny-pill">DEMO</span></div>
+      <h2>Dohledatelný průběh práce</h2><p class="muted">Od přesného zadání až k výsledku, který další agent dokáže využít.</p>
+      <div class="brief"><span>OČEKÁVANÝ VÝSTUP</span><p>Otestovaná změna, propojené PR a uložená zkušenost s původem.</p><span>HRANICE ÚKOLU</span><p>Obnova spojení, duplicity událostí, revize plánu a doložení výsledku.</p></div>
+      <div class="pane-label spaced">PODMÍNKY KVALITY <button class="text-button" id="show-plan">Otevřít plán ↗</button></div>
+      <div id="quality-list" class="quality-list"></div>
+      <div class="pane-label spaced">AKTIVNÍ PRACOVNÍCI</div><div id="agents" class="agents"></div>
+      <div class="source-note">Všechna data jsou modelová. Reálné operace v Opoře, paměti ani GitHubu se neprovádějí.</div>
+    </aside>
+    <section class="graph-pane">
+      <div class="graph-toolbar"><div class="view-tabs" aria-label="Zobrazení"><button class="active" id="process-view" aria-pressed="true">Tok procesu</button><button id="memory-view" aria-pressed="false">Vazby paměti</button></div><span class="graph-counter" id="run-label">DEMO-042</span></div>
+      <div class="graph-stage" id="graph"></div>
+      <div class="graph-legend"><span class="pink">● Práce</span><span class="green">● Doloženo</span><span class="amber">● Čeká / chyba</span><span class="purple">● Paměť</span><span>Otevřete libovolný uzel</span></div>
+      <div class="narrative"><span id="narrative-marker">●</span><div><span id="phase-label">ŽIVÁ UKÁZKA</span><p id="headline" aria-live="polite">Připravujeme první verzi plánu.</p></div></div>
+      <div class="gate-banner" id="gate" hidden><div><strong>Výsledek čeká na vaše rozhodnutí.</strong><span>Kontroly i review odpovídají aktuální revizi.</span></div><button id="approve" class="primary-button">Schválit v ukázce →</button></div>
+    </section>
+    <aside class="inspector">
+      <div class="inspector-tabs" role="tablist" aria-label="Inspektor">
+        <button role="tab" id="tab-detail" aria-controls="panel-detail" aria-selected="false">Detail</button>
+        <button role="tab" id="tab-plan" aria-controls="panel-plan" aria-selected="false">Plán</button>
+        <button role="tab" id="tab-memory" aria-controls="panel-memory" aria-selected="false">Paměť</button>
+        <button role="tab" id="tab-repos" aria-controls="panel-repos" aria-selected="true" class="active">Moduly <span>+</span></button>
+      </div>
+      <section id="panel-detail" role="tabpanel" aria-labelledby="tab-detail" hidden><div id="detail-content"></div></section>
+      <section id="panel-plan" role="tabpanel" aria-labelledby="tab-plan" hidden><div id="plan-content"></div></section>
+      <section id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" hidden><div id="memory-content"></div></section>
+      <section id="panel-repos" role="tabpanel" aria-labelledby="tab-repos">
+        <p class="eyebrow">PROSTOR PRO DALŠÍ SCHOPNOST</p><h2>Zapojte další repozitář<span class="pink">.</span></h2><p class="muted">Zvolte jeho roli. V ukázce přibude uzel, předání a kontrola rozhraní.</p>
+        <div id="repo-list" class="repo-list"></div>
+        <form id="repo-form">
+          <label for="repo-url">GitHub repozitář</label><input id="repo-url" name="repository" type="url" required maxlength="180" placeholder="https://github.com/team/project" autocomplete="off" />
+          <label for="repo-role">Role v procesu</label><select id="repo-role"><option value="context">Zdroj kontextu a znalostí</option><option value="module">Vývojový modul</option><option value="check">Kontrolní služba</option></select>
+          <p class="role-description" id="role-description">Přidá načtení zdrojů, jejich původ a ověření kontextu.</p>
+          <button class="primary-button" type="submit">＋ Zapracovat do ukázky</button><p id="repo-feedback" class="form-feedback" role="status"></p>
+        </form>
+        <div class="integration-note"><strong>Rozšiřitelný model</strong><p>Začne nový běh rozšířeného plánu. Adresa slouží jako identita modulu; ukázka repozitář neklonuje ani nepřipojuje službu.</p></div>
+      </section>
+    </aside>
+  </div>
+  <section class="history-panel">
+    <div class="history-top"><div><span class="pane-label">STOPA BĚHU</span><span id="history-label">0 událostí</span></div><div><button class="text-button" id="return-live" hidden>Zpět k poslední události →</button><button class="text-button" id="export">Exportovat stopu ↓</button></div></div>
+    <label class="timeline-label" for="timeline">Prohlédnout dřívější stav</label><input id="timeline" type="range" min="0" max="0" value="0" step="1" aria-label="Historie běhu" />
+    <div id="event-feed" class="event-feed"></div>
+  </section>
+  <footer><span>OPORA / PROCESS OBSERVATORY <b>02</b></span><span>Plán → důkazy → výsledek → paměť → další úkol</span><span>Simulovaný zdroj událostí · žádné připojené účty</span></footer>
+</main>
+<dialog id="about"><button class="dialog-close" id="about-close" aria-label="Zavřít">✕</button><p class="eyebrow">JAK UKÁZKA FUNGUJE</p><h2>Pohyb následuje události.</h2><p>Čtyři pavouci představují plánovače, vývojáře, kontrolora a správu paměti. Každý se přesouvá podle konkrétní události scénáře. Pohyb neřídí dokončení práce.</p><p>Plán obsahuje podmínky a důkazy. Změna revize zneplatní staré kontroly. Při chybě vznikne opravný krok. Výsledek čeká na rozhodnutí člověka.</p><p>OpenViking je zobrazen jako navržená paměťová integrace: načtení → návrh zkušenosti → potvrzení zápisu → opětovné použití. To samo nedokazuje vyšší kvalitu agenta.</p><p>Moduly rozšiřují tento lokální model. Skutečné napojení vyžaduje adaptéry služeb, jejich autentizaci a ověřené události. V této verzi žádné takové spojení nevzniká.</p></dialog>
+</body></html>

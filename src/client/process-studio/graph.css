@@ -1,0 +1,38 @@
+.lane-label { fill: #9aa8c0; font: 10px var(--mono); letter-spacing: 1.5px; }
+.connection { fill: none; stroke: #6c4b683f; stroke-width: 1.5; }
+.connection.transmitting { stroke: #f68dc492; stroke-dasharray: 5 7; animation: signal-flow 1.4s linear infinite; }
+.connection.memory-return { stroke: #a183d35e; stroke-dasharray: 3 6; }
+.process-card { cursor: pointer; outline: none; }
+.card-surface { fill: #151d2a; stroke: #354258; stroke-width: 1; transition: fill .3s, stroke .3s; }
+.card-accent { stroke: currentColor; stroke-width: 2; opacity: .65; }
+.card-owner { fill: #a9b6cb; font: 8px var(--mono); letter-spacing: .8px; }
+.card-title { fill: #e7edf8; font: 500 16px 'Segoe UI', sans-serif; }
+.card-subtitle { fill: #8f9fb7; font: 10px var(--mono); }
+.card-status { fill: #a5b4c9; font: 10px var(--mono); }
+.state-light { fill: #44526a; }
+.process-card.working .card-surface { fill: #291d31; stroke: currentColor; }
+.process-card.working .state-light { fill: currentColor; filter: drop-shadow(0 0 4px currentColor); }
+.process-card.done .card-surface { stroke: #3d6b58; }
+.process-card.done .state-light { fill: #8bd7ae; }
+.process-card.failed .card-surface, .process-card.blocked .card-surface { stroke: #e8ba76; fill: #2a241f; }
+.process-card.failed .state-light, .process-card.blocked .state-light { fill: #e8ba76; }
+.process-card.selected .card-surface { stroke: #b3f8f0; stroke-width: 2; }
+.process-card:focus .card-surface, .process-card:hover .card-surface { stroke: #fff; stroke-width: 2; }
+.spider { color: var(--spider); pointer-events: none; opacity: .6; }
+.spider.engaged { opacity: 1; }
+.spider-aura { fill: currentColor; opacity: .07; }
+.spider-body { fill: currentColor; filter: drop-shadow(0 0 6px currentColor); }
+.spider-head { fill: currentColor; }
+.spider-leg { stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
+.network-dot { stroke: #d6e5f3; stroke-width: .7; fill: #b99aff; }
+.network-dot.c0 { fill: #6fe2dc; }.network-dot.c3 { fill: #ff78b5; }
+.network-label { fill: #bbc9dc; font: 11px var(--mono); paint-order: stroke; stroke: #10151e; stroke-width: 4; stroke-linejoin: round; }
+.network-link { fill: none; stroke: #a68ad2; stroke-width: 1; opacity: .25; }
+.network-link.c0 { stroke: #6fe2dc; }.network-link.c2 { stroke: #ff78b5; }
+.network-note { fill: #8fabc2; font: 10px var(--mono); }
+.memory-network[data-memory='recalled'] .c0, .memory-network[data-memory='proposed'] .c1,
+.memory-network[data-memory='persisted'] .c2, .memory-network[data-memory='reused'] .c2 { opacity: 1; }
+.memory-network[data-memory='reused'] .network-link.c2 { stroke-dasharray: 5 9; animation: signal-flow 1.6s linear infinite; }
+.paused .connection, .paused .network-link { animation-play-state: paused !important; }
+@keyframes signal-flow { to { stroke-dashoffset: -48; } }
+@media (prefers-reduced-motion: reduce) { .connection, .network-link { animation: none !important; }.card-surface { transition: none; } }
