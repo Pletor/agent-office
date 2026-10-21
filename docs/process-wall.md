@@ -8,6 +8,7 @@ The 3D office has a wide, illuminated **OPORA · Řízení práce** display abov
 - **Pracovníci** filters to rows with an observed worker. **Blokace** shows requests for input, lost worktrees, failed tasks, failed GitHub checks and requested review changes. Selecting these views also changes the physical wall, locally for that viewer.
 - The window shows each row's branch, observed phase, head SHA when supplied, checks, review and a GitHub link to inspect the PR evidence. Its phase marker is a projection, not a completed-step checklist.
 - **Historie pozorování** keeps the latest 80 changed row observations in browser memory. It clears on a fresh welcome/floor snapshot and page reload. It is not a durable or complete server audit.
+- **OpenViking · živě** reads the real memory status and role registry through Opora. Choose a role and a query to recall existing memories, with source URI, origin and retrieval score. An optional project field takes an exact Opora project ID; an office branch/repository name is never silently treated as that identity.
 - **Podrobný plán · DEMO** embeds the existing [Process Observatory](process-studio.md), including the six-phase pipeline, repository-role form, memory proposal/reuse and replay. It is clearly separated from live office data.
 - The top-right **✕** and **Esc** close the window using the office's normal modal/focus lifecycle. Escape also works from the embedded demo; if that demo's own information dialog is open, the first Escape closes that inner dialog.
 
@@ -19,7 +20,17 @@ The wall reuses the existing authenticated office connection and store, without 
 
 A worker's `done` means its turn ended, not that tests passed. A test tool call means a check was invoked, not that it succeeded. Passing CI and an approved review still do not mean merged. Only the PR snapshot's `MERGED` state produces the merged phase, and it does not imply deployment.
 
-Opora's external plan, OpenViking memory, releases and deployment are not connected by this change. Their proposed contracts remain in the clearly labeled demo. The live view does not claim complete coverage of background mechanisms or provide elapsed-time comparisons across runs. Durable correlated events and adapters are required for those capabilities.
+Opora's external plan, releases and deployment do not yet have live event adapters. Their proposed contracts remain in the clearly labeled demo. OpenViking now has real status and recall through the existing Opora API, but no memory-write or learning-event stream. The live view does not claim complete coverage of background mechanisms or provide elapsed-time comparisons across runs. Durable correlated events are required for those capabilities.
+
+## Connecting the existing Opora/OpenViking service
+
+Set `OPORA_CONTROL_CENTER_URL=http://127.0.0.1:8740` in the **agent-office server** environment, then start/restart that server. Use your actual Opora port if different. Without this explicit setting the adapter is disabled. The URL must be an HTTP loopback origin without credentials, path, query or fragment. Opora keeps its existing OpenViking address, enablement and role keys; agent-office never reads or returns those keys.
+
+The authenticated `/api/process-memory` and `/api/process-memory/recall` endpoints permit only administrator accounts or the office's shared-password session. This matters because Opora's role memories span projects. Recall also requires the office's Origin header. The server calls only Opora's fixed status, roles and recall endpoints, without redirects or proxies, with response-size bounds and deadlines. Returned fields are explicitly selected. No provisioning, settings, writes or session commits are forwarded.
+
+Status refreshes every 15 seconds while the memory tab is open; leaving it cancels browser requests and polling. Recall runs only when submitted. Results are rendered as text, not instructions or HTML, and remain labeled with the submitted role/query/project. `configured` means Opora reports its memory service configured, not that every lookup succeeds. A recall failure is shown separately. Retrieval scores are not measures of agent quality.
+
+OpenViking must be running independently (the local setup uses Docker and Ollama). If the service is down, Opora's `unavailable` state is shown. Start the existing OpenViking deployment and verify Opora's `/api/memory/status`; do not create replacement role keys merely to make the visualization green.
 
 ## Implementation and validation
 

@@ -8,6 +8,7 @@ import { fileRoutes } from './files.js';
 import { githubRoutes } from './github.js';
 import { pageRoutes } from './pages.js';
 import { processStudioRoute } from './process-studio.js';
+import { processMemoryRoutes } from './process-memory.js';
 import { searchRoutes } from './search.js';
 import { serviceRoutes } from './services.js';
 
@@ -40,5 +41,6 @@ export const routes: readonly Route[] = [
   pageRoutes.office,
   pageRoutes.lite,
   processStudioRoute,
+  ...processMemoryRoutes,
   pageRoutes.bundle,
 ];

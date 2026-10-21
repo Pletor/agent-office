@@ -9,7 +9,7 @@ export class ProcessTexture {
     this.texture = new THREE.CanvasTexture(this.canvas); this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.anisotropy = 4;
   }
-  draw(s: WallSnapshot, view: WallView, page: number, t: number, reduced: boolean) {
+  draw(s: WallSnapshot, view: WallView, page: number, t: number, reduced: boolean, memoryLabel = 'ověřit v detailu') {
     const g = this.canvas.getContext('2d')!;
     g.fillStyle = '#091523'; g.fillRect(0, 0, 1920, 320);
     const text = (v: string, x: number, y: number, size = 24, color = '#d9e9f8', width?: number) => {
@@ -43,7 +43,7 @@ export class ProcessTexture {
       }
     });
     text(`E / klik → otevřít   ·   Strana ${(page % count) + 1}/${count}   ·   Přepnutí pohledu v detailu`, 28, 300, 20, '#74d9d5');
-    text('Paměť / nasazení: bez adaptéru', 1440, 300, 20, '#b5a5d9');
+    text('OpenViking: ' + memoryLabel, 1360, 300, 20, '#b5a5d9', 530);
     this.texture.needsUpdate = true;
   }
 }

@@ -1,8 +1,9 @@
 import { h, openModal, type Modal } from '../../ui/dom';
 import { connectionLabel, PHASES, visibleRows, type WallSnapshot, type WallView, type WallHistory } from './model';
 import './ui.css';
+import { MemoryPane } from './memory';
 
-type Tab = WallView | 'history' | 'demo';
+type Tab = WallView | 'history' | 'demo' | 'memory';
 export class ProcessWallPanel {
   private modal?: Modal;
   private tab: Tab = 'overview';
@@ -12,14 +13,15 @@ export class ProcessWallPanel {
   private frame?: HTMLIFrameElement;
   private snapshot?: WallSnapshot;
   private rendered = '';
-  constructor(private history: WallHistory, private changeView: (view: WallView) => void, private nextPage: () => void) {}
+  private memory?: MemoryPane;
+  constructor(private history: WallHistory, private changeView: (view: WallView) => void, private nextPage: () => void, private reportMemory: (label: string) => void) {}
   open(s: WallSnapshot) {
     if (this.modal) return;
     this.tab = 'overview'; this.changeView('overview');
     this.rendered = '';
     const tabs = h('nav.process-wall-tabs', { 'aria-label': 'Pohled na proces' });
     this.buttons.clear();
-    for (const [id, label] of [['overview', 'Celý proces'], ['workers', 'Pracovníci'], ['blockers', 'Blokace'], ['history', 'Historie pozorování'], ['demo', 'Podrobný plán · DEMO']] as const) {
+    for (const [id, label] of [['overview', 'Celý proces'], ['workers', 'Pracovníci'], ['blockers', 'Blokace'], ['history', 'Historie pozorování'], ['memory', 'OpenViking · živě'], ['demo', 'Podrobný plán · DEMO']] as const) {
       const button = h('button', { type: 'button', onclick: () => {
         this.tab = id;
         if (id === 'overview' || id === 'workers' || id === 'blockers') this.changeView(id);
@@ -32,7 +34,7 @@ export class ProcessWallPanel {
       this.status, tabs,
       h('div.process-wall-controls', {}, h('span', {}, 'Zvolený živý pohled se promítá také na stěnu.'), h('button', { type: 'button', onclick: () => this.nextPage() }, 'Další strana na stěně →')),
       this.body);
-    this.modal = openModal(panel, { doing: 'sleduje proces práce', onClose: () => { this.frame = undefined; this.body.replaceChildren(); this.modal = undefined; } });
+    this.modal = openModal(panel, { doing: 'sleduje proces práce', onClose: () => { this.memory?.destroy(); this.memory = undefined; this.frame = undefined; this.body.replaceChildren(); this.modal = undefined; } });
     this.update(s); this.buttons.get('overview')!.focus();
   }
   update(s: WallSnapshot) { this.snapshot = s; if (this.modal) this.render(); }
@@ -46,6 +48,11 @@ export class ProcessWallPanel {
     const signature = JSON.stringify([this.tab, s, githubStale, this.tab === 'history' ? this.history.entries : null]);
     if (signature === this.rendered) return;
     this.rendered = signature;
+    if (this.tab === 'memory') {
+      if (!this.memory) { this.frame = undefined; this.memory = new MemoryPane(this.reportMemory); this.body.replaceChildren(this.memory.root); }
+      return;
+    }
+    this.memory?.destroy(); this.memory = undefined;
     if (this.tab === 'demo') {
       if (this.frame) return;
       this.body.replaceChildren(h('p.process-wall-notice', {}, 'DEMO · Modelový plán, paměť a pipeline. Tato animace nepopisuje právě běžící pracovníky kanceláře.'));
@@ -90,6 +97,6 @@ export class ProcessWallPanel {
       this.body.append(article);
     }
     this.body.append(h('div.process-wall-boundary', {}, h('strong', {}, 'Další části procesu'),
-      h('p', {}, 'Opora plán · OpenViking paměť · nasazení: živé adaptéry zatím nejsou připojené. Jejich navržené kroky, podmínky a rozšíření repozitářů najdete v Podrobném plánu · DEMO.')));
+      h('p', {}, 'OpenViking: živý stav a čtení paměti najdete na kartě OpenViking · živě. Externí plán Opory a nasazení zde zatím nemají živé události; jejich návrh je v Podrobném plánu · DEMO.')));
   }
 }
