@@ -330,7 +330,7 @@ export class Floor {
         dir: def.dir,
         list: () => this.workers.list(),
         // It fetches its card from the planning room's board on the way to its desk (via 'opora').
-        seat: (deskId, by, prompt, owner) => this.workers.spawn(deskId, by, prompt, !!this.project.branch, 'agent', undefined, undefined, undefined, undefined, owner, [], 'opora'),
+        seat: (deskId, by, prompt, owner, runner) => runner && runner !== this.workers.officeDefault.provider ? `The card's run was prepared for ${runner}, but the office now seats ${this.workers.officeDefault.provider}: take the card again` : this.workers.spawn(deskId, by, prompt, !!this.project.branch, 'agent', undefined, undefined, undefined, undefined, owner, [], 'opora'),
         desks: () => builtDesks(this.plan.wing).map((d) => d.id),
         deskOccupied: (deskId) => this.workers.deskOccupied(deskId),
         labels: () => this.plan.state().labels,

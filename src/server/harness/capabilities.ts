@@ -50,7 +50,8 @@ export const defaultSpawner: Spawner = (file, args, { timeoutMs, env }) => new P
 export const defaultLocator: Locator = (bin) => {
   const win = process.platform === 'win32';
   const exts = win && !path.extname(bin) ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : [''];
-  for (const dir of (process.env.PATH || process.env.Path || '').split(path.delimiter).filter(Boolean)) {
+  // Only absolute PATH entries: a relative one (`.`) would resolve against the office's working directory.
+  for (const dir of (process.env.PATH || process.env.Path || '').split(path.delimiter).filter((d) => d && path.isAbsolute(d))) {
     for (const ext of exts) {
       const file = path.join(dir, bin + ext);
       try { accessSync(file, constants.X_OK); return file; } catch { /* keep looking */ }

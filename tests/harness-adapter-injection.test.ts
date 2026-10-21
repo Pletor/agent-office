@@ -42,7 +42,7 @@ const HOSTILE: [string, string][] = [
   ['caret (cmd)', 'a^&b'],
 ];
 
-const snap = (servers: unknown) => ({ elements: [{ id: 'm1', category: 'mcp' } as never], content: { m1: fence({ mcpServers: servers }) } });
+const snap = (servers: unknown) => ({ elements: [{ id: 'm1', category: 'mcp', origin: { bound: [{ slot: 'mcp.m1', scope: 'project' }] } } as never], content: { m1: fence({ mcpServers: servers }) } });
 const refused = (fn: () => unknown, label: string) => {
   assert.throws(fn, (err: unknown) => {
     assert.ok(err instanceof ScopedConfigError, `${label}: ${(err as Error)?.message}`);
@@ -89,15 +89,15 @@ test('unknown keys, other transports, a non-object block or one that does not pa
   refused(() => mcpServers(snap({ s: { command: 'node', cwd: '/' } }), { commands: [] }), 'cwd');
   refused(() => mcpServers(snap({ s: { command: 'node', shell: true } }), { commands: [] }), 'shell: true');
   refused(() => mcpServers(snap({ s: { type: 'http', url: 'http://evil' } }), { commands: [] }), 'http transport');
-  refused(() => mcpServers({ elements: [{ id: 'm', category: 'mcp' } as never], content: { m: '```json\n{"mcpServers": \n```' } }, { commands: [] }), 'broken JSON');
-  refused(() => mcpServers({ elements: [{ id: 'm', category: 'mcp' } as never], content: { m: '{"mcpServers": {}, "extra": 1}' } }, { commands: [] }), 'extra top-level key');
-  refused(() => mcpServers({ elements: [{ id: 'm', category: 'mcp' } as never], content: { m: '{"__proto__": {"polluted": 1}}' } }, { commands: [] }), 'prototype key');
+  refused(() => mcpServers({ elements: [{ id: 'm', category: 'mcp', origin: { bound: [{ slot: 'mcp.m', scope: 'project' }] } } as never], content: { m: '```json\n{"mcpServers": \n```' } }, { commands: [] }), 'broken JSON');
+  refused(() => mcpServers({ elements: [{ id: 'm', category: 'mcp', origin: { bound: [{ slot: 'mcp.m', scope: 'project' }] } } as never], content: { m: '{"mcpServers": {}, "extra": 1}' } }, { commands: [] }), 'extra top-level key');
+  refused(() => mcpServers({ elements: [{ id: 'm', category: 'mcp', origin: { bound: [{ slot: 'mcp.m', scope: 'project' }] } } as never], content: { m: '{"__proto__": {"polluted": 1}}' } }, { commands: [] }), 'prototype key');
   assert.equal(({} as Record<string, unknown>).polluted, undefined);
-  assert.deepEqual(mcpServers({ elements: [{ id: 'm', category: 'mcp' } as never], content: { m: 'Only prose: register it by hand.' } }, { commands: [] }), [], 'prose configures nothing');
+  assert.deepEqual(mcpServers({ elements: [{ id: 'm', category: 'mcp', origin: { bound: [{ slot: 'mcp.m', scope: 'project' }] } } as never], content: { m: 'Only prose: register it by hand.' } }, { commands: [] }), [], 'prose configures nothing');
 });
 
 test('a permission rule with a newline, nested parentheses, a lookalike or a widening key is refused', () => {
-  const p = (permissions: unknown) => ({ elements: [{ id: 'p1', category: 'permissions' } as never], content: { p1: fence({ permissions }) } });
+  const p = (permissions: unknown) => ({ elements: [{ id: 'p1', category: 'permissions', origin: { bound: [{ slot: 'permissions.p1', scope: 'project' }] } } as never], content: { p1: fence({ permissions }) } });
   for (const rule of ['Bash(x)\nallow', 'Bash(a(b))', 'Bаsh', 'Bash(x', '(x)', '', 'x'.repeat(300), 'Bash(\u0000)']) refused(() => narrowing(p({ deny: [rule] })), 'rule ' + JSON.stringify(rule).slice(0, 30));
   for (const key of ['allow', 'defaultMode', 'additionalDirectories', 'disableBypassPermissionsMode']) refused(() => narrowing(p({ [key]: [] })), 'key ' + key);
   assert.deepEqual(narrowing(p({ deny: ['Bash(git push:*)', 'Read(./.env)'], ask: ['mcp__github__create_issue'] })), { deny: ['Bash(git push:*)', 'Read(./.env)'], ask: ['mcp__github__create_issue'], sources: ['p1'] });
@@ -128,4 +128,29 @@ test('a run whose profile carries a hostile value is refused with the reason, an
     assert.equal(existsSync(path.join(snapshotDir(f.dir), r.runId + '.json')), false, label + ': no snapshot');
     assert.equal(r.launch, undefined, label + ': no launch');
   }
+});
+
+test('arguments that make a runner run inline code, go through a shell, or fetch code from outside a registry are refused', () => {
+  for (const arg of ['-c', '-c=rm -rf', '--call=id', '-e', '--eval=process.exit()', '-p', '--print', '-r', '--require=./x.js', '--import=data:text/javascript,x', '--loader=x', '--experimental-loader=x', 'data:text/javascript,x', 'git+https://github.com/x/y', 'github:x/y', 'https://evil/x.tgz', 'file:../x', '--from=git+https://x']) {
+    refused(() => mcpServers(snap({ s: { command: 'npx', args: ['-y', arg.replace(/ /g, '')] } }), { commands: [] }), 'code arg ' + arg);
+  }
+  assert.equal(mcpServers(snap({ s: { command: 'python', args: ['-m', 'mcp_server_time'] } }), { commands: [] })[0].args[0], '-m');
+});
+
+test('the office\'s and the runners\' own credential names are never forwarded to a profile\'s server', () => {
+  for (const name of ['AGENT_OFFICE_HOOK_TOKEN', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'OPORA_LEASE_TOKEN', 'OPENAI_API_KEY', 'CODEX_HOME']) refused(() => mcpServers(snap({ s: { command: 'node', env: [name] } }), { commands: [] }), 'credential ' + name);
+  assert.deepEqual(mcpServers(snap({ s: { command: 'node', env: ['GITHUB_TOKEN'] } }), { commands: [] })[0].env, ['GITHUB_TOKEN']);
+});
+
+test('a misformatted element that looks like configuration is refused, never read as prose; handbook guides and redacted rules are not configuration', () => {
+  const el = (id: string, category: string, extra: object = {}) => ({ id, category, origin: { bound: [{ slot: 'x', scope: 'project' }] }, ...extra }) as never;
+  const perm = (text: string, extra: object = {}) => ({ elements: [el('p1', 'permissions', extra)], content: { p1: text } });
+  for (const text of ['```JSON\n{"permissions":{"deny":["Bash"]}}\n```', '```json\n{"permissions":{"deny":["Bash"]}}\n```\n```json\n{"permissions":{"ask":["Edit"]}}\n```', 'Deny these: "deny": ["Bash"]', '// comment\n{"permissions": {"deny": ["Bash"]}}']) {
+    if (text.startsWith('```JSON')) { assert.deepEqual(narrowing(perm(text)).deny, ['Bash'], 'an uppercase fence is read'); continue; }
+    refused(() => narrowing(perm(text)), 'misformatted ' + JSON.stringify(text).slice(0, 30));
+  }
+  refused(() => narrowing(perm('{"permissions":{"deny":["Bash([redacted:token])"]}}', { redacted: true })), 'a redacted permissions element');
+  const guide = { elements: [{ id: 'guide:mcp', category: 'mcp', origin: { bound: [] } } as never], content: { 'guide:mcp': fence({ mcpServers: { g: { command: 'node' } } }) } };
+  assert.deepEqual(mcpServers(guide, { commands: [] }), [], 'a guide offered by ID configures nothing');
+  assert.deepEqual(narrowing(perm('{"permissions":{"deny":["mcp__my-server__*"]}}')).deny, ['mcp__my-server__*']);
 });

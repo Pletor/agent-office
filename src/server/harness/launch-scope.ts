@@ -4,7 +4,8 @@
 // `seatWithRun`, and the worker's provider asks `runLaunchFor` as it builds the command line, on the
 // first launch and on every relaunch after (a restart included: the record is found again by worker id).
 // Nothing here edits a runner's global configuration: every file is under the run's scoped folder.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { listRecords, readRecord, scopeDir } from './prepare-store.js';
 import type { LaunchContribution } from './adapters.js';
@@ -14,7 +15,8 @@ import type { AgentProvider } from '../../shared/providers.js';
 export interface RunLaunch extends LaunchContribution { runId: string }
 
 let store: string | undefined;
-const byWorker = new Map<string, RunLaunch | null>();
+/** Hits only: a miss is looked up again at the next launch, so a run recorded as seated later is never missed (fail closed). */
+const byWorker = new Map<string, RunLaunch>();
 let pending: string | undefined;
 
 /** Where the preparation records are (the office's data dir): set once as the office opens its floors. */
@@ -53,23 +55,33 @@ function launchOf(dataDir: string, runId: string, launch: RunLaunch | undefined)
 }
 
 /** The run launch of this worker, or undefined when it has none. Throws when its record names a file outside the run's scope. */
-export function runLaunchFor(info: { id: string; provider?: AgentProvider }): RunLaunch | undefined {
+export function runLaunchFor(info: { id: string; provider?: AgentProvider; prompt?: string }): RunLaunch | undefined {
   if (!store) return undefined;
-  if (pending && !byWorker.has(info.id)) {
+  const hit = byWorker.get(info.id);
+  if (hit) return hit;
+  let found: RunLaunch | null = null;
+  if (pending) {
     const r = readRecord(store, pending);
-    if (r && r.state === 'claimed' && !r.workerId) byWorker.set(info.id, launchOf(store, r.runId, r.launch));
+    if (r && r.state === 'claimed' && !r.workerId) found = launchOf(store, r.runId, r.launch);
   }
-  if (!byWorker.has(info.id)) {
-    const r = listRecords(store).records.find((x) => x.state === 'seated' && x.workerId === info.id);
-    byWorker.set(info.id, r ? launchOf(store, r.runId, r.launch) : null);
+  if (!found) {
+    // Seated by its id, or claimed by an office that stopped before recording the seat (no worker id yet): then the run its contract names.
+    const named = /\nRun: ([a-z0-9-]{8,64})\n/.exec(info.prompt ?? '')?.[1];
+    const r = listRecords(store).records.find((x) => (x.state === 'seated' && x.workerId === info.id) || (x.state === 'claimed' && !x.workerId && x.runId === named));
+    if (r) found = launchOf(store, r.runId, r.launch);
   }
-  return byWorker.get(info.id) ?? undefined;
+  if (found) byWorker.set(info.id, found);
+  return found ?? undefined;
 }
 
 /** The narrowing rules a run's permissions file holds (only deny and ask, as the adapter wrote them). */
 export function readNarrowing(file: string): { deny: string[]; ask: string[] } {
   const parsed = JSON.parse(readFileSync(file, 'utf8')) as { permissions?: { deny?: unknown; ask?: unknown } };
-  const list = (v: unknown) => (Array.isArray(v) && v.every((x) => typeof x === 'string') ? (v as string[]) : []);
+  const list = (v: unknown) => {
+    if (v === undefined) return [];
+    if (!Array.isArray(v) || !v.every((x) => typeof x === 'string')) throw new Error('the run\'s permission rules are not lists of strings');
+    return v as string[];
+  };
   const p = parsed?.permissions ?? {};
   if (Object.keys(parsed ?? {}).some((k) => k !== 'permissions') || Object.keys(p).some((k) => k !== 'deny' && k !== 'ask')) throw new Error('the run\'s permissions file holds more than deny and ask');
   return { deny: list(p.deny), ask: list(p.ask) };
@@ -89,7 +101,7 @@ export function mergeClaudeSettings(office: unknown, narrow: { deny: string[]; a
 
 /** What Claude Code's command line gets for a worker's run: the settings file to use, extra MCP configs, strict or not; or why it must not start. */
 export interface ClaudeScoped { settings?: string; mcp: string[]; strict: boolean; error?: string }
-export function claudeScopedLaunch(info: { id: string; provider?: AgentProvider }, officeSettings: string): ClaudeScoped {
+export function claudeScopedLaunch(info: { id: string; provider?: AgentProvider; prompt?: string }, officeSettings: string): ClaudeScoped {
   let launch: RunLaunch | undefined;
   try { launch = runLaunchFor(info); } catch (err) { return { mcp: [], strict: false, error: 'Harness run: ' + (err as Error).message }; }
   if (!launch) return { mcp: [], strict: false };
@@ -101,7 +113,11 @@ export function claudeScopedLaunch(info: { id: string; provider?: AgentProvider 
       const merged = mergeClaudeSettings(JSON.parse(readFileSync(officeSettings, 'utf8')), readNarrowing(launch.permissions));
       const file = path.join(path.dirname(launch.permissions), 'claude-settings.json');
       mkdirSync(path.dirname(file), { recursive: true });
-      writeFileSync(file, JSON.stringify(merged, null, 2), { mode: 0o600 });
+      // A new temporary file (wx: never through a planted link) renamed over the old one.
+      try { if (lstatSync(file).isSymbolicLink()) throw new Error('claude-settings.json in the run scope is a link'); } catch (err) { if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err; }
+      const temp = file + '.' + randomUUID() + '.tmp';
+      writeFileSync(temp, JSON.stringify(merged, null, 2), { mode: 0o600, flag: 'wx' });
+      try { renameSync(temp, file); } catch (err) { rmSync(temp, { force: true }); throw err; }
       out.settings = file;
     } catch (err) { out.error = `Harness run ${launch.runId}: its permission rules could not be applied (${(err as Error).message}); not started without them`; }
   }

@@ -31,6 +31,7 @@ export async function preparedCardRun(dataDir: string, repo: string, place: Opor
     snapshot: { runId: run.runId, digest: run.digest },
     state: 'prepared',
     resumed: run.resumed,
+    ...(run.launch ? { runner: run.launch.runner } : {}),
     claimed: (lease) => run.claimed(lease),
     seated: (workerId) => run.seated(workerId),
     discard: (reason) => run.rollback(reason ?? 'the card was not taken'),

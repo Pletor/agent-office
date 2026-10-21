@@ -139,7 +139,7 @@ export const mcpAdapter: HarnessAdapter = {
     const problems = claudeMcpProblems(parsed);
     if (problems.length) return `${SCOPED_FILES.mcp} is not a Claude Code MCP config: ${problems.join('; ')}`;
     if (JSON.stringify(parsed) !== JSON.stringify(claudeMcpConfig(servers))) return `${SCOPED_FILES.mcp} is not what the profile declares (changed after it was written)`;
-    const caps: Capability[] = [{ id: 'mcp.config', adapter: 'mcp', state: 'verified', detail: `${SCOPED_FILES.mcp} parses as Claude Code's MCP config; only its servers load (--strict-mcp-config)` }];
+    const caps: Capability[] = [{ id: 'mcp.config', adapter: 'mcp', state: 'verified', detail: `${SCOPED_FILES.mcp} parses as Claude Code's MCP config; with --strict-mcp-config only its servers and the office's own (agent-office, REA when on) load` }];
     const probe = probeWanted(ctx);
     for (const s of servers) {
       if (!probe) { caps.push({ id: 'mcp.server.' + s.name, adapter: 'mcp', state: 'prepared', detail: 'configured; the handshake probe is off (slot mcp.probe), so it is not verified' }); continue; }
@@ -149,7 +149,8 @@ export const mcpAdapter: HarnessAdapter = {
     return { capabilities: caps };
   },
   async recover(ctx, persisted) {
-    // Everything it wrote is in the scoped folder, which the rollback removes; files named in the state are removed here too (idempotent).
+    // Everything it wrote is in the scoped folder; finishRollback calls this BEFORE removing that folder (probe-home and
+    // claude-settings.json go with it), so this only has to remove its own file, idempotently.
     const files = Array.isArray(persisted.files) ? persisted.files.filter((f): f is string => f === SCOPED_FILES.mcp) : [];
     for (const f of files) removeFile(scopedFile(ctx.scopeDir, f));
     return [];

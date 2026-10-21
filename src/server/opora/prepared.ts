@@ -4,6 +4,7 @@
 import type { OporaRun, WorkerInfo } from '../../shared/protocol.js';
 import type { OporaPlace } from '../../shared/opora-identity.js';
 import type { Lease } from './client.js';
+import type { AgentProvider } from '../../shared/providers.js';
 
 /** A run snapshot's id and digest (docs/harness.md "Run snapshot and lazy reads"). */
 export interface RunRef { runId: string; digest: string }
@@ -18,6 +19,8 @@ export interface PreparedTask {
   claimed?(lease: { token: string; agent: string; card?: { name: string; group: 'dev' | 'design'; sectorName?: string } }): Promise<void> | void;
   /** Records the worker once it is seated; the bridge calls it after it holds the run, so a poll never finds the run seated and not held. */
   seated?(workerId: string): Promise<void> | void;
+  /** The runner the run's per-run configuration was prepared for: the worker must be seated with it (harness/launch-scope.ts). */
+  runner?: AgentProvider;
   /** Drops what was prepared when the card is not taken after all (the claim or the seat failed). */
   discard?(reason?: string): Promise<void> | void;
 }

@@ -4,7 +4,7 @@
 // a folder inside that scope (so a server that writes its config writes it there, and the rollback
 // removes it) and no tokens or keys, for a bounded time; it is killed either way. A server the probe
 // can't start safely (a Windows batch launcher) is reported, not run.
-import { spawn } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { defaultLocator, needsShell, probeEnv, type Locator } from './capabilities.js';
@@ -19,6 +19,13 @@ const MAX_STDOUT = 256 * 1024;
 /** The `initialize` request a client opens an MCP session with. */
 export const INITIALIZE = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'agent-office-probe', version: '1' } } };
 
+/** Kills the server and what it started (npx, uvx and python start children): taskkill /T on Windows, the process group elsewhere. */
+function killTree(child: ChildProcess) {
+  if (!child.pid) return;
+  if (process.platform === 'win32') execFile('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true }, () => undefined);
+  else try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } }
+}
+
 export function stdioProber(locator: Locator = defaultLocator): McpProber {
   return (server, { cwd, home, timeoutMs, signal }) => new Promise((resolve) => {
     const file = path.isAbsolute(server.command) ? server.command : locator(server.command);
@@ -27,7 +34,7 @@ export function stdioProber(locator: Locator = defaultLocator): McpProber {
     mkdirSync(home, { recursive: true });
     const env = { ...probeEnv(), HOME: home, USERPROFILE: home, APPDATA: path.join(home, 'AppData'), XDG_CONFIG_HOME: path.join(home, '.config') };
     let out = '', settled = false;
-    const child = spawn(file, server.args, { cwd, env, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+    const child = spawn(file, server.args, { cwd, env, shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'ignore'] });
     let exited = false;
     // Resolved only once the server is gone (or after a grace period): it holds the scoped folder as its cwd until then.
     const done = (r: ProbeResult) => {
@@ -38,13 +45,14 @@ export function stdioProber(locator: Locator = defaultLocator): McpProber {
       if (exited) return resolve(r);
       const grace = setTimeout(() => resolve(r), 2000);
       child.once('close', () => { clearTimeout(grace); resolve(r); });
-      try { child.kill(); } catch { clearTimeout(grace); resolve(r); }
+      killTree(child);
     };
     const onAbort = () => done({ ok: false, detail: 'aborted: the step timed out' });
     const timer = setTimeout(() => done({ ok: false, detail: `no answer to initialize within ${timeoutMs} ms` }), timeoutMs);
     signal?.addEventListener('abort', onAbort);
     child.on('error', (err) => done({ ok: false, detail: 'could not start: ' + err.message }));
-    child.on('exit', (code) => { exited = true; done({ ok: false, detail: `exited (${code}) before answering initialize` }); });
+    // close, not exit: the last of its output has been read by then (an answer just before exiting counts).
+    child.on('close', (code) => { exited = true; done({ ok: false, detail: `exited (${code}) before answering initialize` }); });
     child.stdout!.setEncoding('utf8');
     child.stdout!.on('data', (chunk: string) => {
       out += chunk;

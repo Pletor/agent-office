@@ -277,3 +277,18 @@ test('a worker whose run narrows its permissions never starts without them (fail
   assert.ok(plan.finishEnv, 'the start fails');
   assert.throws(() => plan.finishEnv!({}), /permission rules could not be applied.*not started without them/);
 });
+
+test('a miss is never cached: a worker launched before its run was recorded (an office that stopped mid-seat) gets the run on its next launch, by the run its contract names', async (t) => {
+  t.after(stubDetection());
+  const f = await checkout(t, { permissions: { p: fence({ permissions: { deny: ['WebFetch'] } }) }, adapters: 'permissions' });
+  const run = await prepareRun(ctx(f.dir), opts);
+  const office = officeSettingsFile(f.dir);
+  bindRunLaunches(f.dir);
+  // Before the claim nothing matches; a lookup that missed is tried again later.
+  assert.equal(runLaunchFor({ id: 'w-late', prompt: run.context }), undefined);
+  await run.claimed({ token: 't', agent: 'a' });
+  // Claimed, no worker id recorded yet (the office stopped before seated): the run its contract names.
+  const info = { id: 'w-late', provider: 'claude', prompt: run.context } as never;
+  const plan = claude.launch({ h: { info } as never, args: [], prompt: 'go', cwd: f.dir, setup: { settings: office, dir: f.dir } });
+  assert.notEqual(plan.args[plan.args.indexOf('--settings') + 1], office, 'the run\'s narrowed settings, not the office\'s');
+});

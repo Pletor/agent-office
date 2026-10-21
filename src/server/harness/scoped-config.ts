@@ -11,6 +11,13 @@ export const SCOPED_LIMITS = { servers: 16, args: 64, argBytes: 512, envNames: 3
 
 /** Commands an MCP server may run without an administrator's approval: interpreters and package runners, by bare name. */
 export const MCP_COMMANDS: readonly string[] = ['node', 'npx', 'uvx', 'python', 'python3', 'deno', 'bun'];
+/** Arguments that make an interpreter or package runner run code given inline, or through a shell (npx -c): refused. */
+const CODE_FLAGS = /^(-c|--call|-e|--eval|-p|--print|-r|--require|--import|--loader|--experimental-loader|--input-type|--shell|--shell-auto-fallback)(=|$)/;
+/** Sources that fetch and run code from outside a registry version: refused (inline data, git, tarball URLs). */
+const CODE_SOURCES = /(^|[=,])(data:|git\+|github:|gitlab:|bitbucket:|https?:|file:)/i;
+/** Env names that are the office's or a runner's own credentials: never forwarded to a profile's server. */
+const CREDENTIAL_ENV = /^(AGENT_OFFICE_|ANTHROPIC_|CLAUDE_|OPORA_|OPENAI_|CODEX_)/;
+
 /** Names the office's own MCP servers have: a profile can't shadow them. */
 export const RESERVED_SERVERS: readonly string[] = ['agent-office', 'rea'];
 
@@ -20,7 +27,7 @@ const BARE_COMMAND = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const ARG = /^[A-Za-z0-9@+=:,./_~-]+$/;
 export const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 /** A Claude Code permission rule: `Tool` or `Tool(specifier)`, printable ASCII, no newline. */
-const RULE = /^[A-Za-z][A-Za-z0-9_]{0,79}(\([\x20-\x27\x2a-\x7e]{1,200}\))?$/;
+const RULE = /^[A-Za-z][A-Za-z0-9_-]{0,79}\*?(\([\x20-\x27\x2a-\x7e]{1,200}\))?$/;
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
 
 export class ScopedConfigError extends Error {}
@@ -45,6 +52,8 @@ export function checkArg(where: string, value: unknown): string {
   if (Buffer.byteLength(value) > SCOPED_LIMITS.argBytes) return refuse(where, `longer than ${SCOPED_LIMITS.argBytes} bytes`);
   if (!ARG.test(value)) return refuse(where, `${shown(value)} has a character outside [A-Za-z0-9@+=:,./_~-] (no shell metacharacters, quotes, $, spaces, backslashes, control or non-ASCII characters)`);
   if (value.split('/').includes('..')) return refuse(where, `${shown(value)} climbs out with ..`);
+  if (CODE_FLAGS.test(value)) return refuse(where, `${shown(value)} makes the command run code given inline or through a shell`);
+  if (CODE_SOURCES.test(value)) return refuse(where, `${shown(value)} fetches code from outside a package registry (data:, git, URL)`);
   return value;
 }
 
@@ -53,15 +62,26 @@ export interface McpServer { name: string; command: string; args: string[]; env:
 /** What an administrator approved beyond MCP_COMMANDS: exact command strings, and who approved them (from the profile audit). */
 export interface Approval { commands: readonly string[]; by?: string }
 
-/** The JSON object an element's text carries: the whole text, or its first ```json fenced block. */
+/**
+ * The JSON object an element's text carries: the whole text, or its one ```json fenced block. Text that
+ * looks like configuration (a fence, a brace, "mcpServers", "deny", "ask") without exactly one parseable
+ * block is refused rather than read as prose, so a misformatted element never silently configures nothing.
+ */
 export function jsonBlock(text: string): unknown | undefined {
-  const trimmed = text.trim();
-  const fenced = /```json[^\n]*\n([\s\S]*?)```/.exec(text);
-  const body = trimmed.startsWith('{') ? trimmed : fenced?.[1];
-  if (body === undefined) return undefined;
+  const trimmed = text.replace(/^\uFEFF/, '').trim();
+  const fences = [...text.matchAll(/```[ \t]*json[^\n]*\n([\s\S]*?)```/gi)];
+  if (fences.length > 1) throw new ScopedConfigError('more than one ```json block: put the configuration in one');
+  const body = trimmed.startsWith('{') ? trimmed : fences[0]?.[1];
+  if (body === undefined) {
+    if (/```|[{}]|"(mcpServers|deny|ask|allow|permissions)"/.test(text)) throw new ScopedConfigError('it looks like configuration but has no ```json block (or a whole-JSON text) to read: refused rather than ignored');
+    return undefined;
+  }
   if (Buffer.byteLength(body) > SCOPED_LIMITS.blockBytes) throw new ScopedConfigError(`the JSON block is over ${SCOPED_LIMITS.blockBytes / 1024} KiB`);
   try { return JSON.parse(body); } catch (err) { throw new ScopedConfigError('the JSON block does not parse: ' + (err as Error).message); }
 }
+
+/** The elements of a category a profile slot binds (handbook guides offered by ID are prose, never configuration). */
+const bound = (snapshot: Pick<StoredSnapshot, 'elements'>, category: string) => snapshot.elements.filter((e) => e.category === category && (e.origin?.bound?.length ?? 0) > 0);
 
 const plain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
 function onlyKeys(where: string, o: Record<string, unknown>, keys: readonly string[]) {
@@ -84,7 +104,7 @@ export function checkCommand(where: string, value: unknown, approval: Approval):
 /** The MCP servers the snapshot's `mcp` elements declare, all checked; throws ScopedConfigError on the first value refused. */
 export function mcpServers(snapshot: Pick<StoredSnapshot, 'elements' | 'content'>, approval: Approval): McpServer[] {
   const out: McpServer[] = [];
-  for (const el of snapshot.elements.filter((e) => e.category === 'mcp')) {
+  for (const el of bound(snapshot, 'mcp')) {
     const at = `mcp element ${el.id}`;
     let block: unknown;
     try { block = jsonBlock(snapshot.content[el.id] ?? ''); } catch (err) { refuse(at, (err as Error).message); }
@@ -122,6 +142,7 @@ function envNames(where: string, env: unknown): string[] {
   const seen = new Set<string>();
   return names.map((n) => {
     if (typeof n !== 'string' || !ENV_NAME.test(n)) refuse(`${where} env`, `${shown(n)} is not a variable name (${ENV_NAME.source})`);
+    if (CREDENTIAL_ENV.test(n as string)) refuse(`${where} env`, `${shown(n)} is the office's or a runner's own credential: never forwarded to a profile's server`);
     if (seen.has(n as string)) refuse(`${where} env`, `${shown(n)} is named twice`);
     seen.add(n as string);
     return n as string;
@@ -139,7 +160,8 @@ export interface Narrowing { deny: string[]; ask: string[]; sources: string[] }
 /** The deny/ask rules the snapshot's `permissions` elements carry; anything that would widen (allow, a mode, a bypass) is refused. */
 export function narrowing(snapshot: Pick<StoredSnapshot, 'elements' | 'content'>): Narrowing {
   const out: Narrowing = { deny: [], ask: [], sources: [] };
-  for (const el of snapshot.elements.filter((e) => e.category === 'permissions')) {
+  for (const el of bound(snapshot, 'permissions')) {
+    if (el.redacted) refuse(`permissions element ${el.id}`, 'its text was redacted in the snapshot, which may have changed a rule: put no secret-like text in a permissions element');
     const at = `permissions element ${el.id}`;
     let block: unknown;
     try { block = jsonBlock(snapshot.content[el.id] ?? ''); } catch (err) { refuse(at, (err as Error).message); }
