@@ -1,7 +1,7 @@
 // Runner adapters for the preparation runner (prepare.ts, docs/harness.md "Preparation runner"). An
 // adapter turns a run's pinned snapshot into what one runner needs before its worker is seated: the
 // built-in `context` adapter renders the worker's contract from the snapshot (the behaviour every
-// Opora take had before), and later adapters (MCP, hooks, permissions: H13/H15) will write their scoped
+// Opora take had before), and the runner adapters (adapter-claude.ts: MCP and permissions; hooks: H15) write their scoped
 // configuration under the run's own folder. Nothing is active because it was named: an adapter's
 // capabilities start `declared`, become `prepared` only when its prepare step said so, and `verified`
 // only when the runner checked them afterwards. An adapter a profile names that this office doesn't
@@ -104,11 +104,11 @@ export function listAdapters(): HarnessAdapter[] {
   return [...adapters.values()];
 }
 
-/** Names that will be adapters of their own (H13/H15) and are refused here with that reason. */
+/** Names of adapters in modules of their own, with why they are refused when that module isn't loaded (hooks: H15). */
 const LATER: Record<string, string> = {
-  mcp: 'MCP servers are configured by the runner adapters of H13; this office does not set them up yet',
-  hooks: 'hook installation belongs to the runner adapters of H13; this office does not install hooks yet',
-  permissions: 'runner permissions are configured by H13/H15; this office does not change a runner\'s permissions',
+  mcp: 'per-run MCP servers are the runner adapter in adapter-claude.ts, which is not loaded in this office',
+  hooks: 'hook installation belongs to the hook lifecycle adapter of H15; this office does not install hooks yet',
+  permissions: 'per-run narrowing permissions are the runner adapter in adapter-claude.ts, which is not loaded in this office',
 };
 
 /**
