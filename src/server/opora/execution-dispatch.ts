@@ -7,6 +7,7 @@ import { executionPrompt } from './execution-prompt.js';
 import { validateBudgetFiles } from './execution-budget-files.js';
 import { contextVersionFromEnvironment } from './execution-context.js';
 import { PullRequestHandoff, type HandoffTools } from './pull-request-handoff.js';
+import type { SelfCheckReporter } from './self-checks.js';
 
 export interface ExecutionHeld { workerId?: string; execution?: ExecutionLease; deadlineUnixMs?: number; leaseUntil?: string; state?: string }
 
@@ -22,7 +23,9 @@ export class ExecutionDispatch {
   private seating?: { lease: ExecutionLease; deadline: number; prompt: string; workerId?: string };
   constructor(base: string, private agent: string, private directory: string,
     private runs: () => ExecutionHeld[],
-    changed: () => void, private stop: (workerId: string, reason: string) => void, tools?: HandoffTools) {
+    changed: () => void, private stop: (workerId: string, reason: string) => void, tools?: HandoffTools,
+    /** Runs the configured checks on each pull request's head and tells Canvas (self-checks.ts). */
+    private selfChecks?: SelfCheckReporter) {
     this.client = new ExecutionClient(base, agent);
     this.pullRequests = new PullRequestHandoff(directory, base, agent, tools);
     this.controller = new ExecutionController(this.client, (id, lease, deadline) => {
@@ -90,8 +93,12 @@ export class ExecutionDispatch {
     if (run.workerId && info?.worktree) this.worktrees.set(run.workerId, info);
     const wt = (info ?? (run.workerId ? this.worktrees.get(run.workerId) : undefined))?.worktree;
     if (!run.execution || !wt?.base) return undefined;
-    return this.pullRequests.handOff({ lease: run.execution, cardName: run.cardName, dir: path.join(floorDir, wt.path),
-      baseCommit: wt.base, baseBranch: wt.from }, notify);
+    const lease = run.execution, dir = path.join(floorDir, wt.path);
+    const handoff = this.pullRequests.handOff({ lease, cardName: run.cardName, dir, baseCommit: wt.base, baseBranch: wt.from }, notify);
+    // The evidence runs after the pull request is out, without holding the lease for it.
+    void handoff?.then(out => { if (out.state === 'opened' || out.state === 'reused') return this.selfChecks?.report({
+      project: lease.project, workspace: lease.workspace, executionId: lease.executionId, headSha: out.headSha, dir }); }).catch(() => {});
+    return handoff;
   }
   async release(run: ExecutionHeld) {
     await this.pullRequests.settled(run.execution?.executionId);

@@ -3,7 +3,8 @@ import { ReviewJobError, type ReviewAssignment, type ReviewJobClient, type Revie
 import type { ReviewAgent } from './review-agent.js';
 import type { Checkout } from './review-checkout.js';
 import { checkFinder, checkVoter, parseAnswer, type Checked, type FinderSubmission, type VoterSubmission } from './review-output.js';
-import { FINDER_SYSTEM, VOTER_SYSTEM, finderPrompt, repairPrompt, voterPrompt } from './review-prompt.js';
+import { reviewPrompts, type ReviewPrompts } from './review-kinds.js';
+import { finderPrompt, repairPrompt, voterPrompt } from './review-prompt.js';
 
 /**
  * One claimed review slot, start to finish: its own checkout, a fresh model run (and at most one
@@ -31,14 +32,14 @@ export function submitRequestId(a: Pick<ReviewAssignment, 'reviewJobId' | 'taskI
 
 type Answer = Checked<FinderSubmission> | Checked<VoterSubmission>;
 
-function check(a: ReviewAssignment, text: string): Answer {
+function check(a: ReviewAssignment, text: string, prompts: ReviewPrompts): Answer {
   let raw: unknown;
   try { raw = parseAnswer(text); } catch (error) { return { ok: false, errors: [`not valid JSON: ${(error as Error).message.slice(0, 200)}`] }; }
-  return a.role === 'finder' ? checkFinder(raw, a.knownFindings) : checkVoter(raw, a.candidates ?? []);
+  return a.role === 'finder' ? checkFinder(raw, a.knownFindings, prompts.fingerprintPrefix) : checkVoter(raw, a.candidates ?? []);
 }
 
 export async function runSlot(scope: ReviewScope, a: ReviewAssignment, deps: SlotDeps): Promise<SlotOutcome> {
-  const label = `${a.job.repository}#${a.job.number} round ${a.job.round} ${a.role} slot ${a.slot}`;
+  const label = `${a.job.repository}#${a.job.number}${a.job.kind === 'security' ? ' security' : ''} round ${a.job.round} ${a.role} slot ${a.slot}`;
   const abort = new AbortController();
   let lost = false;
   const beat = setInterval(() => {
@@ -50,18 +51,21 @@ export async function runSlot(scope: ReviewScope, a: ReviewAssignment, deps: Slo
   }, deps.heartbeatMs ?? Math.max(5_000, (deps.ttlSeconds * 1000) / 3));
   let checkout: Checkout | undefined;
   try {
+    // An unknown kind is never reviewed with a guessed prompt: the slot goes back and the log says why.
+    const prompts = reviewPrompts(a.job.kind);
+    if (!prompts) throw new Error(`unknown review job kind ${JSON.stringify(String(a.job.kind).slice(0, 40))}; this office reviews only code and security jobs`);
     let submission: FinderSubmission | VoterSubmission;
     if (a.role === 'voter' && !(a.candidates ?? []).length) submission = { votes: [] };
     else {
       checkout = await deps.checkout(a);
-      const system = a.role === 'finder' ? FINDER_SYSTEM : VOTER_SYSTEM;
+      const system = a.role === 'finder' ? prompts.finder : prompts.voter;
       const prompt = a.role === 'finder' ? finderPrompt(a, checkout) : voterPrompt(a, checkout);
       const first = await deps.agent({ cwd: checkout.dir, system, prompt, signal: abort.signal });
-      let answer = check(a, first);
+      let answer = check(a, first, prompts);
       if (!answer.ok) {
         deps.log(`🔎 ${label}: the answer failed validation (${answer.errors.slice(0, 3).join('; ')}); one repair attempt`, 'warn');
         const second = await deps.agent({ cwd: checkout.dir, system, prompt: repairPrompt(prompt, first, answer.errors), signal: abort.signal });
-        answer = check(a, second);
+        answer = check(a, second, prompts);
       }
       if (!answer.ok) throw new Error(`invalid answer after one repair (${answer.errors.slice(0, 3).join('; ')})`);
       submission = answer.value;

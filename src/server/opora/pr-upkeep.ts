@@ -85,6 +85,7 @@ export class PrUpkeep {
       const newHead = (await git(['rev-parse', 'HEAD'], tree.dir)).trim();
       this.ledger.pr(n, newHead);
       this.ledger.save();
+      await this.tools.pushed?.(pr, newHead, tree.dir).catch(() => undefined);
       if (rebased.resolved.length) {
         await this.comment(repository, repo, n, [
           `🛰️ Agent Office rebased this pull request onto \`${pr.baseRefName}\` (${baseSha.slice(0, 12)}). Claude resolved textual conflicts in:`,

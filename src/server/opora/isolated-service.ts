@@ -19,11 +19,15 @@ import { IsolatedStore, type IsolatedRequest, type IsolatedRun } from './isolate
 import { isolatedTransport } from './isolated-transport.js';
 import { readRemoteReport, remoteReportInstructions } from './isolated-reports.js';
 import { findIsolatedReceipt, nativeResultPayload, submitIsolatedResult } from './isolated-results.js';
+import { IsolatedPullRequests, patchInstructions } from './isolated-pull-request.js';
+import { createSelfCheckReporter } from './self-checks.js';
 
 export interface IsolatedFloor { id: string; dir: string; view(): OporaState; alive(): boolean }
 export interface IsolatedOptions {
   configuration?: IsolatedConfiguration | null; transport?: typeof fetch;
   repository?: () => ExecutionIntent['repository']; contextVersion?: ContextVersion; pollMs?: number; autoRecover?: boolean;
+  /** Opens the run's pull request from its returned patch (isolated-pull-request.ts); null turns that off. */
+  pullRequests?: IsolatedPullRequests | null;
 }
 /** Independent opt-in broker. No worker-manager, autopilot, CLI or local working-context access. */
 export class IsolatedOfficeService implements IsolatedOfficeAccess {
@@ -40,6 +44,7 @@ export class IsolatedOfficeService implements IsolatedOfficeAccess {
   private ticking = false;
   private registry = new ExecutorRegistry();
   private stopping = new Map<string, Promise<unknown>>();
+  private pullRequests?: IsolatedPullRequests;
   constructor(private floor: IsolatedFloor, private options: IsolatedOptions = {}) {
     this.config = options.configuration === undefined ? isolatedConfiguration() : options.configuration;
     this.transport = isolatedTransport(options.transport ?? fetch);
@@ -49,6 +54,9 @@ export class IsolatedOfficeService implements IsolatedOfficeAccess {
       catch { this.broken = true; }
     }
     if (this.config && !this.broken) {
+      const agent = `office-isolated-${floor.id}`, log = (m: string, level: string) => (level === 'info' ? console.log : console.warn)(`[opora] ${m}`);
+      this.pullRequests = options.pullRequests === undefined ? new IsolatedPullRequests(floor.dir, path.join(directory, 'pull-requests'), this.config.canvas, agent,
+        undefined, createSelfCheckReporter(this.config.canvas, agent, path.join(directory, 'pull-requests'), log)) : options.pullRequests ?? undefined;
       this.registry.register(new ManagedAgentsExecutor(new ManagedAgentsHttp(this.config.managed, this.config.secrets, this.transport), this.journal!));
       this.timer = setInterval(() => { if (!this.ticking) { this.ticking = true; void this.tick().finally(() => { this.ticking = false; }).catch(() => {}); } }, options.pollMs ?? 60000);
       this.timer.unref?.();
@@ -168,7 +176,7 @@ export class IsolatedOfficeService implements IsolatedOfficeAccess {
           ...this.config!.managed });
         run = this.patch(key, { intent, stage: 'bound' });
         await this.report(key, null); this.permitted(this.current(key), true);
-        const result = await this.executor(run).start(intent, remotePrompt(lease.assignment) + '\n' + remoteReportInstructions(intent), async () => {
+        const result = await this.executor(run).start(intent, remotePrompt(lease.assignment) + '\n' + patchInstructions(intent) + '\n' + remoteReportInstructions(intent), async () => {
           try {
             this.permitted(this.current(key), true);
             await this.report(key, this.executor(this.current(key)).status(intent.intentId));
@@ -277,6 +285,8 @@ export class IsolatedOfficeService implements IsolatedOfficeAccess {
       this.patch(key, { pendingResult: { report, payload: nativeResultPayload(run.lease, report), attempted: false } });
     }
     await this.submitPendingResult(key);
+    // Its pull request goes out while the lease still holds, as a card worker's does (isolated-pull-request.ts).
+    await this.pullRequests?.handOff(this.current(key), (m, level) => (level === 'info' ? console.log : console.warn)(`[opora] ${m}`)).catch(() => undefined);
     this.markRevoked(key); await this.stopRun(key); return true;
   }
   private async submitPendingResult(key: string) {

@@ -34,6 +34,10 @@ On each 20-second poll of the floor's Opora bridge, while there's room under bot
 
 On the same poll, the office reads `GET /api/oporahub/review-jobs?project&workspace` and, for every job in phase `completed`, posts one pull request review through `gh api`: event `COMMENT` only (never `APPROVE` or `REQUEST_CHANGES`, never a merge), with the head commit as `commit_id`. Its body starts with the marker `<!-- opora-review-job:<reviewJobId> -->` and lists the round's findings tagged `**[severity]** \`findingId\``; each open finding with a path and a line also gets an inline comment (when GitHub refuses inline comments outside the diff, the review is posted with the body alone). A job already posted is found by its marker and its review body updated in place, never posted twice; `.agent-office/opora-reviews/posted.json` remembers what was posted so an unchanged job costs no GitHub call. Agent reviews never count as human approvals on Canvas's merge gate.
 
+## Security jobs, evidence and the eval
+
+Jobs of kind `security` get a security prompt and `security:` fingerprints, and a kind the office doesn't know is released; self-check evidence and the reviewer eval (`npm run opora:review-eval`) are in [security reviews, evidence, eval and isolated PRs](opora-review-evidence.md).
+
 ## Code
 
 `src/server/opora/review-runner.ts` (the loop, limits and backoff, composed by `bridge.ts`), `review-client.ts` (the Canvas API), `review-slot.ts`, `review-checkout.ts`, `review-agent.ts`, `review-prompt.ts`, `review-output.ts` (parsing, validation, fingerprints), `review-github.ts` and `review-config.ts`. Tests: `tests/opora-review-jobs.test.ts`, with fakes for Canvas, git, gh and the model.

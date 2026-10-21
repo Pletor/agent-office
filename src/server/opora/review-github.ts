@@ -20,7 +20,8 @@ const short = (sha: string) => sha.slice(0, 12);
 const clip = (s: string | undefined, n: number) => (s ?? '').length > n ? `${(s ?? '').slice(0, n - 1)}…` : (s ?? '');
 /** Text from a model in markdown: no HTML comments (no fake markers), no mentions that ping people. */
 const safe = (s: string | undefined, n: number) => clip(s, n).replace(/<!--|-->/g, '').replace(/@(?=[A-Za-z0-9-])/g, '@​');
-const tag = (f: KnownFinding) => `**[${f.severity}]** \`${f.findingId}\``;
+/** A security job's findings say so on GitHub (Canvas's "Zveřejnění"). */
+const tag = (f: KnownFinding, job: ReviewJob) => `**[${job.kind === 'security' ? 'security · ' : ''}${f.severity}]** \`${f.findingId}\``;
 
 /** The round's own findings, worst first, then by path and line, so the same job is the same body. */
 export function roundFindings(job: ReviewJob, findings: KnownFinding[]): KnownFinding[] {
@@ -33,7 +34,7 @@ export function reviewBody(job: ReviewJob, findings: KnownFinding[]): string {
   const mine = roundFindings(job, findings);
   const lines = [
     reviewMarker(job.reviewJobId),
-    `### 🔎 Opora automated review: round ${job.round} at \`${short(job.headSha)}\``,
+    `### ${job.kind === 'security' ? '🔒 Opora automated security review' : '🔎 Opora automated review'}: round ${job.round} at \`${short(job.headSha)}\``,
     '',
     `Review job \`${job.reviewJobId}\`${job.sinceSha ? `, changes since \`${short(job.sinceSha)}\`` : ''}. Findings were proposed by independent finder agents and confirmed by voter agents; this is an agent review, not a human approval or request for changes.`,
     '',
@@ -41,7 +42,7 @@ export function reviewBody(job: ReviewJob, findings: KnownFinding[]): string {
   if (!mine.length) lines.push('No findings were confirmed in this round.');
   for (const f of mine) {
     const where = f.path ? ` \`${safe(f.path, 300)}${f.line ? `:${f.line}` : ''}\`` : '';
-    lines.push(`- ${tag(f)}${where}: ${safe(f.title, 200)}${f.status !== 'open' ? ` (${f.status})` : ''}`);
+    lines.push(`- ${tag(f, job)}${where}: ${safe(f.title, 200)}${f.status !== 'open' ? ` (${f.status})` : ''}`);
     if (f.rationale) lines.push(`  <details><summary>Why</summary>\n\n  ${safe(f.rationale, 1500).replace(/\n/g, '\n  ')}\n\n  </details>`);
   }
   return lines.join('\n');
@@ -49,7 +50,7 @@ export function reviewBody(job: ReviewJob, findings: KnownFinding[]): string {
 
 function inline(job: ReviewJob, findings: KnownFinding[]) {
   return roundFindings(job, findings).filter((f) => f.status === 'open' && f.path && Number.isSafeInteger(f.line) && (f.line as number) > 0)
-    .map((f) => ({ path: f.path!, line: f.line as number, side: 'RIGHT', body: `${tag(f)} ${safe(f.title, 200)}\n\n${safe(f.rationale, 2000)}` }));
+    .map((f) => ({ path: f.path!, line: f.line as number, side: 'RIGHT', body: `${tag(f, job)} ${safe(f.title, 200)}\n\n${safe(f.rationale, 2000)}` }));
 }
 
 export class ReviewPoster {

@@ -13,6 +13,7 @@ import { ExecutionDispatch, type ExecutionHeld } from './execution-dispatch.js';
 import { requestExecutionStop } from './execution-stop.js';
 import { createReviewRunner, type ReviewJobRunner } from './review-runner.js';
 import { createOporaUpkeep, type OporaUpkeep } from './upkeep-runner.js';
+import { createSelfCheckReporter, upkeepSelfChecks } from './self-checks.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
 export interface BridgeFloor {
@@ -106,6 +107,9 @@ export class OporaBridge {
     this.client = new OporaClient(url, `office-${floor.id}`);
     this.state = { ...EMPTY_OPORA, url, canStart: oporaProcess.canStart() };
     this.statePath = path.join(dataDir, 'opora.json');
+    const log = (message: string, level: 'info' | 'warn') => (level === 'info' ? console.log : console.warn)(`[opora] ${message}`);
+    // Self-check evidence for every head the office hands off or upkeep pushes, while AGENT_OFFICE_OPORA_SELF_CHECKS names checks (self-checks.ts).
+    const selfChecks = createSelfCheckReporter(url, `office-${floor.id}`, dataDir, log);
     this.executions = new ExecutionDispatch(url, `office-${floor.id}`, dataDir, () => this.runs,
       () => this.changed(), (id, reason) => {
         const run = this.runs.find(run => run.workerId === id);
@@ -113,9 +117,10 @@ export class OporaBridge {
         if (run) this.handOff(run, this.floor.list().find(w => w.id === id));
         requestExecutionStop(run, id, reason, this.floor.stop?.bind(this.floor),
           () => this.changed(), message => this.events.toast(message, 'warn'));
-      });
-    this.reviews = createReviewRunner(url, `office-${floor.id}`, floor.dir, dataDir, (message, level) => (level === 'info' ? console.log : console.warn)(`[opora] ${message}`));
-    this.upkeep = createOporaUpkeep(floor.dir, dataDir, (message, level) => this.events.toast(message, level));
+      }, undefined, selfChecks);
+    this.reviews = createReviewRunner(url, `office-${floor.id}`, floor.dir, dataDir, log);
+    this.upkeep = createOporaUpkeep(floor.dir, dataDir, (message, level) => this.events.toast(message, level), process.env,
+      selfChecks && upkeepSelfChecks(selfChecks, dataDir, () => this.state.project && this.state.workspace ? { project: this.state.project.id, workspace: this.state.workspace } : undefined));
     this.restore();
     this.live = new ActivityFeed(this.client, () => ({ project: this.state.project?.id, workspace: this.state.workspace ?? undefined }), () => this.events.update(this.view()));
     this.pollTimer = setInterval(() => void this.poll(), POLL_MS);

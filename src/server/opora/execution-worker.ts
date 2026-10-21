@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { validateExecution } from './execution-client.js';
 import { sameBudget, validateBudget } from './execution-budget.js';
 import { EXECUTION_INSTRUCTIONS_VERSION, validateContextProof, validateContextVersion } from './execution-context.js';
+import { validSelfChecks } from './self-checks.js';
 
 /** Capability never leaves this process; stdout contains a small public receipt only. */
 export async function reportExecution(bundlePath: string, resultPath: string, transport: typeof fetch = fetch) {
@@ -15,6 +16,11 @@ export async function reportExecution(bundlePath: string, resultPath: string, tr
   if (Buffer.byteLength(raw, 'utf8') > 64000) throw new Error('Result is too large');
   const result = JSON.parse(raw);
   if (!result || typeof result.summary !== 'string' || !result.summary.trim()) throw new Error('Result needs a summary');
+  // Self-check evidence goes to Canvas only in the exact shape it validates; anything else is left out, never the whole result refused.
+  if (result.selfChecks !== undefined && !validSelfChecks(result.selfChecks)) {
+    delete result.selfChecks;
+    process.stderr.write('result.selfChecks was left out: it does not match the self-check shape (headSha, checks[name, command, exitCode, status]).\n');
+  }
   const response = await transport(new URL(`/api/oporahub/executions/${encodeURIComponent(bundle.executionId)}/results`, bundle.base), {
     method: 'POST', redirect: 'error', signal: AbortSignal.timeout(8000),
     headers: { 'Content-Type': 'application/json', Origin: new URL(bundle.base).origin, 'X-Opora-Actor': bundle.actor },

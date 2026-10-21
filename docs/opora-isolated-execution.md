@@ -176,3 +176,7 @@ The query correction and whole-JSON-fence handling were independently reviewed
 and regression-tested before the second attempt. No merge, production deployment
 or global security change was made. The Canvas completion audit retains the
 sanitized evidence and explicitly distinguishes the negative and positive runs.
+
+## Pull requests
+
+A run whose result carries `result.patch` (the remote agent is asked for `git format-patch --stdout <pinned>..HEAD`) gets it applied at the pinned commit in a throwaway worktree and handed off like a card worker's: branch, trailers, Canvas link and per-head idempotency. See [pull requests from the isolated broker](opora-review-evidence.md#pull-requests-from-the-isolated-broker).
