@@ -47,7 +47,7 @@ state and worker prompts exclude tokens. A separate assignment JSON contains onl
 task data. The prompt names a result helper that reads the capability internally;
 workers must not read or publish the private bundle.
 
-To finish, the worker writes a JSON result with a nonempty `summary` and optional
+To finish, the worker commits its work in its worktree and writes a JSON result with a nonempty `summary` and optional
 artifact/evidence fields (at most 64,000 UTF-8 bytes), then runs the command in its
 prompt. Retry the identical file after uncertain delivery. The helper emits only
 the receipt identity and verification label. A receipt is agent-reported work,
@@ -55,6 +55,37 @@ not verified checks, independent review, accepted plan changes or card completio
 It must not trigger the legacy agent-output or completion API. A successful result
 ends Canvas authority; the next Office heartbeat stops that worker. Its authority
 warning does not invalidate an already stored successful receipt.
+
+## Pull request handoff
+
+No agent has to open the execution's pull request. Once the result helper has a
+receipt, it stores the reported result (never the capability) as
+`opora-executions/<executionId>-reported.json`. Office then hands the work off
+from the worker's worktree, when the worker updates, when authority ends after the
+result, on each 20-second poll and before the lease is released:
+
+1. With commits ahead of the worktree's base, it pushes `HEAD` to the deterministic
+   branch `opora/<first 12 characters of the card id>/<executionId>` on `origin`.
+2. It reuses the pull request already open (or closed) for that branch, or opens one
+   with `gh pr create`, titled `Opora: <card title>`, against the branch the worktree
+   was cut from. The body has the result's summary, the tests and checks from its
+   `evidence`/`checks`/`tests`, its `risk` and `revert` (or defaults), and ends with
+   the trailers `Opora-Execution: <executionId>`, `Opora-Revision: <acceptedRevision>`
+   and `Opora-Card: <cardId>`.
+3. It links the pull request with POST `/api/oporahub/executions/{executionId}/pull-request`
+   `{project, workspace, token, epoch, requestId, repository, number, headRef, headSha}`,
+   using the execution's credentials; `requestId` is a UUID-shaped SHA-256 of the
+   execution and head commit, so a retry is the same request. 404 (Canvas without
+   the endpoint) is logged and the trailers let Canvas discover the PR later; 409 is
+   logged as a conflict and not retried.
+
+What became of each head commit is kept in `<executionId>-pull-request.json`, so the
+same commit is never pushed or linked twice; a later commit updates the same PR and
+links again. Office never merges or approves. A failed push, PR or link is a toast
+and a server log line and never changes the stored Canvas result. Without a GitHub
+`origin`, without `gh auth`, or with `AGENT_OFFICE_OPORA_AUTO_PR=off`, it skips with
+a toast. Implementation: `src/server/opora/pull-request-handoff.ts` and
+`pull-request-body.ts`; tests: `tests/opora-pull-request.test.ts`.
 
 Implementation lives in `src/server/opora/execution-*.ts`. The generic
 `workers/launch-guards.ts` registry gates initial launches, restored terminals and

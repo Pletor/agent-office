@@ -103,6 +103,8 @@ export class OporaBridge {
     this.executions = new ExecutionDispatch(url, `office-${floor.id}`, dataDir, () => this.runs,
       () => this.changed(), (id, reason) => {
         const run = this.runs.find(run => run.workerId === id);
+        // A result ends authority, which stops the worker: its work goes out as a pull request first.
+        if (run) this.handOff(run, this.floor.list().find(w => w.id === id));
         requestExecutionStop(run, id, reason, this.floor.stop?.bind(this.floor),
           () => this.changed(), message => this.events.toast(message, 'warn'));
       });
@@ -196,6 +198,10 @@ export class OporaBridge {
     try {
       // A worker that went home while the office was down never said so.
       const here = new Set(this.floor.list().map((w) => w.id));
+      for (const info of this.floor.list()) {
+        const run = this.runs.find((r) => r.workerId === info.id);
+        if (run) this.handOff(run, info);
+      }
       for (const run of this.runs) {
         if (run.state === 'gone' || (run.workerId && here.has(run.workerId))) continue;
         run.state = 'gone';
@@ -275,6 +281,7 @@ export class OporaBridge {
   onWorker(info: WorkerInfo) {
     const run = this.runs.find((r) => r.workerId === info.id && r.state !== 'gone');
     if (!run) return;
+    this.handOff(run, info);
     const state = info.status === 'done' || info.status === 'exited' ? 'done' : 'working';
     if (run.state === state) return;
     run.state = state;
@@ -410,7 +417,16 @@ export class OporaBridge {
     }
   }
 
+  /** Pushes the work of a run whose worker reported its result and opens its pull request (pull-request-handoff.ts). */
+  private handOff(run: Held, info: WorkerInfo | undefined) {
+    return this.executions.handOff(run, info, this.floor.dir, (message, level) => {
+      (level === 'info' ? console.log : console.warn)(`[opora] ${message}`);
+      this.events.toast(message, level);
+    });
+  }
+
   private async letGo(run: Held) {
+    await this.handOff(run, undefined);
     await this.executions.release(run);
     this.persist();
   }

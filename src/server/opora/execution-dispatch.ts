@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { WorkerInfo } from '../../shared/protocol.js';
 import type { WorkerLaunchGuard } from '../workers/launch-guards.js';
 import { ExecutionClient, validateExecution, type ExecutionLease, type ExecutionScope } from './execution-client.js';
@@ -5,6 +6,7 @@ import { ExecutionController } from './execution-controller.js';
 import { executionPrompt } from './execution-prompt.js';
 import { validateBudgetFiles } from './execution-budget-files.js';
 import { contextVersionFromEnvironment } from './execution-context.js';
+import { PullRequestHandoff, type HandoffTools } from './pull-request-handoff.js';
 
 export interface ExecutionHeld { workerId?: string; execution?: ExecutionLease; deadlineUnixMs?: number; leaseUntil?: string; state?: string }
 
@@ -12,12 +14,17 @@ export interface ExecutionHeld { workerId?: string; execution?: ExecutionLease; 
 export class ExecutionDispatch {
   readonly client: ExecutionClient;
   readonly controller: ExecutionController;
+  /** Pushes a reported execution's commits and opens its pull request (see pull-request-handoff.ts). */
+  readonly pullRequests: PullRequestHandoff;
   private readonly contextVersion = contextVersionFromEnvironment();
+  /** The last worker info seen per worker, so a worker already sent home still hands its worktree off. */
+  private worktrees = new Map<string, WorkerInfo>();
   private seating?: { lease: ExecutionLease; deadline: number; prompt: string; workerId?: string };
   constructor(base: string, private agent: string, private directory: string,
     private runs: () => ExecutionHeld[],
-    changed: () => void, private stop: (workerId: string, reason: string) => void) {
+    changed: () => void, private stop: (workerId: string, reason: string) => void, tools?: HandoffTools) {
     this.client = new ExecutionClient(base, agent);
+    this.pullRequests = new PullRequestHandoff(directory, base, agent, tools);
     this.controller = new ExecutionController(this.client, (id, lease, deadline) => {
       const run = this.runs().find(run => run.workerId === id);
       if (run) { run.execution = lease; run.deadlineUnixMs = deadline; run.leaseUntil = new Date(lease.expiresAt * 1000).toISOString(); changed(); }
@@ -77,7 +84,18 @@ export class ExecutionDispatch {
       }
     });
   }
+  /** Hands a reported execution's work off as a pull request, from the worker's worktree under `floorDir`. */
+  handOff(run: ExecutionHeld & { cardName?: string }, info: WorkerInfo | undefined, floorDir: string,
+    notify: (message: string, level: 'info' | 'warn' | 'error') => void) {
+    if (run.workerId && info?.worktree) this.worktrees.set(run.workerId, info);
+    const wt = (info ?? (run.workerId ? this.worktrees.get(run.workerId) : undefined))?.worktree;
+    if (!run.execution || !wt?.base) return undefined;
+    return this.pullRequests.handOff({ lease: run.execution, cardName: run.cardName, dir: path.join(floorDir, wt.path),
+      baseCommit: wt.base, baseBranch: wt.from }, notify);
+  }
   async release(run: ExecutionHeld) {
+    await this.pullRequests.settled(run.execution?.executionId);
+    if (run.workerId) this.worktrees.delete(run.workerId);
     if (run.workerId) this.controller.forget(run.workerId);
     if (run.execution) await this.client.release(run.execution).catch(() => {});
   }
