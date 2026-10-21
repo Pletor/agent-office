@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { validateExecution } from './execution-client.js';
 import { sameBudget, validateBudget } from './execution-budget.js';
@@ -27,6 +28,11 @@ export async function reportExecution(bundlePath: string, resultPath: string, tr
     || !sameBudget(validateBudget(receipt.budget), lease.budget!))) throw new Error('Invalid Canvas budget receipt');
   if (validateContextVersion(receipt.contextProtocolVersion) !== (lease.contextProtocolVersion ?? 1)) throw new Error('Invalid Canvas context receipt');
   if (lease.contextProtocolVersion === 2) validateContextProof(receipt.contextValidation, lease.acceptedRevision);
+  // The office opens the pull request from this (pull-request-handoff.ts); failing to write it never fails the result.
+  try {
+    writeFileSync(path.join(path.dirname(bundlePath), `${bundle.executionId}-reported.json`),
+      JSON.stringify({ receiptId: receipt.receiptId, result }, null, 2), { mode: 0o600 });
+  } catch { /* the office then skips the pull request; the receipt stands */ }
   return { receiptId: receipt.receiptId, executionId: bundle.executionId, state: 'reported', verification: 'agent-reported; not independently verified' };
 }
 
