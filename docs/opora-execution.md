@@ -1,5 +1,11 @@
 # Canvas execution authority
 
+An explicitly selected remote path is available through the
+[isolated-execution API](opora-isolated-execution.md). It has its own registry,
+private recovery journal and independent provider observations. Missing
+configuration returns unavailable; the local worker path below is not its
+fallback. Real provider staging evidence is still required for operational claims.
+
 Office executes assignments accepted in Canvas OporaHub. Taking a card first reads
 its accepted revision and context version, then claims an execution with a stable
 request ID. Canvas must support `/api/oporahub/executions`; an older server, missing

@@ -24,6 +24,7 @@ import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
 import { PlanningRoom } from './planning.js';
 import { OporaBridge } from './opora/bridge.js';
+import { IsolatedOfficeService } from './opora/isolated-service.js';
 import { harnessPlannerBrief } from './harness/handoff.js';
 import { PLANNER_SEAT } from '../shared/planning.js';
 import { Worktrees, type WorktreeCleanup } from './worktrees.js';
@@ -133,6 +134,7 @@ export class Floor {
   readonly planning: PlanningRoom;
   /** The Opora Control Center's link to Opora Canvas, which carries the canvas's cards out (see opora/bridge.ts). */
   readonly opora: OporaBridge;
+  readonly isolatedExecutions: IsolatedOfficeService;
   /** How the planning room's plan stood at its last update, to see the orchestrator end a turn. */
   private planStatus?: string;
   /** The bookshelf: the project's Markdown files (see docs.ts). */
@@ -378,6 +380,7 @@ export class Floor {
     this.jukebox = new Jukebox(dataDir);
     this.whiteboard = new Whiteboard(dataDir);
     this.workers.launchGuards.add(this.opora.executions.guard);
+    this.isolatedExecutions = new IsolatedOfficeService({ id: this.id, dir: this.dir, view: () => this.opora.view(), alive: () => ctx.floor(this.id) === this });
     this.ready = this.workers.start();
 
     void this.github.refresh();
@@ -488,6 +491,7 @@ export class Floor {
     this.meetings.shutdown();
     this.planning.shutdown();
     this.opora.shutdown();
+    this.isolatedExecutions.shutdown();
     this.changes.stop();
     this.whiteboard.flush();
     this.workers.shutdown(keep);
