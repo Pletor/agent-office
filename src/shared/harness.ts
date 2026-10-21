@@ -33,9 +33,19 @@ export interface HarnessEntry {
   /** Older IDs this element was known by; they keep resolving (compatibility aliases). */
   aliases: string[];
 }
+export type HarnessSourceProblem = 'missing' | 'over-budget' | 'unreadable';
+/** The most elements one listing holds (catalog.ts): a catalog past it says `limited`. */
+export const HARNESS_CATALOG_LIMIT = 1200;
+/** The first 12 hex digits of a digest: enough to tell two contents apart by eye; the full one is a copy away. */
+export const shortDigest = (digest: string) => (digest ? digest.slice(0, 12) : '');
 export interface HarnessCatalog {
   entries: HarnessEntry[];
-  sources: { name: string; available: boolean }[];
+  /**
+   * Every source with whether its folder is there, and why it was not listed in full when it was not:
+   * `missing` (no such folder, or outside its project), `over-budget` (the discovery bounds cut it short;
+   * sources are walked in order, the project's first), `unreadable` (a folder or file could not be read).
+   */
+  sources: { name: string; available: boolean; reason?: HarnessSourceProblem }[];
   limited: boolean;
 }
 export interface HarnessText extends HarnessEntry { text: string }
@@ -53,3 +63,13 @@ export function harnessBundle(entries: HarnessText[]): string {
     ...entries.map((e) => '## ' + e.title + '\nSource: ' + e.source + ' / ' + e.path + '\nCategory: ' + e.category + '\nElement: ' + e.id + ' · revision ' + e.version + ' · sha256:' + e.digest + '\n\n' + e.text),
   ].join('\n\n');
 }
+/**
+ * What an ID a profile assigns stands for here (GET /api/harness/profile `resources`): listed (with its
+ * revision and digest), known but gone or published in another project only (`missing`, with the last
+ * place it was seen), or never seen by this library (`unknown`, also what a namespace the reader may not
+ * see answers, so a member never learns a machine element's title or path).
+ */
+export type HarnessResourceState =
+  | { status: 'available'; title: string; category: HarnessCategory; group: string; source: string; path: string; version: number; digest: string }
+  | { status: 'missing'; title: string; category: HarnessCategory; source: string; path: string; version: number; digest: string; missingSince: string; lastSeenAt: string }
+  | { status: 'unknown' };

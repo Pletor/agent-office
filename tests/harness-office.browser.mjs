@@ -47,6 +47,8 @@ try {
     assert.equal(await search.inputValue(), '', 'E opens with an empty search');
     await page.keyboard.type('hooks');
     assert.equal(await search.inputValue(), 'hooks');
+    // Search narrows the chosen category first; what it finds elsewhere is one click away.
+    await page.getByRole('button', { name: 'Search all categories' }).click();
     await page.locator('.harness-entry', { hasText: 'Hooks and lifecycle' }).first().waitFor();
     if (close === 'Escape') await page.keyboard.press('Escape');
     else await page.getByRole('button', { name: 'Close', exact: true }).click();

@@ -26,7 +26,8 @@ try {
   await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
   await page.getByRole('heading', { name: 'Start here', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Add to pack', exact: true }).click();
-  await page.getByLabel('Resource category').selectOption('memory');
+  // The category navigator's column (navigator.ts), by the category's exact name.
+  await page.locator('.harness-cat', { has: page.locator('.harness-cat-name', { hasText: /^memory$/ }) }).click();
   await page.getByLabel('Resource source').selectOption('Harness handbook');
   await page.getByRole('button', { name: /OpenViking: recall and persist/ }).click();
   await page.getByRole('heading', { name: 'OpenViking: recall and persist' }).waitFor();

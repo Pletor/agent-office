@@ -206,6 +206,8 @@ try {
 
     // Unsaved edits: switching asks; Keep editing stays with the edit, Discard switches.
     await openPanel(page, 'editor');
+    // The raw layer is the optional "Advanced: JSON" section now (the slot list is tests/harness-editor.browser.mjs).
+    await page.locator('.harness-advanced > summary').click();
     const editor = page.getByLabel('Harness layer JSON');
     await editor.fill('{ "tajemstvi.voice": { "value": "unsaved" } }');
     await page.getByRole('button', { name: 'Global', exact: true }).click();

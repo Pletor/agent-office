@@ -15,6 +15,7 @@ import type { Ctx } from '../../src/server/office/context.js';
 import { requestHandler } from '../../src/server/http/router.js';
 import { harnessBindingRoute, harnessProfileRoute, harnessRoute } from '../../src/server/http/routes/harness.js';
 import { harnessContextRoutes } from '../../src/server/http/routes/harness-context.js';
+import { harnessElementRoute } from '../../src/server/harness/element-api.js';
 import { HarnessBindings } from '../../src/server/harness/bindings.js';
 
 export interface StubNode { id: string; kind: string; name: string; parentId: string | null; memberOf?: string }
@@ -68,11 +69,12 @@ export async function contextOffice(opts: { port?: number; session?: (req: http.
   const ctx = {
     cfg: { dataDir, port: 0 }, floors,
     accounts: { get: (id: string) => ({ role: id.startsWith('admin') ? 'admin' : 'member' }) },
-    // The shared-password session (an administrator) unless the caller says otherwise.
-    auth: { fromRequest: opts.session ?? (() => ({})) },
+    // The shared-password session (an administrator) unless the caller says otherwise; a request with
+    // `x-test-role: member` is a named member's (the editor's browser test opens a read-only page that way).
+    auth: { fromRequest: opts.session ?? ((req: http.IncomingMessage) => (req.headers['x-test-role'] === 'member' ? { account: { id: 'member-mia', role: 'member' } } : {})) },
     workerFloor: () => undefined,
   } as unknown as Ctx;
-  const handler = requestHandler(ctx, [harnessRoute, harnessProfileRoute, harnessBindingRoute, harnessContextRoutes.projects, harnessContextRoutes.tree]);
+  const handler = requestHandler(ctx, [harnessRoute, harnessProfileRoute, harnessBindingRoute, harnessContextRoutes.projects, harnessContextRoutes.tree, harnessElementRoute]);
   const server = http.createServer((req, res) => void handler(req, res));
   await new Promise<void>((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', resolve));
   ctx.cfg.port = (server.address() as { port: number }).port;

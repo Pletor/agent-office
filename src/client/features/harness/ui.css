@@ -13,13 +13,13 @@
 .harness-purpose { margin: 0; padding: 0 20px 10px; color: var(--muted); font-size: 13px; }
 .harness-purpose:empty { display: none; }
 .harness-toolbar input, .harness-toolbar select { padding: 9px; border-radius: 8px; }
-.harness-window .body.harness-body { display: grid; grid-template-columns: 320px minmax(0, 1fr); padding: 0; flex: 1; min-height: 0; overflow: hidden; }
+.harness-window .body.harness-body { display: grid; grid-template-columns: 250px 340px minmax(0, 1fr); padding: 0; flex: 1; min-height: 0; overflow: hidden; }
 .harness-body aside { overflow: auto; padding: 0 12px 16px; border-right: 1px solid #8884; }
 .harness-list { display: grid; gap: 7px; }
 .harness-entry { display: grid; gap: 4px; text-align: left; border: 1px solid #8884; border-radius: 9px; padding: 12px; background: transparent; color: inherit; cursor: pointer; overflow-wrap: anywhere; }
 .harness-entry:hover, .harness-entry[aria-pressed=true] { background: #32a89a22; border-color: #32a89a; }
 .harness-entry small { color: var(--muted); }
-.harness-reader { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 16px 22px; align-items: flex-start; }
+.harness-reader { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 16px 22px; align-items: flex-start; overflow: auto; }
 .harness-reader h3 { margin: 0; overflow-wrap: anywhere; }
 .harness-reader > * { max-width: 100ch; }
 .harness-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 10px; }
@@ -31,7 +31,7 @@
 .harness-state { display: grid; gap: 10px; justify-items: start; padding: 14px; border: 2px dashed #8886; border-radius: 9px; color: var(--muted); overflow-wrap: anywhere; }
 .harness-state p { margin: 0; font-weight: 700; }
 .harness-origin { overflow-wrap: anywhere; }
-.harness-text { width: 100%; min-height: 0; flex: 1; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.65 ui-monospace, monospace; user-select: text; }
+.harness-text { width: 100%; min-height: 240px; flex: 1 0 auto; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.65 ui-monospace, monospace; user-select: text; }
 .harness-sources { margin-top: 18px; font-size: 12px; overflow-wrap: anywhere; }
 .harness-window footer { display: flex; gap: 10px; align-items: center; padding: 14px 20px; flex-wrap: wrap; }
 .harness-window footer span { margin-right: auto; }
@@ -43,7 +43,7 @@
 .harness-receives-about, .harness-digest, .harness-where { margin: 4px 0 8px; font-size: 13px; overflow-wrap: anywhere; }
 .harness-digest { font-family: ui-monospace, monospace; }
 .harness-body:has(> .harness-cascade[open]), .harness-body:has(> .harness-receives[open]) { display: block !important; overflow: auto !important; }
-.harness-body:has(> .harness-cascade[open]) > aside, .harness-body:has(> .harness-cascade[open]) > .harness-reader, .harness-body:has(> .harness-receives[open]) > aside, .harness-body:has(> .harness-receives[open]) > .harness-reader { display: none; }
+.harness-body:has(> .harness-cascade[open]) > aside, .harness-body:has(> .harness-cascade[open]) > .harness-reader, .harness-body:has(> .harness-receives[open]) > aside, .harness-body:has(> .harness-receives[open]) > .harness-reader, .harness-body:has(> .harness-cascade[open]) > .harness-categories, .harness-body:has(> .harness-receives[open]) > .harness-categories { display: none; }
 /* The context bar: Global | Project, the project, and the specialization breadcrumb (context-bar.ts). */
 .harness-context { display: grid; gap: 6px; padding: 10px 20px; border-bottom: 1px solid #8884; min-width: 0; }
 .harness-context-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; min-width: 0; }
@@ -74,14 +74,18 @@
 .harness-effective-table th { font-weight: 600; }
 .harness-effective-table th:nth-child(3), .harness-effective-table td:nth-child(3) { white-space: nowrap; }
 .harness-notice { margin: 4px 0 8px; font-size: 13px; opacity: 0.85; }
+@media (max-width: 1100px) and (min-width: 701px) {
+  .harness-window .body.harness-body { grid-template-columns: 200px 290px minmax(0, 1fr); }
+}
 @media (max-width: 700px) {
   .harness-profile-grid { grid-template-columns: 1fr; }
-  .harness-window .body.harness-body { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); }
+  .harness-window .body.harness-body { grid-template-columns: 1fr; grid-template-rows: auto auto auto minmax(0, 1fr); }
   .harness-context { padding: 8px 16px; }
   .harness-context-row > label.harness-field { flex: 1 1 160px; }
   .harness-spec select { flex: 1 1 100%; padding: 6px 8px; }
   .harness-spec .harness-step-sep { display: none; }
-  .harness-toolbar .harness-inherited { grid-column: 1 / -1; order: 1; }
+  .harness-toolbar .harness-inherited { grid-column: 1 / 3; order: 1; }
+  .harness-toolbar .harness-create-toggle { order: 1; }
   .harness-context { max-height: 45vh; overflow-y: auto; }
   .harness-segmented .btn { min-width: 0; padding-inline: 14px; }
   .harness-tag, .harness-intro { display: none; }

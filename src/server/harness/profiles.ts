@@ -155,11 +155,14 @@ export class HarnessProfiles {
   /**
    * The latest saves, newest first, that a reader of `repo` may see: the repository's own saves below
    * global; with `everything` (an administrator) also global saves, other repositories' and entries from
-   * before the repository was recorded. Without `repo`, everything.
+   * before the repository was recorded. Without `repo`, everything. With `own`, only the saves of that one
+   * level (and below the project, that node of this repository).
    */
-  audit(limit = 20, repo?: string, everything = true): HarnessAudit[] {
+  audit(limit = 20, repo?: string, everything = true, own?: { level: HarnessLevel; node: string }): HarnessAudit[] {
     const mine = repo === undefined ? undefined : this.repoKey(repo);
-    const visible = (this.read().audit ?? []).filter((a) => mine === undefined || everything || a.repo === mine);
+    let visible = (this.read().audit ?? []).filter((a) => mine === undefined || everything || a.repo === mine);
+    // One level's own saves (the editor's "Latest saves"): filtered before the limit, so a busy store never pushes them out. Below global, this repository's only.
+    if (own) visible = visible.filter((a) => a.level === own.level && (own.level === 'global' || ((mine === undefined || a.repo === mine) && a.node === own.node)));
     return visible.slice(-Math.max(0, limit)).reverse();
   }
   /**

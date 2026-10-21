@@ -31,18 +31,20 @@ try {
   await page.getByRole('dialog', { name: 'Harness library' }).waitFor();
   const editor = page.getByLabel('Harness layer JSON');
   await page.locator('.harness-cascade > summary').click();
-  await page.getByText(new RegExp('[Rr]evision ' + revision + '\\.')).waitFor();
+  // The raw layer is the optional "Advanced: JSON" section (the slot list is tests/harness-editor.browser.mjs).
+  await page.locator('.harness-advanced > summary').click();
+  await page.locator('.harness-save-status').getByText(new RegExp('[Rr]evision ' + revision + '\\.')).waitFor();
   assert.match(await page.locator('.harness-trail').innerText(), /^Project /, 'a first open is on the floor\'s project');
   for (const [scope, color] of [['project', 'blue'], ['global', 'red']]) {
     if (scope === 'global') {
       await page.getByRole('button', { name: 'Global', exact: true }).click();
-      await page.getByText(new RegExp('[Rr]evision ' + revision + '\\.')).waitFor();
+      await page.locator('.harness-save-status').getByText(new RegExp('[Rr]evision ' + revision + '\\.')).waitFor();
     }
     const layer = { ...before.layers[scope], 'qa.color': { value: color } };
     if (scope === 'global') layer['qa.instructions'] = { resource: 'guide:instructions' };
     await editor.fill(JSON.stringify(layer, null, 2));
     await page.getByRole('button', { name: 'Save layer' }).click();
-    await page.getByText(new RegExp('[Rr]evision ' + (++revision) + '\\.')).waitFor();
+    await page.locator('.harness-save-status').getByText(new RegExp('[Rr]evision ' + (++revision) + '\\.')).waitFor();
   }
   const resolved = await (await api.get(endpoint)).json();
   assert.deepEqual(resolved.effective['qa.color'], { binding: { value: 'blue' }, scope: 'project' }, 'the project overrides Global');
@@ -60,7 +62,7 @@ try {
   assert.equal(await page.getByRole('dialog').count(), 0);
   await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
   await page.locator('.harness-cascade > summary').click();
-  await page.getByText(new RegExp('[Rr]evision ' + revision + '\\.')).waitFor();
+  await page.locator('.harness-save-status').getByText(new RegExp('[Rr]evision ' + revision + '\\.')).waitFor();
   assert.match(await editor.inputValue(), /blue/, 'reopened on the project it was left on');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: path.join(process.env.HARNESS_SHOTS ?? os.tmpdir(), 'harness-cascade-mobile.png') });

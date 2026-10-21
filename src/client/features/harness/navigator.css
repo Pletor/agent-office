@@ -1,0 +1,30 @@
+/* The category navigator (navigator.ts): a column of categories, the chosen one's shelves, a page of elements each. */
+.harness-categories { overflow: auto; padding: 0 10px 16px; border-right: 1px solid #8884; min-width: 0; }
+.harness-cats { display: grid; gap: 6px; }
+.harness-cat { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: baseline; text-align: left; padding: 9px 10px; border: 1px solid #8884; border-radius: 9px; background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.harness-cat:hover, .harness-cat[aria-pressed=true] { background: #32a89a22; border-color: #32a89a; }
+.harness-cat[aria-pressed=true] { box-shadow: inset 4px 0 0 #32a89a; }
+.harness-cat[data-empty=true] { opacity: .6; }
+.harness-cat-name { font-weight: 800; text-transform: capitalize; overflow-wrap: anywhere; }
+.harness-cat-purpose { grid-column: 1 / -1; color: var(--muted); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: hidden; }
+.harness-cat[aria-pressed=true] .harness-cat-purpose { -webkit-line-clamp: unset; line-clamp: none; }
+.harness-count { font-size: 12px; font-weight: 800; padding: 1px 7px; border-radius: 99px; background: #8882; justify-self: end; }
+.harness-badge { grid-column: 1 / -1; justify-self: start; font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 99px; }
+.harness-badge-warn { background: color-mix(in srgb, var(--warn) 45%, transparent); }
+.harness-shelf-head h4 { margin: 4px 0 2px; font-size: 15px; text-transform: capitalize; overflow-wrap: anywhere; }
+.harness-shelf-head .harness-purpose { margin: 0 0 8px; padding: 0; color: var(--muted); font-size: 13px; }
+.harness-truncated { margin: 0 0 8px; padding: 8px 10px; border: 2px solid var(--warn); border-radius: 9px; font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
+.harness-shelf { display: grid; gap: 6px; margin-bottom: 8px; }
+.harness-group { display: flex; gap: 6px; align-items: center; justify-content: space-between; text-align: left; padding: 7px 9px; border: 0; border-radius: 8px; background: #8881; color: inherit; font: inherit; font-weight: 800; cursor: pointer; overflow-wrap: anywhere; min-width: 0; }
+.harness-group > span:first-child { flex: none; }
+.harness-group .harness-count { margin-left: auto; }
+.harness-more { justify-self: start; }
+.harness-marks { font-size: 12px; font-weight: 800; letter-spacing: .1em; color: #8b5cf6; }
+.harness-cat-head { margin: 10px 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+@media (max-width: 700px) {
+  .harness-categories { border-right: 0; padding: 0 16px 8px; overflow: visible; }
+  .harness-cats { display: flex; overflow-x: auto; gap: 6px; padding-bottom: 4px; scrollbar-width: thin; }
+  .harness-cat { flex: none; grid-template-columns: auto auto; padding: 6px 10px; }
+  .harness-cat-purpose, .harness-cat .harness-badge { display: none; }
+  .harness-window[data-pane=reader] .harness-body > .harness-categories { display: none; }
+}

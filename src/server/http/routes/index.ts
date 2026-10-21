@@ -4,6 +4,7 @@
 import type { Route } from '../router.js';
 import { harnessRoute, harnessProfileRoute, harnessBindingRoute } from './harness.js';
 import { harnessContextRoutes } from './harness-context.js';
+import { harnessElementRoute } from '../../harness/element-api.js';
 import { agentRoutes } from './agents.js';
 import { authRoutes } from './auth.js';
 import { bossAttentionRoutes } from './boss-attention.js';
@@ -41,7 +42,7 @@ export const routes: readonly Route[] = [
   harnessRoute,
   harnessProfileRoute,
   harnessBindingRoute,
-  harnessContextRoutes.projects, harnessContextRoutes.tree,
+  harnessContextRoutes.projects, harnessContextRoutes.tree, harnessElementRoute,
   searchRoutes.search,
   serviceRoutes.forwards,
   githubRoutes.github,
