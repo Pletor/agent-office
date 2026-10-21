@@ -16,6 +16,8 @@ export interface PreparedTask {
   state?: string;
   /** Records, before the claim is asked for, that it is (and the desk the worker goes to): a restart in between then knows a lease may exist. */
   claiming?(agent: string, deskId?: string): Promise<void> | void;
+  /** Keeps the lease token on disk the moment the claim answered, synchronously, before anything else is awaited: a restart right after still finds it to release. */
+  granted?(lease: { token: string; agent: string }): void;
   /** Records the lease once the card is claimed (refused when the run was moved meanwhile: the bridge lets the lease go then). */
   claimed?(lease: { token: string; agent: string; card?: { name: string; group: 'dev' | 'design'; sectorName?: string }; deskId?: string }): Promise<void> | void;
   /** Records the worker once it is seated; the bridge calls it after it holds the run, so a poll never finds the run seated and not held. */
@@ -100,6 +102,7 @@ export async function claimAndSeat(prepared: PreparedTask, card: { name: string;
     await undo(prepared, why);
     return why;
   };
+  try { prepared.granted?.({ token: lease.token, agent }); } catch { /* the record below carries the token */ }
   try { await prepared.claimed?.({ token: lease.token, agent, card: meta, ...(deskId ? { deskId } : {}) }); } catch (err) { return fail('Task context: ' + (err as Error).message); }
   let worker: WorkerInfo | string;
   try { worker = await ops.seat(lease); } catch (err) { worker = (err as Error).message || 'The worker could not be seated'; }

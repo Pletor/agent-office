@@ -31,6 +31,7 @@ export async function preparedCardRun(dataDir: string, repo: string, place: Opor
     state: 'prepared',
     resumed: run.resumed,
     claiming: (agent, deskId) => run.claiming(agent, deskId),
+    granted: (lease) => run.granted(lease),
     claimed: (lease) => run.claimed(lease),
     seated: (workerId) => run.seated(workerId),
     releaseFailed: (reason) => run.releaseFailed(reason),
@@ -45,6 +46,7 @@ export async function preparedCardRun(dataDir: string, repo: string, place: Opor
  */
 function seatedWorker(r: PreparedRecord, deps: RunRecovery) {
   const workers = deps.workers();
+  // A record from before the desk was kept (no deskId) is matched by its worker id alone.
   if (r.workerId) return workers.find((w) => w.id === r.workerId && (!r.deskId || w.deskId === r.deskId));
   if (!r.deskId) return undefined;
   return workers.find((w) => w.deskId === r.deskId && (w.prompt ?? '').includes('\nRun: ' + r.runId + '\n'));
@@ -67,6 +69,8 @@ export async function recoverRuns(dataDir: string, repo: string, deps: RunRecove
   const key = harnessRepoKey(repo);
   const adopted: AdoptedRun[] = [], done: { runId: string; action: string }[] = [];
   const inFlight = runsInFlight();
+  // Decided again under the run's lock: a take of this office that picked the run up since the listing, or any move since, wins.
+  const unchanged = (listed: PreparedRecord) => (x: PreparedRecord) => { if (inFlight.has(x.runId) || x.revision !== listed.revision) throw new PrepareFenceError(`run ${x.runId} moved since the recovery read it`); };
   const unreachable = (r: PreparedRecord, from: PreparedRecord['state']) => updateRecord(dataDir, r.runId, [from], undefined, (x) => { x.error = { step: 'recover', reason: 'Opora did not answer to release the lease; tried again at the next poll' }; });
   for (const r of (await activeRecords(dataDir)).filter((x) => ofFloor(x, key, deps))) {
     if (inFlight.has(r.runId)) continue;
@@ -76,18 +80,18 @@ export async function recoverRuns(dataDir: string, repo: string, deps: RunRecove
     try {
       if (r.state === 'planned' || r.state === 'preparing') {
         if (elsewhere) continue;
-        await finishRollback(dataDir, r.runId, 'interrupted before it was prepared (the office stopped)');
+        await finishRollback(dataDir, r.runId, 'interrupted before it was prepared (the office stopped)', [], 'recover', false, unchanged(r));
         done.push({ runId: r.runId, action: 'rolled back (interrupted while preparing)' });
       } else if (r.state === 'prepared' && r.claiming) {
         if (elsewhere) continue;
         // Stopped between asking for the claim and recording it: the token written when it answered is released.
         const token = pendingClaim(dataDir, r.runId);
         if (token && await deps.release(r.card, r.card.nodeId, token) === 'unreachable') { await unreachable(r, 'prepared'); continue; }
-        await finishRollback(dataDir, r.runId, token ? 'the office stopped right after its claim: the lease was released' : 'the office stopped while claiming, before Opora answered: a lease granted then runs out with its TTL', [], 'claim');
+        await finishRollback(dataDir, r.runId, token ? 'the office stopped right after its claim: the lease was released' : 'the office stopped while claiming, before Opora answered: a lease granted then runs out with its TTL', [], 'claim', false, unchanged(r));
         done.push({ runId: r.runId, action: token ? 'lease released and rolled back (stopped while claiming)' : 'rolled back (stopped while claiming)' });
       } else if (r.state === 'prepared') {
         if (age <= keep.preparedMs || elsewhere) continue;
-        await finishRollback(dataDir, r.runId, `prepared ${Math.round(age / 60_000)} min ago and never claimed`);
+        await finishRollback(dataDir, r.runId, `prepared ${Math.round(age / 60_000)} min ago and never claimed`, [], 'recover', false, unchanged(r));
         done.push({ runId: r.runId, action: 'rolled back (stale)' });
       } else if (r.state === 'claimed') {
         // The bridge holds it (a seat it recorded as failed whose worker came and went): the bridge lets it go, not the recovery.

@@ -31,7 +31,9 @@ export function ensureIndex(dataDir: string): Promise<void> {
       for (const name of await readdir(preparedDir(dataDir)).catch(() => [] as string[])) {
         const runId = name.endsWith('.json') ? name.slice(0, -5) : '';
         if (!RUN_ID.test(runId)) continue;
-        const r = parseRecord(await readFile(recordFile(dataDir, runId), 'utf8').catch(() => ''), runId);
+        // A read that fails for another reason than the file being gone stops the indexing (no flag): it is done again next time.
+        const raw = await readFile(recordFile(dataDir, runId), 'utf8').catch((err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return ''; throw err; });
+        const r = parseRecord(raw, runId);
         if (r && r.state !== 'rolledBack') await writeFile(markerFile(dataDir, r), '', { mode: 0o600 });
       }
       await writeFile(indexedFlag(dataDir), new Date().toISOString(), { mode: 0o600 });
@@ -56,8 +58,9 @@ export async function activeRecords(dataDir: string, card?: { repo: string; card
     const marker = path.join(activeDir(dataDir), name), runId = m[2];
     let raw: string;
     try { raw = await readFile(recordFile(dataDir, runId), 'utf8'); }
-    catch {
-      if (Date.now() - (await stat(marker).then((s) => s.mtimeMs, () => Date.now())) > ORPHAN_MS) await unlink(marker).catch(() => undefined);
+    catch (err) {
+      // Only a record that is gone makes its marker an orphan; a read refused for a moment (a rename under way, a scanner) keeps it.
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT' && Date.now() - (await stat(marker).then((s) => s.mtimeMs, () => Date.now())) > ORPHAN_MS && !existsSync(recordFile(dataDir, runId))) await unlink(marker).catch(() => undefined);
       continue;
     }
     const r = parseRecord(raw, runId);
@@ -83,8 +86,8 @@ export async function sweepFinal(dataDir: string, now = Date.now(), retention: P
   const dir = preparedDir(dataDir);
   const names = await readdir(dir).catch(() => [] as string[]);
   const active = new Set((await readdir(activeDir(dataDir)).catch(() => [] as string[])).map((n) => MARKER.exec(n)?.[2]).filter(Boolean));
+  // The listing and the stats are asynchronous and never block; the budget bounds the removals, so a large store makes progress every poll.
   for (const name of names.filter((n) => n.endsWith('.tmp'))) {
-    if (spent()) return [];
     if (now - (await stat(path.join(dir, name)).then((s) => s.mtimeMs, () => now)) > 60 * 60_000) await unlink(path.join(dir, name)).catch(() => undefined);
   }
   const finals: { runId: string; at: number }[] = [];
@@ -93,7 +96,6 @@ export async function sweepFinal(dataDir: string, now = Date.now(), retention: P
     if (!RUN_ID.test(runId) || active.has(runId)) continue;
     const at = await stat(path.join(dir, name)).then((s) => s.mtimeMs, () => undefined);
     if (at !== undefined) finals.push({ runId, at });
-    if (spent()) return [];
   }
   finals.sort((a, b) => b.at - a.at);
   const removed: string[] = [];

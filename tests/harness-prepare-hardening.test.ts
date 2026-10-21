@@ -6,6 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -48,6 +50,8 @@ function synth(dir: string, runId: string, o: Partial<PreparedRecord> & { state:
   return r;
 }
 const indexed = (dir: string) => { mkdirSync(activeDir(dir), { recursive: true }); writeFileSync(path.join(activeDir(dir), '.indexed'), ''); };
+/** Whether `text` (JSON or not) holds `dir` in any spelling: as is, JSON-escaped, or with forward slashes. */
+const leaks = (text: string, dir: string) => [dir, JSON.stringify(dir).slice(1, -1), dir.split(path.sep).join('/')].some((form) => text.includes(form));
 const tempDir = (t: { after(fn: () => void): void }) => { const dir = mkdtempSync(path.join(tmpdir(), 'office-prepare-h-')); t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 })); return dir; };
 
 test('B1: a store of over 2,000 records (from before the index): an orphan claimed run is still found and released, the card’s prepared run is still taken up, the poll never blocks, old final records go', async (t) => {
@@ -293,7 +297,7 @@ test('a dry run on a cold data dir writes nothing: no registry, no digest cache,
   assert.deepEqual(tree(dir), before, 'not one file was written, changed or touched');
   assert.equal(plan.ok, true, plan.reason);
   assert.equal(JSON.parse(body).digest, plan.digest);
-  assert.equal(JSON.stringify(plan).includes(dir), false, 'no absolute path in the plan');
+  assert.equal(leaks(JSON.stringify(plan), dir), false, 'no absolute path in the plan');
   const run = await prepareRun({ dataDir: dir, repo: dir, place, card: 'c2', nodes, local: false });
   assert.equal(run.digest, plan.digest, 'the revision the plan predicted is the one the take recorded');
   await run.rollback('test over');
@@ -309,7 +313,7 @@ test('plan errors name no server folder: a refusal is redacted, an unexpected er
   t.after(() => { console.error = log; });
   await preparePlanRequest({ cfg: { dataDir: dir } } as never, { id: 'shop', dir, opora: { view: () => ({ project: { id: 'p1' }, workspace: 'draft' }), canvasNodes: () => { throw new Error(`EPERM: operation not permitted, open '${dir}\\secret'`); } } } as never, res as never, new URL('http://x/?task=opora:p1:draft:c2'), false);
   assert.equal(status, 500);
-  assert.equal(body.includes(dir), false, body);
+  assert.equal(leaks(body, dir), false, body);
 });
 
 test('who may read a plan: anonymous no, a member and an administrator yes, a worker only for its own floor’s project; another project’s card is refused', async (t) => {
@@ -371,4 +375,128 @@ test('a snapshot that can’t be removed keeps the run failed with the reason; a
   assert.deepEqual(done.map((d) => d.action), ['rollback finished']);
   r = readRecord(f.dir, run.runId)!;
   assert.equal(r.state, 'rolledBack');
+});
+
+test('the critic’s crash right after Opora granted the claim, before the run records it: the token kept as the claim answered releases the lease at the next poll, and the card is taken again', async (t) => {
+  const f = await setup(t, { adapters: 'fake', workersFile: true });
+  f.bridge.shutdown();
+  await crash('claim-unrecorded', f.dir, f.op.url);
+  let [r] = records(f.dir);
+  assert.equal(r.state, 'prepared');
+  assert.ok(f.op.leases.has('c2'), 'Opora holds the lease the stopped office was granted');
+  const again = restarted(t, f.dir, f.op.url);
+  await again.bridge.poll();
+  [r] = records(f.dir);
+  assert.equal(r.state, 'rolledBack', JSON.stringify(r.history));
+  assert.equal(f.op.leases.has('c2'), false, 'the restart poll released it');
+  await again.bridge.poll();
+  assert.equal(await again.bridge.take('c2', 'Ana'), undefined, 'the card is on the canvas again and taken');
+  assert.equal(again.workers.length, 1);
+});
+
+test('two office processes take one card at the same moment: the per-card lock lets exactly one prepare it', async (t) => {
+  const f = await setup(t, { adapters: 'fake' });
+  f.bridge.shutdown();
+  const startAt = String(Date.now() + 3000);
+  const child = () => promisify(execFile)(process.execPath, ['--import', 'tsx', path.join(import.meta.dirname, 'fixtures', 'prepare-race.ts'), f.dir, startAt], { cwd: path.join(import.meta.dirname, '..'), timeout: 110_000 });
+  const outcomes = (await Promise.all([child(), child()])).map((o) => (JSON.parse(o.stdout.trim().split('\n').pop()!) as { outcome: string }).outcome);
+  assert.equal(outcomes.filter((o) => o.startsWith('prepared')).length, 1, JSON.stringify(outcomes));
+  assert.match(outcomes.find((o) => o.startsWith('refused'))!, /of this card is (planned|preparing|prepared) by another office process .*not prepared or started a second time/);
+  assert.equal(records(f.dir).length, 1, 'one run');
+  assert.equal(snapshots(f.dir).length, 1, 'one snapshot');
+});
+
+for (const status of [404, 409, 410]) {
+  test(`through the bridge, Opora answering a release with ${status} counts as released: the failed take is rolled back, and so is a claimed run a restart finds`, async (t) => {
+    const f = await setup(t, { adapters: 'fake', workersFile: true, seat: () => 'The desk is broken' });
+    f.op.failRelease = status;
+    assert.equal(await f.bridge.take('c2', 'Ana'), 'The desk is broken');
+    assert.equal(records(f.dir)[0].state, 'rolledBack');
+    f.op.failRelease = 0;
+    f.op.leases.clear();
+    f.bridge.shutdown();
+    await crash('claimed', f.dir, f.op.url);
+    f.op.failRelease = status;
+    const again = restarted(t, f.dir, f.op.url);
+    await again.bridge.poll();
+    assert.deepEqual(records(f.dir).map((r) => r.state), ['rolledBack', 'rolledBack']);
+  });
+}
+
+test('the sweep keeps a fresh final record and removes an old one even when far below the count', async (t) => {
+  const dir = tempDir(t);
+  indexed(dir);
+  for (let i = 0; i < 3; i++) synth(dir, 'aaaaaaaa-fresh-' + i, { state: 'rolledBack', ageMs: HOUR });
+  for (let i = 0; i < 2; i++) synth(dir, 'bbbbbbbb-old-' + i, { state: 'rolledBack', ageMs: 8 * DAY });
+  assert.deepEqual((await sweepFinal(dir)).sort(), ['bbbbbbbb-old-0', 'bbbbbbbb-old-1']);
+  assert.deepEqual(records(dir).map((r) => r.runId).sort(), ['aaaaaaaa-fresh-0', 'aaaaaaaa-fresh-1', 'aaaaaaaa-fresh-2']);
+});
+
+test('a prepared run is never seated before it is claimed', async (t) => {
+  const f = await setup(t);
+  const run = await prepareRun({ dataDir: f.dir, repo: f.dir, place, card: 'c2', nodes: f.bridge.canvasNodes(), local: false });
+  await assert.rejects(run.seated('w1'), /is prepared now, not claimed/);
+  assert.equal(readRecord(f.dir, run.runId)!.state, 'prepared');
+  await run.rollback('test over');
+});
+
+test('recovery rolls back planned, preparing and failed runs an office left, with their files', async (t) => {
+  const dir = tempDir(t);
+  indexed(dir);
+  for (const state of ['planned', 'preparing', 'failed'] as const) {
+    const runId = 'aaaaaaaa-' + state;
+    synth(dir, runId, { state });
+    mkdirSync(scopeDir(dir, runId), { recursive: true });
+    writeFileSync(path.join(scopeDir(dir, runId), 'x.json'), '{}');
+    mkdirSync(path.join(dir, 'harness-snapshots'), { recursive: true });
+    writeFileSync(path.join(dir, 'harness-snapshots', runId + '.json'), '{}');
+  }
+  const { done } = await recoverRuns(dir, dir, { workers: () => [], held: new Set(), release: async () => 'released' });
+  assert.deepEqual(done.map((d) => d.action).sort(), ['rollback finished', 'rolled back (interrupted while preparing)', 'rolled back (interrupted while preparing)']);
+  for (const state of ['planned', 'preparing', 'failed']) {
+    assert.equal(readRecord(dir, 'aaaaaaaa-' + state)!.state, 'rolledBack');
+    assert.equal(existsSync(scopeDir(dir, 'aaaaaaaa-' + state)), false);
+  }
+  assert.deepEqual(snapshots(dir), []);
+});
+
+test('a seated run whose worker is at its desk is held again after a restart, once', async (t) => {
+  const dir = tempDir(t);
+  indexed(dir);
+  synth(dir, 'aaaaaaaa-seated', { state: 'seated', workerId: 'w1', deskId: 'desk-1', lease: { token: 'tok', agent: 'a', at: '' } });
+  const worker = { id: 'w1', name: 'Ana', deskId: 'desk-1', prompt: '' } as WorkerInfo;
+  const deps = (held: string[]) => ({ workers: () => [worker], held: new Set(held), release: async () => 'released' as const });
+  const out = await recoverRuns(dir, dir, deps([]));
+  assert.deepEqual(out.adopted.map((a) => [a.runId, a.worker.id, a.lease?.token]), [['aaaaaaaa-seated', 'w1', 'tok']]);
+  assert.deepEqual((await recoverRuns(dir, dir, deps(['aaaaaaaa-seated']))).adopted, [], 'not twice once the bridge holds it');
+});
+
+test('a prepared run whose inputs changed since is not taken up: rolled back, a new run prepared', async (t) => {
+  const f = await setup(t, { adapters: 'fake', workersFile: true });
+  f.bridge.shutdown();
+  await crash('prepared', f.dir, f.op.url);
+  const [first] = records(f.dir);
+  writeFileSync(path.join(f.dir, '.harness', 'rules', 'review.md'), 'Review every change twice.\n');
+  const again = restarted(t, f.dir, f.op.url);
+  await again.bridge.poll();
+  assert.equal(await again.bridge.take('c2', 'Ana'), undefined);
+  const old = readRecord(f.dir, first.runId)!;
+  assert.equal(old.state, 'rolledBack');
+  assert.match(old.error!.reason, /inputs changed since it was prepared/);
+  const fresh = records(f.dir).find((r) => r.runId !== first.runId)!;
+  assert.equal(fresh.state, 'seated');
+  assert.notEqual(fresh.digest, first.digest);
+  assert.equal(f.fake.calls.prepare, 1, 'the new run was prepared in this office');
+});
+
+test('a recovery far in the future still leaves a run this office is preparing alone', async (t) => {
+  const f = await setup(t, { adapters: 'fake', fake: { delayMs: 400, delayTimes: 1 } });
+  const pending = prepareRun({ dataDir: f.dir, repo: f.dir, place, card: 'c2', nodes: f.bridge.canvasNodes(), local: false });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(records(f.dir)[0].state, 'preparing');
+  const { done } = await recoverRuns(f.dir, f.dir, { workers: () => [], held: new Set(), release: async () => 'released' }, Date.now() + 20 * 60_000);
+  assert.deepEqual(done, [], 'an in-flight run of this office is never touched, however old its record looks');
+  const run = await pending;
+  assert.equal(readRecord(f.dir, run.runId)!.state, 'prepared');
+  await run.rollback('test over');
 });

@@ -67,6 +67,8 @@ export interface PreparedRun {
   capabilities: Capability[];
   /** Records that the claim is about to be asked for (and the desk), so a restart knows a lease may exist. */
   claiming(agent: string, deskId?: string): Promise<void>;
+  /** Writes the lease token next to the record, synchronously, the moment the claim answered (see PreparedRecord.claiming). */
+  granted(lease: { token: string; agent: string }): void;
   /** prepared → claimed, with the lease (refused when the run isn't `prepared` any more: nothing is seated then). */
   claimed(lease: ClaimedLease): Promise<void>;
   /** claimed → seated. */
@@ -295,9 +297,11 @@ export async function prepareRun(ctx: PrepareContext, options: PrepareOptions = 
   try { pre = await preflight(ctx, runId, options, first); }
   catch (err) {
     const status = err instanceof HarnessError ? err.status : 500;
-    coolDown(key, print, (err as Error).message, status, options);
-    // A run prepared for this card earlier can't be taken up with inputs that fail now.
-    await dropPrepared(ctx, repo, card, (err as Error).message).catch(() => undefined);
+    // Only a deterministic refusal is cooled down, and only it means a run prepared earlier can't be taken up any more.
+    if (status < 500) {
+      coolDown(key, print, (err as Error).message, status, options);
+      await dropPrepared(ctx, repo, card, (err as Error).message).catch(() => undefined);
+    }
     throw new PrepareError(`${(err as Error).message.replace(/\.$/, '')}. Nothing was written; the card was not claimed.`, status);
   }
   mkdirSync(preparedDir(ctx.dataDir), { recursive: true });
@@ -330,6 +334,8 @@ export async function prepareRun(ctx: PrepareContext, options: PrepareOptions = 
     if (found.state === 'prepared') {
       const resumed = await resumeRun(ctx, found, options, pre);
       if (resumed) return resumed;
+      // Rolled back (its inputs changed): a new run. Still prepared means its rollback failed: refused, never prepared again in a loop.
+      if (readRecord(ctx.dataDir, found.runId)?.state === 'prepared') throw new PrepareError(`Run ${found.runId} of this card could not be rolled back to prepare it again; a recovery finishes it, then the card can be taken.`, 409);
       return await prepareRun(ctx, options);
     }
     const run = await freshRun(ctx, found, options, pre);
@@ -337,7 +343,7 @@ export async function prepareRun(ctx: PrepareContext, options: PrepareOptions = 
     return run;
   } catch (err) {
     inFlight.delete(found.runId);
-    if (found.state !== 'prepared' && err instanceof PrepareError) coolDown(key, print, err.message.split(' Done before it failed')[0], err.status, options);
+    if (found.state !== 'prepared' && err instanceof PrepareError && err.status < 500 && err.status !== 409) coolDown(key, print, err.message.split(' Done before it failed')[0], err.status, options);
     throw err;
   }
 }
@@ -361,8 +367,12 @@ function handle(ctx: PrepareContext, record: PreparedRecord, context: string, re
     async claiming(agent, deskId) {
       await updateRecord(dataDir, runId, ['prepared'], undefined, (r) => { r.claiming = { agent, at: new Date().toISOString() }; if (deskId) r.deskId = deskId; });
     },
-    async claimed(lease) {
+    granted(lease) {
       // The token goes to disk the moment the claim answered, before the record's lock is waited for: a restart in between finds it to release it.
+      writeFileSync(claimFile(dataDir, runId), JSON.stringify({ token: lease.token, agent: lease.agent, at: new Date().toISOString() }), { mode: 0o600 });
+    },
+    async claimed(lease) {
+      // A caller that skipped `granted` still gets the token on disk before the lock is waited for.
       try { writeFileSync(claimFile(dataDir, runId), JSON.stringify({ token: lease.token, agent: lease.agent, at: new Date().toISOString() }), { mode: 0o600 }); } catch { /* the record below carries it */ }
       await updateRecord(dataDir, runId, ['prepared'], 'claimed', (r) => {
         r.lease = { token: lease.token, agent: lease.agent, at: new Date().toISOString() };
@@ -396,13 +406,13 @@ function handle(ctx: PrepareContext, record: PreparedRecord, context: string, re
  * Moves a run that won't be seated to `failed`, removes its files and, when nothing failed to go, to
  * `rolledBack`. `leaseReleased`: Opora confirmed the run's lease is gone, so the record drops the token.
  */
-export async function finishRollback(dataDir: string, runId: string, reason: string, earlier: string[] = [], step: NonNullable<PreparedRecord['error']>['step'] = 'recover', leaseReleased = false) {
+export async function finishRollback(dataDir: string, runId: string, reason: string, earlier: string[] = [], step: NonNullable<PreparedRecord['error']>['step'] = 'recover', leaseReleased = false, guard: (r: PreparedRecord) => void = () => undefined) {
   const before = readRecord(dataDir, runId);
   if (!before || before.state === 'rolledBack' || before.state === 'seated') return before;
   const released = (r: PreparedRecord) => { if (leaseReleased && r.lease?.token) { delete r.lease.token; r.lease.released = new Date().toISOString(); } };
   const failed = before.state === 'failed'
     ? (leaseReleased ? await updateRecord(dataDir, runId, ['failed'], undefined, released) : before)
-    : await updateRecord(dataDir, runId, ['planned', 'preparing', 'prepared', 'claimed'], 'failed', (r) => { r.error ??= { step, reason }; released(r); }, reason);
+    : await updateRecord(dataDir, runId, ['planned', 'preparing', 'prepared', 'claimed'], 'failed', (r) => { guard(r); r.error ??= { step, reason }; released(r); }, reason);
   const { done, errors } = removeRunFiles(dataDir, runId);
   const all = [...earlier, ...errors];
   return updateRecord(dataDir, runId, ['failed'], all.length ? undefined : 'rolledBack', (r) => {

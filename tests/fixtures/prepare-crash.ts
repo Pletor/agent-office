@@ -4,6 +4,7 @@
 //   prepared      exits as soon as the run is prepared, before the claim
 //   claiming      exits once Opora granted the claim, before the office read its answer (no token kept anywhere)
 //   claim-window  exits right after the claim answered, before the run is recorded as claimed
+//   claim-unrecorded  exits as the run would record the claim, its `claimed` step never runs
 //   claimed       exits when the worker is about to be seated, after the claim
 //   seat-window   exits right after the worker was seated, before the run is recorded as seated
 import fs from 'node:fs';
@@ -46,6 +47,8 @@ const { bridge } = bridgeOn(floor, dir, url, {
   async prepareTask(project, workspace, card, _owner, nodes) {
     const task = await preparedCardRun(dir, dir, { project, workspace }, card, nodes, false, {}, 'shop');
     if (mode === 'prepared') process.exit(0);
+    // Stops right after Opora granted the claim, before the run records it (the critic's probe): the token was kept by `granted`.
+    if (mode === 'claim-unrecorded') return { ...task, claimed: () => { process.exit(0); } };
     return task;
   },
 });
