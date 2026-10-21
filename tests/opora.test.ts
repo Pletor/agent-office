@@ -8,7 +8,7 @@ import path from 'node:path';
 import { OporaBridge, type BridgeFloor, type BridgeEvents } from '../src/server/opora/bridge.js';
 import { HarnessProfiles } from '../src/server/harness/profiles.js';
 import { harnessCardHandoff } from '../src/server/harness/handoff.js';
-import { harnessCardRun } from '../src/server/harness/run.js';
+import { preparedCardRun } from '../src/server/harness/prepare-recover.js';
 import { loadSnapshot } from '../src/server/harness/snapshot.js';
 import { HarnessLibrary, harnessSources } from '../src/server/harness/catalog.js';
 import { HarnessRegistry } from '../src/server/harness/registry.js';
@@ -72,7 +72,7 @@ test('a card down a page and a sector is dispatched with the page’s and the se
 
 test('taking a card pins a run snapshot: its id and digest reach the prompt, survive a restart, and a tombstone refuses before claiming', async (t) => {
   let root = '';
-  const f = await fixture(t, (project, workspace, card, _owner, nodes) => harnessCardRun(root, root, { project, workspace }, card, nodes, false));
+  const f = await fixture(t, (project, workspace, card, _owner, nodes) => preparedCardRun(root, root, { project, workspace }, card, nodes, false));
   root = f.dir;
   mkdirSync(path.join(root, '.harness', 'rules'), { recursive: true });
   writeFileSync(path.join(root, '.harness', 'rules', 'review.md'), 'Review rule v1.\n');
@@ -96,7 +96,7 @@ test('taking a card pins a run snapshot: its id and digest reach the prompt, sur
   assert.equal(loadSnapshot(root, ref.runId).content[id('rules/review.md')], 'Review rule v1.\n');
   // A restarted office knows which run the worker was seated with.
   f.bridge.shutdown();
-  const again = new OporaBridge({ id: 'shop', dir: root, list: () => f.workers, seat: () => 'no', desks: () => ['desk-9'], deskOccupied: () => false, labels: () => ({}) }, root, { prepareTask: (project, workspace, card, _owner, nodes) => harnessCardRun(root, root, { project, workspace }, card, nodes, false), update: () => undefined, toast: () => undefined, prompt: (pid) => PROMPTS[pid].text }, f.url);
+  const again = new OporaBridge({ id: 'shop', dir: root, list: () => f.workers, seat: () => 'no', desks: () => ['desk-9'], deskOccupied: () => false, labels: () => ({}) }, root, { prepareTask: (project, workspace, card, _owner, nodes) => preparedCardRun(root, root, { project, workspace }, card, nodes, false), update: () => undefined, toast: () => undefined, prompt: (pid) => PROMPTS[pid].text }, f.url);
   t.after(() => again.shutdown());
   await again.poll();
   assert.deepEqual(again.snapshotOf(f.workers[0].id), ref);

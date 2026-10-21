@@ -2,6 +2,7 @@ import type { Route } from '../router.js';
 import { send, sameOrigin } from '../util.js';
 import { harnessProfileRequest } from '../../harness/api.js';
 import { harnessBindingRequest } from '../../harness/binding-api.js';
+import { preparePlanRequest } from '../../harness/prepare-api.js';
 import { floorParam } from './files.js';
 import { HarnessLibrary, harnessSources } from '../../harness/catalog.js';
 import { HarnessRegistry } from '../../harness/registry.js';
@@ -44,5 +45,15 @@ export const harnessBindingRoute: Route = {
     if (req.method === 'POST' && !sameOrigin(req, ctx.cfg)) return send(res, 403, { error: 'Same-origin request required' });
     const admin = !session.account || session.account.role === 'admin';
     return harnessBindingRequest(ctx, floor, req, res, admin, session.account ? 'account:' + session.account.id : 'shared-password');
+  },
+};
+
+/** The preparation runner's dry-run plan for one card (harness/prepare-api.ts): read-only, for any session; machine resources for an administrator or the shared-password session, as in the catalog. */
+export const harnessPreparePlanRoute: Route = {
+  path: '/api/harness/prepare-plan', method: 'GET', auth: 'session',
+  async handle(ctx, { res, url, session }) {
+    const floor = floorParam(ctx, url);
+    if (!floor) return send(res, 404, { error: 'No such floor' });
+    return preparePlanRequest(ctx, floor, res, url, !session.account || session.account.role === 'admin');
   },
 };

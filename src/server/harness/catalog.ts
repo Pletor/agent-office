@@ -120,6 +120,8 @@ export class HarnessLibrary {
   /** The namespaces the global layer may bind here: the fixed ones, plus OpenViking when every OpenViking source is pinned. */
   private global: Set<string>;
   private repaired = false;
+  /** A listing with `persist: false`: digests go to this in-memory overlay, revisions are only peeked, nothing is written. */
+  private overlay?: DigestCache;
   constructor(private sources: HarnessSource[], readonly registry?: HarnessRegistry) {
     this.digests = registry?.digests ?? DigestCache.memory();
     this.visible = new Set(['handbook', ...sources.map((s) => s.ns ?? 'source')]);
@@ -132,7 +134,13 @@ export class HarnessLibrary {
     if (ns && this.global.has(ns)) return;
     return ns === 'openviking' ? 'OpenViking element in global layer: ' + id + '. ' + OPENVIKING_SCOPE_RULE : 'Project-scoped element in global layer: ' + id + '. ' + GLOBAL_SCOPE_RULE;
   }
-  async list(): Promise<HarnessCatalog> {
+  /**
+   * Lists every source. With `persist: false` (a dry run) nothing is written: the digest cache and the
+   * registry are read, never updated, and an element seen for the first time shows the revision the next
+   * recording listing would give it. Reads after such a listing don't repair the cache or the registry either.
+   */
+  async list(options: { persist?: boolean } = {}): Promise<HarnessCatalog> {
+    this.overlay = options.persist === false ? DigestCache.memory() : undefined;
     this.locations.clear();
     this.aliases.clear();
     const entries: HarnessEntry[] = HARNESS_GUIDES.map(({ text: _text, ...entry }) => entry);
@@ -193,8 +201,11 @@ export class HarnessLibrary {
       else await walk('', 0);
       if (whole) complete.add(sourceInstance(source.name, instance));
     }
-    this.digests.flush();
-    this.versions = await this.registry?.observe(observed, complete, roots) ?? new Map();
+    if (this.overlay) this.versions = this.registry?.peek(observed) ?? new Map();
+    else {
+      this.digests.flush();
+      this.versions = await this.registry?.observe(observed, complete, roots) ?? new Map();
+    }
     for (const entry of entries) entry.version = this.versions.get(entry.id) ?? 0;
     return { entries, sources, limited };
   }
@@ -206,7 +217,7 @@ export class HarnessLibrary {
    * edit that kept the whole identity key: the listing shows the previous digest until read() repairs it.
    */
   private async digest(located: Located, seen: BigIntStats): Promise<string | Skipped> {
-    const key = fileKey(seen), cached = this.digests.get(located.file, key);
+    const key = fileKey(seen), cached = this.overlay?.get(located.file, key) ?? this.digests.get(located.file, key);
     if (cached && (!this.registry || this.registry.knows(located.entry.id, cached))) {
       try { await (await open(located.file, READ_FLAGS)).close(); return cached; } catch { return { skip: 'unreadable' }; }
     }
@@ -214,7 +225,7 @@ export class HarnessLibrary {
     if ('skip' in content) return content;
     if (!sameFile(content.stat, seen)) return { skip: 'unreadable' };
     const digest = sha256(content.bytes);
-    this.digests.set(located.file, key, digest);
+    (this.overlay ?? this.digests).set(located.file, key, digest);
     return digest;
   }
   /**
@@ -271,10 +282,10 @@ export class HarnessLibrary {
     if (digest !== found.entry.digest) {
       if (!this.repaired) console.warn('agent-office: harness digest of ' + found.file + ' differed from the listed one; the cache and registry were repaired');
       this.repaired = true;
-      this.digests.set(found.file, fileKey(content.stat), digest);
-      this.digests.flush();
+      (this.overlay ?? this.digests).set(found.file, fileKey(content.stat), digest);
+      if (!this.overlay) this.digests.flush();
       found.entry.digest = found.observed.digest = digest;
-      const versions = await this.registry?.observe([found.observed], new Set());
+      const versions = this.overlay ? this.registry?.peek([found.observed]) : await this.registry?.observe([found.observed], new Set());
       found.entry.version = versions?.get(id) ?? 0;
       this.versions.set(id, found.entry.version);
     }

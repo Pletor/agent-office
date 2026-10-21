@@ -297,6 +297,20 @@ export class HarnessRegistry {
     const record = own(this.current().elements, id);
     return !!record && own(record.versions, digest) !== undefined;
   }
+  /**
+   * The revision each seen element has, or would get from the next recording listing (observe), without
+   * taking the lock or writing anything: what a dry run shows. Empty when the registry can't be read.
+   */
+  peek(seen: Observed[]): Map<string, number> {
+    const versions = new Map<string, number>();
+    const data = this.current();
+    if (this.unreadable) return versions;
+    for (const o of seen) {
+      const record = own(data.elements, o.id);
+      versions.set(o.id, (record && own(record.versions, o.digest)) ?? (record ? Math.max(0, ...Object.values(record.versions)) + 1 : 1));
+    }
+    return versions;
+  }
   /** What is known about an ID: the most recently seen instance's content; `missingSince` only when it is gone from every place it was listed. */
   lookup(id: string): Known | undefined {
     const record = own(this.current().elements, id);

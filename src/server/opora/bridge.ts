@@ -5,9 +5,10 @@ import { buildScope, cleanFocus, focusLine, inFocus, toggleFocus, type CanvasNod
 import { focusIntact, samePlace, type OporaPlace } from '../../shared/opora-identity.js';
 import { fillPrompt, type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
-import type { OporaCard, OporaRun, OporaState, WorkerInfo } from '../../shared/protocol.js';
+import type { OporaCard, OporaState, WorkerInfo } from '../../shared/protocol.js';
 import { forgetForOpora, markForOpora, seatForOpora, withReaBrief } from '../rea/index.js';
 import { OporaClient, OporaError } from './client.js';
+import { adoptedHeld, claimAndSeat, releasedAnyway, type AdoptedRun, type Held, type PreparedTask, type RunRecovery, type RunRef } from './prepared.js';
 import { ActivityFeed } from './live.js';
 import { oporaProcess } from './process.js';
 import { describeSketches, oporaCardViews, readSketches, sketchesLine } from './sketches.js';
@@ -32,30 +33,16 @@ export interface BridgeFloor {
   orchestrator?(): { by: string; owner?: string } | undefined;
 }
 
-/** Task context for a card's worker, and the run snapshot it was pinned to (harness/run.ts), when there is one. */
-export interface PreparedTask {
-  context: string;
-  snapshot?: RunRef;
-  /** Drops what was prepared when the card is not taken after all (the claim or the seat failed). */
-  discard?(): void;
-}
-/** A run snapshot's id and digest (docs/harness.md "Run snapshot and lazy reads"). */
-export interface RunRef { runId: string; digest: string }
+export type { PreparedTask, RunRef } from './prepared.js';
 
 export interface BridgeEvents {
   /** Optional task context, prepared before claiming a lease from the canvas as last read; failure prevents dispatch. */
   prepareTask?(project: string, workspace: string, card: string, owner: string | undefined, nodes: readonly CanvasNode[]): Promise<string | PreparedTask>;
+  /** Finishes the prepared runs an earlier office left (harness/prepare-recover.ts), each poll; resolves to seated runs to hold. */
+  recoverRuns?(recovery: RunRecovery): Promise<AdoptedRun[]>;
   update(state: OporaState): void;
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
   prompt(id: PromptId): string;
-}
-
-/** The office's side of a card it took: what it needs to keep the lease and let it go. */
-interface Held extends OporaRun {
-  token?: string;
-  owner?: string;
-  /** The run snapshot the worker was seated with: the only one its lazy reads may come from. */
-  snapshot?: RunRef;
 }
 
 const POLL_MS = 20_000;
@@ -249,6 +236,11 @@ export class OporaBridge {
         run.state = 'gone';
         void this.letGo(run);
       }
+      // Runs an earlier office prepared, claimed or seated and never finished (harness/prepare-recover.ts).
+      const held = new Set(this.runs.flatMap((r) => (r.state !== 'gone' && r.snapshot ? [r.snapshot.runId] : [])));
+      // Only Opora saying the lease isn't there (404, 409, 410) counts as released; anything else is tried again next poll.
+      const release = (place: OporaPlace, card: string, token: string) => this.client.release(place.project, place.workspace, card, token).then(() => 'released' as const, (err) => (releasedAnyway(err) ? 'released' as const : 'unreachable' as const));
+      for (const adopted of (await this.events.recoverRuns?.({ workers: () => this.floor.list(), held, release, floor: this.floor.id }).catch(() => [])) ?? []) this.runs.unshift(adoptedHeld(adopted));
       await this.read();
       if (this.state.handOut) await this.handOut();
       if (this.state.autopilot) await this.autopilot();
@@ -271,40 +263,29 @@ export class OporaBridge {
     const desk = deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
     if (!desk) return 'Every desk is taken: send someone home, or build the back office out';
     const agent = oporaAgentName(this.floor.id, card.id);
-    let context = '', snapshot: RunRef | undefined, discard: (() => void) | undefined;
+    let prepared: PreparedTask;
     try {
-      const prepared = await this.events.prepareTask?.(project.id, workspace, card.id, owner, this.canvas) ?? '';
-      if (typeof prepared === 'string') context = prepared;
-      else ({ context, snapshot, discard } = prepared);
+      const got = await this.events.prepareTask?.(project.id, workspace, card.id, owner, this.canvas) ?? '';
+      prepared = typeof got === 'string' ? { context: got } : got;
     } catch (err) { return 'Task context: ' + (err as Error).message; }
-    let lease;
-    try {
-      lease = await this.client.claim(project.id, workspace, card.id, agent, LEASE_TTL);
-    } catch (err) {
-      discard?.();
-      return err instanceof OporaError && err.status === 409 ? `Someone else holds “${card.name}” on Opora` : (err as Error).message;
-    }
-    // What the person sketched for the card (its drawing, its storyboard), and the Opora pages that show it.
-    const sketches = await readSketches(this.client, project.id, workspace, card.id);
-    const views = oporaCardViews(this.state.url, project.id, workspace, card.id);
-    const where = { node: card.id, base: this.state.url, project: project.id, workspace };
-    const design = card.group === 'design' ? fillPrompt(this.events.prompt('opora.design'), { ...where, card: card.name, ...views, found: describeSketches(sketches) }) : '';
-    const prompt = fillPrompt(this.events.prompt('opora.card'), {
-      ...where,
-      card: card.name,
-      sector: card.sectorName ?? '—',
-      agent,
-      token: lease.token,
-      sketches: design ? '' : sketchesLine(sketches, views, project.id, workspace, card.id),
-      design,
+    // Claimed only once prepared, seated only once claimed; a failure after the claim lets the lease go and rolls the run back (opora/prepared.ts).
+    const taken = await claimAndSeat(prepared, { name: card.name, group: card.group, ...(card.sectorName ? { sectorName: card.sectorName } : {}), deskId: desk }, agent, {
+      claim: () => this.client.claim(project.id, workspace, card.id, agent, LEASE_TTL),
+      release: (token) => this.client.release(project.id, workspace, card.id, token),
+      refused: (err) => err instanceof OporaError && err.status === 409 ? `Someone else holds “${card.name}” on Opora` : (err as Error).message,
+      seat: async (lease) => {
+        // What the person sketched for the card (its drawing, its storyboard), and the Opora pages that show it.
+        const sketches = await readSketches(this.client, project.id, workspace, card.id);
+        const views = oporaCardViews(this.state.url, project.id, workspace, card.id);
+        const where = { node: card.id, base: this.state.url, project: project.id, workspace };
+        const design = card.group === 'design' ? fillPrompt(this.events.prompt('opora.design'), { ...where, card: card.name, ...views, found: describeSketches(sketches) }) : '';
+        const prompt = fillPrompt(this.events.prompt('opora.card'), { ...where, card: card.name, sector: card.sectorName ?? '—', agent, token: lease.token, sketches: design ? '' : sketchesLine(sketches, views, project.id, workspace, card.id), design });
+        // 🔬 REA, when it's on: its MCP server for taking a reference app apart, and how to use it (see rea/).
+        return seatForOpora(() => this.floor.seat(desk, by, withReaBrief(prompt + prepared.context, this.events.prompt), owner));
+      },
     });
-    // 🔬 REA, when it's on: its MCP server for taking a reference app apart, and how to use it (see rea/).
-    const seated = seatForOpora(() => this.floor.seat(desk, by, withReaBrief(prompt + context, this.events.prompt), owner));
-    if (typeof seated === 'string') {
-      await this.client.release(project.id, workspace, card.id, lease.token).catch(() => undefined);
-      discard?.();
-      return seated;
-    }
+    if (typeof taken === 'string') return taken;
+    const { lease, worker: seated } = taken, snapshot = prepared.snapshot;
     this.runs.unshift({
       cardId: card.id,
       cardName: card.name,
@@ -324,6 +305,7 @@ export class OporaBridge {
     });
     card.status = 'claimed';
     this.changed();
+    try { await prepared.seated?.(seated.id); } catch { /* seated anyway: a recovery records it from the worker's contract */ }
     this.events.toast(`🛰️ ${seated.name} took “${card.name}” from the Opora canvas${card.group === 'design' ? ' (design)' : ''}`, 'info');
     return undefined;
   }

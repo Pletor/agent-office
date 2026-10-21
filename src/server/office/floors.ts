@@ -2,7 +2,8 @@ import { existsSync } from 'node:fs';
 import { WebSocket } from 'ws';
 import type { FloorDef } from '../building.js';
 import { Floor, type FloorContext } from '../floor.js';
-import { harnessCardRun } from '../harness/run.js';
+import { preparedCardRun, recoverRuns } from '../harness/prepare-recover.js';
+import { harnessRepoKey } from '../harness/profiles.js';
 import { ROOF } from '../../shared/rooftop.js';
 import type { FloorInfo, ServerMsg } from '../../shared/protocol.js';
 import type { Ctx, FloorHelpers, FloorsOpen } from './context.js';
@@ -71,7 +72,10 @@ export function floorHelpers(ctx: Ctx): FloorHelpers {
 export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen> {
   const { cfg, floors, clients } = ctx;
   const floorContext: FloorContext = {
-    prepareTask: (dir, project, workspace, card, owner, nodes) => harnessCardRun(cfg.dataDir, dir, { project, workspace }, card, nodes, !owner || ctx.accounts.get(owner)?.role === 'admin'),
+    // The preparation runner (harness/prepare.ts): a card is claimed only once its run is prepared and verified.
+    prepareTask: (dir, project, workspace, card, owner, nodes, floorId) => preparedCardRun(cfg.dataDir, dir, { project, workspace }, card, nodes, !owner || ctx.accounts.get(owner)?.role === 'admin', {}, floorId),
+    // A run without a floor id (an older record) is recovered only while no other floor shares its checkout.
+    recoverRuns: async (dir, recovery) => (await recoverRuns(cfg.dataDir, dir, { ...recovery, sharedCheckout: [...floors.values()].filter((f) => harnessRepoKey(f.dir) === harnessRepoKey(dir)).length > 1 })).adopted,
     agentCmd: cfg.agentCmd,
     agentArgs: cfg.agentArgs,
     dshProfile: cfg.dshProfile,
