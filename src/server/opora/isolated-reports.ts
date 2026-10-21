@@ -24,6 +24,9 @@ export function remoteReportInstructions(input: ExecutionIntent): string {
 }
 
 function parse(text: string): unknown {
+  // Normalize one whole JSON fence only; never extract a report from prose.
+  const fenced = /^\s*```json\r?\n([\s\S]*?)\r?\n```\s*$/.exec(text);
+  if (fenced) text = fenced[1];
   // JSON.parse alone silently overwrites duplicate keys. Scan containers first,
   // respecting escaped strings; JSON.parse still owns all syntax validation.
   const stack: ({ keys: Set<string>; key: boolean } | null)[] = [];

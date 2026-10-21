@@ -132,6 +132,12 @@ upgrade, quotas and retained-history rules.
 Remote result text remains an agent's report. It is checked against the exact
 intent and submitted with the original private lease; it does not automatically
 verify code, finish a card, merge a PR or deploy anything.
+The broker reads the latest message through the provider's `types[]` array
+filter. Reports may be raw JSON or one entire `json` Markdown fence, with optional
+outer whitespace. Prose, other fence languages and multiple blocks are not
+extracted. The same exact identity, duplicate-key, depth and size checks apply
+after removing this presentation wrapper; the original message byte limit still
+applies. Raw JSON remains the requested output format.
 The first write requires current floor and lease authority. After revocation or
 restart, an uncertain receipt is resolved only through the existing read API;
 a local attempted marker is not proof that Canvas committed a result.

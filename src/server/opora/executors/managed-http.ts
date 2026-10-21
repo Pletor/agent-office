@@ -22,7 +22,7 @@ export class ManagedAgentsHttp {
     if (signal?.aborted) throw new ExecutorFailure();
     if (!/^\/(sessions|environments)(\/[A-Za-z0-9_-]+)*(\/(events|archive))?$/.test(endpoint)
       && !/^\/agents\/[A-Za-z0-9_-]+\?version=[1-9][0-9]*$/.test(endpoint)
-      && !(method === 'GET' && /^\/sessions\/sesn_[A-Za-z0-9_-]+\/events\?types=agent\.message&order=desc&limit=1$/.test(endpoint))) throw new ExecutorFailure();
+      && !(method === 'GET' && /^\/sessions\/sesn_[A-Za-z0-9_-]+\/events\?types%5B%5D=agent\.message&order=desc&limit=1$/.test(endpoint))) throw new ExecutorFailure();
     const controller = new AbortController();
     const abort = () => controller.abort(); signal?.addEventListener('abort', abort, { once: true });
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -100,7 +100,7 @@ export class ManagedAgentsHttp {
   /** Read the latest provider event only. Pagination and agent actions are never inferred. */
   async readLatestMessage(sessionId: string): Promise<ManagedMessage | null> {
     if (!id(sessionId) || !sessionId.startsWith('sesn_')) throw new ExecutorFailure();
-    const value = await this.request('/sessions/' + sessionId + '/events?types=agent.message&order=desc&limit=1', 'GET');
+    const value = await this.request('/sessions/' + sessionId + '/events?types%5B%5D=agent.message&order=desc&limit=1', 'GET');
     if (!object(value) || !Array.isArray(value.data) || value.data.length > 1
       || Object.keys(value).some(key => key !== 'data' && key !== 'next_page')
       || (value.next_page != null && (typeof value.next_page !== 'string' || value.next_page.length > 2048))) throw new ExecutorFailure();

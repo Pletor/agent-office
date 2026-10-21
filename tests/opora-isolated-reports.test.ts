@@ -35,6 +35,11 @@ async function fixture() {
   const server = createServer((request, reply) => {
     calls.push(request.url!);
     assert.equal(request.headers['x-api-key'], 'PRIVATE_PROVIDER_KEY');
+    const query = new URL(request.url!, 'http://provider.invalid').searchParams;
+    if (query.has('types') || query.getAll('types[]').join() !== 'agent.message') {
+      reply.writeHead(400, { 'Content-Type': 'application/json' });
+      reply.end(JSON.stringify({ error: { type: 'invalid_request_error', message: "Use the array parameter types[]." } })); return;
+    }
     if (behavior === 'hang') return;
     if (behavior === 'redirect') { reply.writeHead(302, { Location: '/evil' }); reply.end(); return; }
     reply.writeHead(200, { 'Content-Type': 'application/json' }); reply.end(JSON.stringify(response));
@@ -65,7 +70,7 @@ test('real HTTP latest-only report has exact immutable identity and deterministi
     assert.equal(first.digest, digest({ eventId, processedAt: first.processedAt, result: first.result,
       intentId: f.value.intentId, executionId: f.value.executionId, epoch: f.value.epoch,
       acceptedRevision: f.value.acceptedRevision, assignmentDigest: f.value.assignmentDigest, sessionId }));
-    assert.deepEqual(f.calls, Array(2).fill('/v1/sessions/' + sessionId + '/events?types=agent.message&order=desc&limit=1'));
+    assert.deepEqual(f.calls, Array(2).fill('/v1/sessions/' + sessionId + '/events?types%5B%5D=agent.message&order=desc&limit=1'));
     assert.doesNotMatch(JSON.stringify(first), /PRIVATE_|authorization_token|contextVersion|"budget"/);
   } finally { await f.close(); }
 });
@@ -75,6 +80,30 @@ test('instructions carry only public report identity and no authority or verific
   assert.match(text, /not independent verification/);
   assert.doesNotMatch(text, /PRIVATE_|contextVersion|configurationDigest|environmentDigest|maxListCostCents|allocationId|"budget"/);
   assert.deepEqual(JSON.parse(text.split('\n').at(-1)!), { ...envelope(value), result: { summary: 'Describe the actual outcome here.' } });
+});
+
+test('one entire JSON fence preserves strict report identity and deterministic result identity', async () => {
+  const f = await fixture();
+  try {
+    const raw = await readRemoteReport(f.http, f.value, sessionId);
+    for (const text of ['```json\n' + JSON.stringify(envelope(f.value)) + '\n```',
+      ' \r\n```json\r\n' + JSON.stringify(envelope(f.value)) + '\r\n```\r\n\t']) {
+      f.set({ data: [event(text)] });
+      assert.deepEqual(await readRemoteReport(f.http, f.value, sessionId), raw);
+    }
+  } finally { await f.close(); }
+});
+
+test('fences never extract prose, other languages, multiple blocks or malformed JSON', async () => {
+  const f = await fixture();
+  try {
+    const json = JSON.stringify(envelope(f.value)), fenced = '```json\n' + json + '\n```';
+    for (const text of ['Report:\n' + fenced, fenced + '\nDone.', fenced + '\n' + fenced,
+      '```javascript\n' + json + '\n```', '```\n' + json + '\n```', '```json' + json + '```',
+      '```json\n{"kind":"oporahub-reported-result",}\n```']) {
+      f.set({ data: [event(text)] }); assert.equal(await readRemoteReport(f.http, f.value, sessionId), null);
+    }
+  } finally { await f.close(); }
 });
 
 test('absent, prose, JSON without report kind and redacted latest messages never fabricate a result', async () => {
@@ -100,17 +129,22 @@ test('wrong metadata, extra envelope fields and unsafe/deep/duplicate JSON fail 
       JSON.stringify(report).replace('"schemaVersion":1', '"schemaVersion":1,"schemaVersion":1'),
       JSON.stringify(report).replace('"passed":true', '"passed":1e309'),
       JSON.stringify(report).replace('"passed":true', '"passed":' + '['.repeat(35) + '0' + ']'.repeat(35)));
-    for (const text of texts) { f.set({ data: [event(text)] }); await assert.rejects(readRemoteReport(f.http, f.value, sessionId)); }
+    for (const text of texts) for (const presentation of [text, '```json\n' + text + '\n```']) {
+      f.set({ data: [event(presentation)] }); await assert.rejects(readRemoteReport(f.http, f.value, sessionId));
+    }
   } finally { await f.close(); }
 });
 
 test('ambiguous events, wrong provider event identity, text byte bounds and unsafe session paths reject', async () => {
   const f = await fixture();
   try {
+    const report = JSON.stringify({ ...envelope(f.value), result: { summary: 'Valid', evidence: 'x'.repeat(63500) } });
+    const padded = report + ' '.repeat(64000 - Buffer.byteLength(report));
     for (const body of [{ data: [event('{}'), event('{}')] }, { data: [{ ...event('{}'), type: 'user.message' }] },
       { data: [{ ...event('{}'), id: 'wrong' }] }, { data: [{ ...event('{}'), processed_at: 'not-a-date' }] },
       { data: [{ ...event('{}'), processed_at: '2026-02-30T00:00:00Z' }] },
       { data: [event('é'.repeat(32001))] }, { data: [event('x'.repeat(300000))] },
+      { data: [event('```json\n' + padded + '\n```')] },
       { data: [{ ...event('{}'), session_id: 'sesn_other' }] }]) {
       f.set(body); await assert.rejects(readRemoteReport(f.http, f.value, sessionId));
     }

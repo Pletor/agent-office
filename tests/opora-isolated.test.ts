@@ -142,9 +142,10 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, version: 1 |
   });
   return { directory, floor, options, configuration, view, lease, session, calls, observations, receipts, service, input, call,
     loseObservation: (ordinal: number) => { loseObservationAt = ordinal; },
-    report: (summary = 'Agent reports implemented change') => { reportText = JSON.stringify({ schemaVersion: 1, kind: 'oporahub-reported-result',
+    report: (summary = 'Agent reports implemented change', fenced = false) => { reportText = JSON.stringify({ schemaVersion: 1, kind: 'oporahub-reported-result',
       intentId: '2'.repeat(40), executionId: lease.executionId, epoch: lease.epoch, acceptedRevision: lease.acceptedRevision,
-      assignmentDigest: lease.assignmentDigest, result: { summary } }); },
+      assignmentDigest: lease.assignmentDigest, result: { summary } });
+      if (fenced) reportText = '```json\n' + reportText + '\n```'; },
     loseResult: () => { loseResult = true; },
     alive: (value: boolean) => { alive = value; }, hook: (value: typeof hook) => { hook = value; },
     reopen: async () => {
@@ -285,7 +286,7 @@ test('terminal unchanged polls are bounded and deduplicated; explicit late usage
 
 for (const version of [1, 2] as const) test(`remote explicit result uses private lease and exact native receipt with context ${version}`, async t => {
   const f = await fixture(t, version, 25);
-  f.report();
+  f.report('Agent reports implemented change', version === 2);
   const started = await f.call('start', f.input); assert.equal(started.status, 200);
   for (let index = 0; index < 50 && !f.receipts.size; index++) await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(f.receipts.size, 1);
@@ -353,7 +354,7 @@ test('floor removal after private result checkpoint prevents first POST; attempt
       return !JSON.parse(readFileSync(path.join(records, file), 'utf8')).record.pendingResult;
     } catch { return true; }
   };
-  f.report();
+  f.report('Fenced result still requires live authority', true);
   assert.equal((await f.call('start', f.input)).status, 200);
   for (let index = 0; index < 50 && f.session.status !== 'terminated'; index++) await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(f.session.status, 'terminated');
@@ -368,4 +369,19 @@ test('floor removal after private result checkpoint prevents first POST; attempt
   assert.equal(f.calls.filter(call => call.url.endsWith('/results')).length, 0);
   assert.equal(f.receipts.size, 0);
   assert.equal((await f.call('runs')).value.items[0].resultStatus, 'unconfirmed');
+});
+
+test('a fenced report discovered after confirmed termination never creates a native receipt or replacement', async t => {
+  const f = await fixture(t, 2, 25);
+  const started = await f.call('start', f.input); assert.equal(started.status, 200);
+  assert.equal((await f.call('stop', { intentId: started.value.intentId })).status, 200);
+  assert.equal(f.session.status, 'terminated');
+  f.report('Late fenced report cannot renew revoked authority', true);
+  assert.equal((await f.call('reconcile', {})).status, 200);
+  const replay = await f.call('start', f.input);
+  assert.equal(replay.value.intentId, started.value.intentId); assert.equal(replay.value.authorityActive, false);
+  assert.equal(replay.value.receiptId, null); assert.equal(f.receipts.size, 0);
+  assert.equal(f.calls.filter(call => call.url.endsWith('/results')).length, 0);
+  assert.equal(f.calls.filter(call => call.url === '/provider/v1/sessions').length, 1);
+  assert.equal(f.calls.filter(call => call.body?.events?.[0]?.type === 'user.message').length, 1);
 });
