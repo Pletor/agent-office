@@ -1,0 +1,25 @@
+.delivery-panel { margin-top: 18px; padding: 22px; background: linear-gradient(125deg, #151b2b, #101820); border: 1px solid #344257; border-radius: 10px; }
+.delivery-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.delivery-heading h2 { margin: 7px 0; font-size: 23px; }
+.delivery-heading p { color: var(--muted); font-size: 12px; }
+#pipeline-progress { color: var(--cyan); font: 11px var(--mono); }
+#pipeline-meter { display: block; width: 100%; height: 5px; margin: 18px 0 22px; accent-color: var(--cyan); }
+.delivery-lanes { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.delivery-lane { min-width: 0; border-left: 1px solid #334258; padding-left: 12px; }
+.delivery-lane h3 { color: #b9c8df; font: 11px var(--mono); margin: 0 0 14px; }
+.delivery-step { width: 100%; text-align: left; display: flex; align-items: start; gap: 8px; background: #111826; border: 1px solid #2e3a4c; border-radius: 6px; padding: 11px 9px; margin-bottom: 8px; color: #9aaac0; font-size: 11px; line-height: 1.5; min-height: 53px; }
+.delivery-status { color: #77869b; }
+.delivery-step.done .delivery-status { color: var(--green); }
+.delivery-step.current { border-color: #378e95; background: #142e36; color: #e0ffff; }
+.delivery-step.current .delivery-status { color: var(--cyan); animation: delivery-pulse 1.6s ease-in-out infinite; }
+.delivery-step.selected { outline: 1px solid var(--pink); outline-offset: 2px; }
+.delivery-step:focus-visible { outline: 2px solid white; outline-offset: 2px; }
+.delivery-detail { display: grid; grid-template-columns: 1fr 1fr 1fr 1.3fr; gap: 22px; padding: 20px; margin-top: 18px; background: #0b121e; border: 1px solid #2c3c52; border-radius: 7px; }
+.delivery-detail h3 { font-size: 16px; margin: 9px 0; }
+.delivery-detail p { font-size: 12px; line-height: 1.7; color: #b3c1d3; margin: 9px 0 0; }
+.delivery-chain { margin: 18px 0 0; font: 11px/1.8 var(--mono); color: var(--purple); overflow-wrap: anywhere; }
+.paused .delivery-status { animation-play-state: paused; }
+@keyframes delivery-pulse { 50% { opacity: .35; } }
+@media (max-width: 1250px) { .delivery-lanes { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 12px; }.delivery-detail { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .delivery-panel { padding: 16px; }.delivery-heading { display: block; }.delivery-lanes { grid-template-columns: 1fr 1fr; }.delivery-detail { grid-template-columns: 1fr; gap: 14px; }.delivery-heading h2 { font-size: 20px; } }
+@media (prefers-reduced-motion: reduce) { .delivery-step.current .delivery-status { animation: none; } }

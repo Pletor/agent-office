@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { initialState, reduceEvent, canMerge, parseRepository, type StudioState, type EventType, type StudioEvent } from '../src/client/process-studio/model.js';
 import { eventFor, scenario } from '../src/client/process-studio/scenario.js';
 import { processStudioRoute } from '../src/server/http/routes/process-studio.js';
+import { PIPELINE } from '../src/client/process-studio/pipeline-model.js';
 
 function apply(s: StudioState, type: EventType, extras: Partial<StudioEvent> = {}): StudioState {
   const result = reduceEvent(s, { ...eventFor({ type, message: type }, s.run, s.sequence + 1), ...extras });
@@ -81,4 +82,41 @@ test('repository identity rejects unsafe, duplicate and unsupported inputs', () 
 });
 test('the standalone studio uses the session-authenticated route registry', () => {
   assert.equal(processStudioRoute.auth, 'session'); assert.equal(processStudioRoute.method, 'GET');
+});
+
+test('delivery handoffs cannot skip predecessors, repeat or complete without their inputs', () => {
+  let state = initialState();
+  for (const scene of scenario([])) {
+    if (state.waiting) state = apply(state, 'human.approve');
+    if (scene.type === 'pipeline.observe') {
+      const next = PIPELINE[state.pipeline.length + 1];
+      if (next) assert.ok(reduceEvent(state, eventFor({ ...scene, stage: next.id }, state.run, state.sequence + 1)).error);
+      if (scene.stage === 'queue') {
+        const stale = { ...state, approvalRevision: 0 };
+        assert.ok(reduceEvent(stale, eventFor(scene, stale.run, stale.sequence + 1)).error);
+      }
+      if (scene.stage === 'release') {
+        const unmerged = { ...state, merged: false };
+        assert.ok(reduceEvent(unmerged, eventFor(scene, unmerged.run, unmerged.sequence + 1)).error);
+      }
+      state = apply(state, scene.type, scene);
+      assert.ok(reduceEvent(state, eventFor(scene, state.run, state.sequence + 1)).error);
+    } else state = apply(state, scene.type, scene);
+  }
+  assert.deepEqual(state.pipeline, PIPELINE.map(step => step.id));
+});
+
+test('review, human handoff, merge and memory require delivery evidence as well as old gates', () => {
+  for (const [target, missing] of [['review.pass', 'independent'], ['human.wait', 'ci'], ['merge.confirm', 'queue'], ['memory.propose', 'close'], ['run.finish', 'evaluate']] as const) {
+    let state = initialState();
+    for (const scene of scenario([])) {
+      if (state.waiting) state = apply(state, 'human.approve');
+      if (scene.type === target) {
+        const incomplete = { ...state, pipeline: state.pipeline.filter(id => id !== missing) };
+        const result = reduceEvent(incomplete, eventFor(scene, incomplete.run, incomplete.sequence + 1));
+        assert.ok(result.error, target); assert.equal(result.state, incomplete); break;
+      }
+      state = apply(state, scene.type, scene);
+    }
+  }
 });

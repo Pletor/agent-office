@@ -70,12 +70,20 @@
       </section>
     </aside>
   </div>
+  <section class="delivery-panel" aria-label="Pipeline tvorby a doručení kódu">
+    <div class="delivery-heading"><div><p class="eyebrow">OPORA → AGENT-OFFICE → GITHUB → ZPĚTNÁ VAZBA</p><h2>Od zadání k ověřenému doručení.</h2><p>Každé předání má vstup, výstup a podmínku. Vyberte krok a prohlédněte jeho kontrakt.</p></div><div><p id="pipeline-progress"></p><button id="pipeline-follow" class="text-button">Sledovat další předání →</button></div></div>
+    <progress id="pipeline-meter" value="0" max="17" aria-label="Dokončená modelová předání"></progress>
+    <div id="delivery-lanes" class="delivery-lanes"></div>
+    <div id="pipeline-detail" class="delivery-detail"></div>
+    <p id="delivery-chain" class="delivery-chain"></p>
+    <p class="muted">Simulace procesu inspirovaná videem. Lean, GitHub CI ani nasazení se zde nespouštějí; navazující PR jsou plán závislostí.</p>
+  </section>
   <section class="history-panel">
     <div class="history-top"><div><span class="pane-label">STOPA BĚHU</span><span id="history-label">0 událostí</span></div><div><button class="text-button" id="return-live" hidden>Zpět k poslední události →</button><button class="text-button" id="export">Exportovat stopu ↓</button></div></div>
     <label class="timeline-label" for="timeline">Prohlédnout dřívější stav</label><input id="timeline" type="range" min="0" max="0" value="0" step="1" aria-label="Historie běhu" />
     <div id="event-feed" class="event-feed"></div>
   </section>
-  <footer><span>OPORA / PROCESS OBSERVATORY <b>02</b></span><span>Plán → důkazy → výsledek → paměť → další úkol</span><span>Simulovaný zdroj událostí · žádné připojené účty</span></footer>
+  <footer><span>OPORA / PROCESS OBSERVATORY <b>03</b></span><span>Plán → důkazy → výsledek → paměť → další úkol</span><span>Simulovaný zdroj událostí · žádné připojené účty</span></footer>
 </main>
 <dialog id="about"><button class="dialog-close" id="about-close" aria-label="Zavřít">✕</button><p class="eyebrow">JAK UKÁZKA FUNGUJE</p><h2>Pohyb následuje události.</h2><p>Čtyři pavouci představují plánovače, vývojáře, kontrolora a správu paměti. Každý se přesouvá podle konkrétní události scénáře. Pohyb neřídí dokončení práce.</p><p>Plán obsahuje podmínky a důkazy. Změna revize zneplatní staré kontroly. Při chybě vznikne opravný krok. Výsledek čeká na rozhodnutí člověka.</p><p>OpenViking je zobrazen jako navržená paměťová integrace: načtení → návrh zkušenosti → potvrzení zápisu → opětovné použití. To samo nedokazuje vyšší kvalitu agenta.</p><p>Moduly rozšiřují tento lokální model. Skutečné napojení vyžaduje adaptéry služeb, jejich autentizaci a ověřené události. V této verzi žádné takové spojení nevzniká.</p></dialog>
 </body></html>

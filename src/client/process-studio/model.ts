@@ -1,3 +1,4 @@
+import { PIPELINE, pipelineError, type PipelineId } from './pipeline-model';
 /** Deterministic, browser-only demonstration. No provider or repository mutations. */
 export type Status = 'queued' | 'working' | 'done' | 'blocked' | 'failed';
 export type RepoRole = 'context' | 'module' | 'check';
@@ -11,15 +12,17 @@ export interface StudioState {
   repaired: boolean; repairRequired: boolean; waiting: boolean; merged: boolean; finished: boolean;
   memory: 'empty' | 'recalled' | 'proposed' | 'persisted' | 'reused';
   evidence: Evidence[]; seen: string[]; headline: string; active: string; actor: string;
+  pipeline: PipelineId[];
 }
 export type EventType = 'plan.draft' | 'memory.recall' | 'plan.gap' | 'plan.refine' | 'plan.accept'
   | 'repo.inspect' | 'repo.verified' | 'work.assign' | 'work.start' | 'work.complete'
   | 'checks.start' | 'checks.fail' | 'repair.plan' | 'repair.start' | 'repair.complete'
   | 'checks.pass' | 'review.pass' | 'pr.open' | 'human.wait' | 'human.approve'
-  | 'merge.confirm' | 'memory.propose' | 'memory.persist' | 'memory.reuse' | 'run.finish';
+  | 'merge.confirm' | 'memory.propose' | 'memory.persist' | 'memory.reuse' | 'run.finish' | 'pipeline.observe';
 export interface StudioEvent {
   id: string; run: string; sequence: number; type: EventType; message: string;
   node?: string; repositoryIds?: string[];
+  stage?: PipelineId;
 }
 export const BASE_NODES = ['plan', 'context', 'recall', 'contract', 'office', 'frontend', 'backend', 'checks', 'learn', 'merge', 'pr', 'review'];
 export const ROLE_LABELS: Record<RepoRole, string> = { context: 'Zdroj kontextu', module: 'Vývojový modul', check: 'Kontrolní služba' };
@@ -41,7 +44,7 @@ export function initialState(repositories: Repository[] = [], run = 'DEMO-042'):
     nodes: Object.fromEntries([...BASE_NODES, ...repositories.map(r => r.id)].map(id => [id, { status: 'queued', detail: 'Čeká na vstup' }])),
     checksRevision: 0, reviewRevision: 0, prRevision: 0, approvalRevision: 0,
     repaired: false, repairRequired: false, waiting: false, merged: false, finished: false,
-    memory: 'empty', evidence: [], seen: [], headline: 'Připravujeme kartu Opory a první verzi plánu.', active: 'plan', actor: 'planner',
+    memory: 'empty', evidence: [], seen: [], pipeline: [], headline: 'Připravujeme kartu Opory a první verzi plánu.', active: 'plan', actor: 'planner',
   };
 }
 export function readyForReview(s: StudioState): boolean {
@@ -68,6 +71,14 @@ export function reduceEvent(previous: StudioState, event: StudioEvent): { state:
   const proof = (id: string, title: string, detail: string) => s.evidence.push({ id: event.id, node: id, title, detail, revision: s.revision });
   const workersDone = s.nodes.frontend.status === 'done' && s.nodes.backend.status === 'done';
   switch (event.type) {
+    case 'pipeline.observe': {
+      const error = pipelineError(s, event.stage);
+      if (error) return reject(error);
+      const step = PIPELINE.find(step => step.id === event.stage)!;
+      s.pipeline.push(step.id); s.active = step.node;
+      s.actor = step.owner.includes('Paměť') ? 'memory' : step.owner.includes('Kontrolor') ? 'reviewer' : step.owner.includes('Plánovač') ? 'planner' : 'developer';
+      proof(step.node, step.title, `Modelové předání. Vstup: ${step.input}. Výstup: ${step.output}. Podmínka: ${step.gate}`); break;
+    }
     case 'plan.draft':
       if (s.sequence !== 0) return reject('Plán už existuje.');
       node('plan', 'working', 'OP-128 · revize 1'); s.actor = 'planner';
@@ -97,10 +108,12 @@ export function reduceEvent(previous: StudioState, event: StudioEvent): { state:
       break;
     }
     case 'work.assign':
+      if (!s.pipeline.includes('worktrees')) return reject('Chybí výchozí stav a izolované pracovní větve.');
       if (!s.accepted || s.repositories.some(r => s.nodes[r.id].status !== 'done')) return reject('Nejsou připravené všechny části plánu.');
       node('office', 'done', '2 pracovníci · 2 worktrees'); s.actor = 'developer'; break;
     case 'work.start':
     case 'work.complete': {
+      if (!s.pipeline.includes('counterexample')) return reject('Nejdříve připravte reprodukci a očekávané chování.');
       if (!s.accepted || s.nodes.office.status !== 'done' || !['frontend', 'backend'].includes(event.node ?? '')) return reject('Práci nelze přidělit.');
       const id = event.node!;
       if (event.type === 'work.complete' && s.nodes[id].status !== 'working') return reject('Práce ještě nezačala.');
@@ -109,6 +122,7 @@ export function reduceEvent(previous: StudioState, event: StudioEvent): { state:
       if (event.type === 'work.complete') proof(id, 'Změny přiřazené ke kartě', `${id}: modelový diff a seznam změněných souborů. Vazba: OP-128 / revize ${s.revision}. Konec práce není důkazem správnosti.`); break;
     }
     case 'checks.start':
+      if (!s.pipeline.includes('integration')) return reject('Kontroly vyžadují integrovanou změnu.');
       if (!s.accepted || !workersDone || (s.repairRequired && !s.repaired)) return reject('Kontroly čekají na dokončené změny.');
       node('checks', 'working', 'typecheck · test · build'); s.actor = 'reviewer'; break;
     case 'checks.fail':
@@ -133,14 +147,17 @@ export function reduceEvent(previous: StudioState, event: StudioEvent): { state:
       s.checksRevision = s.revision; node('checks', 'done', '42/42 · typy ✓ · build ✓');
       proof('checks', 'Kontroly aktuální revize', `Modelový výsledek: 42 testů prošlo, typecheck i build exit 0. AC-01 až AC-04 pokryty. Rozšíření: ${s.repositories.map(r => r.name).join(', ') || 'žádné'}.`); break;
     case 'review.pass':
+      if (!s.pipeline.includes('independent')) return reject('Chybí nezávislé review implementace.');
       if (!readyForReview(s)) return reject('Review vyžaduje platné kontroly.');
       s.reviewRevision = s.revision; node('review', 'done', 'Plán ↔ změny ↔ důkazy'); s.actor = 'reviewer';
       proof('review', 'Revize výsledku', 'Kontrolor porovnal změnu s AC-01 až AC-05. Důkazy patří aktuální revizi plánu. Sloučení zbývá potvrdit.'); break;
     case 'pr.open':
+      if (!s.pipeline.includes('package')) return reject('Chybí dokumentace a balíček předání.');
       if (!readyForReview(s) || s.reviewRevision !== s.revision) return reject('PR čeká na kontroly a review.');
       s.prRevision = s.revision; node('pr', 'done', 'Ukázkový PR #214'); s.actor = 'developer';
       proof('pr', 'PR #214 · modelový záznam', `OP-128 / revize ${s.revision}. Diff, testy, omezení a odkazy na související repozitáře jsou připojené.`); break;
     case 'human.wait':
+      if (!s.pipeline.includes('ci')) return reject('Čekáme na kontroly publikovaného PR.');
       if (s.prRevision !== s.revision) return reject('Chybí aktuální PR.');
       s.waiting = true; node('merge', 'blocked', 'Čeká na vaše rozhodnutí'); break;
     case 'human.approve':
@@ -148,10 +165,12 @@ export function reduceEvent(previous: StudioState, event: StudioEvent): { state:
       s.approvalRevision = s.revision; s.waiting = false; node('merge', 'working', 'Schváleno v ukázce');
       proof('merge', 'Rozhodnutí člověka', 'Uživatel schválil pokračování modelového běhu. Žádný skutečný pull request se neslučuje.'); break;
     case 'merge.confirm':
+      if (!s.pipeline.includes('queue')) return reject('Chybí vyhodnocení fronty a závislostí.');
       if (!canMerge(s)) return reject('Sloučení vyžaduje aktuální důkazy a rozhodnutí.');
       s.merged = true; node('merge', 'done', 'Potvrzené sloučení · demo');
       proof('merge', 'Receipt sloučení', 'Modelový GitHub receipt: PR #214 sloučen do main; výsledek připojen ke kartě OP-128.'); break;
     case 'memory.propose':
+      if (!s.pipeline.includes('close')) return reject('Chybí výsledný souhrn doručení v Opoře.');
       if (!s.merged) return reject('Zkušenost potřebuje doložený výsledek.');
       s.memory = 'proposed'; s.actor = 'memory'; node('learn', 'working', 'Kandidát M-024 · původ OP-128');
       proof('learn', 'Návrh zkušenosti', 'PŘED: deduplikuj eventId. PO: deduplikuj eventId i při obnově po reconnectu; ověř kombinaci snapshot + opakovaný event. Zdroj: AC-02, AC-03, R-01 a nový běh kontrol.'); break;
@@ -164,6 +183,7 @@ export function reduceEvent(previous: StudioState, event: StudioEvent): { state:
       s.memory = 'reused'; node('recall', 'done', 'M-024 načtena pro OP-129');
       proof('recall', 'Opětovné použití', 'Nový modelový úkol OP-129 dostal M-024 do kontextu. Přínos zatím nebyl změřen srovnávacím vyhodnocením.'); break;
     case 'run.finish':
+      if (!s.pipeline.includes('evaluate')) return reject('Chybí plán vyhodnocení přínosu paměti.');
       if (!s.merged || s.memory !== 'reused') return reject('Průchod ještě není úplný.');
       s.finished = true; break;
     default: return reject('Neznámý typ události.');

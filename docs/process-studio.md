@@ -18,6 +18,25 @@ The precise acceptance conditions and evidence are available under **Plán** and
 
 ## Controls
 
+### Delivery pipeline
+
+The six-lane pipeline below the graph exposes 17 ordered handoffs. Select a step to inspect its owner, input, output and handoff condition; **Sledovat další předání** restores automatic selection. Its progress and selected-step status derive from the same snapshot as the graph, including history replay. The next highlighted handoff is pending, not a claim that a tool is currently running.
+
+| Phase | Intermediate work |
+| --- | --- |
+| Opora | Intake and risks; source provenance and repository instructions; acceptance contract and state model |
+| Office | Fresh main and baseline results; isolated worktrees and file ownership; minimal counterexample and regression test |
+| Evidence | Integration of worker changes; model-to-code correspondence; independent review; simplification decision |
+| GitHub | Documentation and PR package; CI for the current head and dependency ordering; human approval and merge queue |
+| Delivery | Versioned artifact; staging smoke checks and rollback plan; evidence-linked task closure |
+| Memory | Recall, propose, persist, reuse and a separate plan for paired evaluation |
+
+This adapts the supplied verification/review/PR video into the office workflow, without copying its numeric results. The video inspires counterexample-driven repair, independent implementation review, simplification, dependent PRs and a final evidence summary. The demo does **not** execute Lean, prove a program, open multiple real PRs, run CI or deploy. Its dependency strip is a proposed contract → UI → extension ordering; only sample PR #214 receives a modeled merge. Production rollout remains a separate decision outside the scenario.
+
+The simplification step explicitly makes no code change in this run. A real follow-up diff would invalidate checks and review for the previous SHA and require another cycle. The existing repair loop shows failure → revised plan → repair → new checks. Merge, staging verification, task closure and memory writing are distinct handoffs; they cannot be skipped in the modeled run. Evaluation is only a plan, with no claimed improvement percentage.
+
+### Playback and inspection
+
 - **Tok procesu / Vazby paměti** switches between the workflow and an illustrative context/evidence relationship view. The latter does not depict an LLM's internal neurons.
 - **Pozastavit**, **Krok**, speed and restart control the deterministic scenario. Reduced-motion preference starts it paused and suppresses procedural motion.
 - Select a node with a pointer or Enter/Space to inspect its status, revision and evidence.
@@ -37,6 +56,7 @@ This describes how an integration contract could appear. It does not infer an un
 
 - `src/client/process-studio/model.ts`: pure state reducer, event identity/order, plan revisions and evidence gates.
 - `scenario.ts`: the explicitly simulated producer; repository extensions insert their steps here.
+- `pipeline-model.ts`: ordered handoff registry and prerequisites; `pipeline.ts` / `pipeline.css`: accessible six-lane projection and contract inspector.
 - `graph.ts` / `motion.ts`: graph projection and separate visual interpolation.
 - `panels.ts` / `index.ts`: inspection, playback, history, extension form and trace export.
 - The Vite input registry and `http/routes/index.ts` register this entry independently of the 3D office and its state store.

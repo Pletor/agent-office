@@ -3,6 +3,7 @@ import { initialState, parseRepository, reduceEvent, type Repository, type Studi
 import { eventFor, scenario } from './scenario';
 import { ProcessGraph } from './graph';
 import { SpiderMotion } from './motion';
+import { DeliveryPipeline } from './pipeline';
 import { $, renderPanels, showPanel, type Panel } from './panels';
 
 let repositories: Repository[] = [];
@@ -22,10 +23,12 @@ const graph = new ProcessGraph($('#graph'), id => {
   selected = id; follow = false; showPanel('detail'); render();
 });
 const motion = new SpiderMotion(graph);
+const pipeline = new DeliveryPipeline();
 
 function render() {
   const displayed = replayIndex === null ? state : snapshots[replayIndex];
   graph.update(displayed, selected);
+  pipeline.update(displayed);
   motion.update(displayed, running && replayIndex === null);
   renderPanels(displayed, selected, events, replayIndex !== null);
   $('#play').textContent = running ? 'Ⅱ Pozastavit' : state.finished && replayIndex === null ? '↺ Přehrát znovu' : '▶ Přehrát';
