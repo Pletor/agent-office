@@ -62,9 +62,9 @@ export function cascadePanel(opts: {
   const slots = slotEditor({ selected: () => opts.selected?.(), set: (slot, b) => edit(slot, b), save: () => void load(true), discard: () => discard() });
   const conflict = conflictNotice(() => resolveConflict(false), () => resolveConflict(true));
   const el = h('details.harness-cascade', {}, summary, heading,
-    h('p', {}, 'Named slots work like CSS: each level overrides the ones above it, down to the task (' + HARNESS_LEVELS.map(levelName).join(' → ') + '). Only this level’s slots are edited here; what a worker ends up with is in “What the worker receives”. Reset to inherited removes this level’s setting, Disable switches the slot off for everything below. Nothing is stored until Save layer.'),
     where, noArea, conflict.el, slots.el,
     h('div.harness-actions', {}, reload), status,
+    h('details.harness-help', {}, h('summary', {}, 'How slots work'), h('p', {}, 'Named slots work like CSS: each level overrides the ones above it, down to the task (' + HARNESS_LEVELS.map(levelName).join(' → ') + '). Only this level’s slots are edited here; what a worker ends up with is in “What the worker receives”. Reset to inherited removes this level’s setting, Disable switches the slot off for everything below. Nothing is stored until Save layer.')),
     h('details.harness-advanced', {}, h('summary', {}, 'Advanced: JSON'),
       h('p', {}, 'The same draft as the list above, as the store keeps it: {"rules.quality":{"resource":"guide:testing"}, "settings.language":{"value":"cs"}, "hooks.after":null}. A missing slot inherits; null disables.'), json),
     h('details', {}, h('summary', {}, 'Latest saves (audit)'), audit));

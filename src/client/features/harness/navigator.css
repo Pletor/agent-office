@@ -6,7 +6,8 @@
 .harness-cat[aria-pressed=true] { box-shadow: inset 4px 0 0 #32a89a; }
 .harness-cat[data-empty=true] { opacity: .6; }
 .harness-cat-name { font-weight: 800; text-transform: capitalize; overflow-wrap: anywhere; }
-.harness-cat-purpose { grid-column: 1 / -1; color: var(--muted); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+.harness-cat-purpose { grid-column: 1 / -1; color: var(--muted); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: hidden; }
+.harness-cat[aria-pressed=true] .harness-cat-purpose { -webkit-line-clamp: unset; line-clamp: none; }
 .harness-count { font-size: 12px; font-weight: 800; padding: 1px 7px; border-radius: 99px; background: #8882; justify-self: end; }
 .harness-badge { grid-column: 1 / -1; justify-self: start; font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 99px; }
 .harness-badge-warn { background: color-mix(in srgb, var(--warn) 45%, transparent); }

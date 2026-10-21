@@ -30,8 +30,8 @@
 .harness-slot-add strong { flex-basis: 100%; font-size: 13px; }
 .harness-field-error { margin: 0; font-size: 13px; font-weight: 700; color: var(--bad); overflow-wrap: anywhere; }
 .harness-field-error:empty { display: none; }
-.harness-draft { margin: 6px 0; padding: 10px 12px; border: 2px dashed #8886; border-radius: 9px; }
-.harness-draft[data-dirty=true] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.harness-draft { position: sticky; top: 0; z-index: 2; margin: 6px 0 10px; padding: 10px 12px; border: 2px dashed #8886; border-radius: 9px; background: var(--paper); }
+.harness-draft[data-dirty=true] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 18%, var(--paper)); }
 .harness-draft h4 { margin: 0 0 6px; font-size: 14px; }
 .harness-diff { margin: 0 0 6px; padding-left: 18px; font-size: 13px; overflow-wrap: anywhere; }
 .harness-from { text-decoration: line-through; opacity: .75; }

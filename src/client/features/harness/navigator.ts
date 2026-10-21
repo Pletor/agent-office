@@ -95,7 +95,7 @@ export function categoryNavigator(opts: { onPick(id: string): void; current(): s
     const head: (HTMLElement | null)[] = [
       all() ? h('h4', {}, `Search in all categories: ${hits.length} ${hits.length === 1 ? 'match' : 'matches'}`) : h('h4', {}, `${category} · ${w.length ? hits.length + ' of ' : ''}${inCategory}`),
       all() ? null : h('p.harness-purpose', { title: 'What this category is for' }, HARNESS_CATEGORY_PURPOSE[category]),
-      limited ? h('p.harness-truncated', { role: 'note' }, `Catalog truncated: ${all() ? hits.length : inCategory} shown here of ${entries.length} listed; discovery stops at ${HARNESS_CATALOG_LIMIT.toLocaleString('en')} elements, so sources walked after the limit (machine and OpenViking folders come after the project's) are incomplete. Narrow the published folders, or filter by category and source.`) : null];
+      limited ? h('p.harness-truncated', { role: 'note' }, `Catalog truncated at ${HARNESS_CATALOG_LIMIT.toLocaleString('en')} elements: ${all() ? hits.length + ' matches' : inCategory + ' ' + category} shown here, out of ${entries.length} listed in this view. Elements past the limit are not listed at all; sources are walked project first, so machine and OpenViking folders are the ones cut. Narrow the published folders, or filter by category and source.`) : null];
     heading.replaceChildren(...head.filter((n): n is HTMLElement => !!n));
     if (all()) {
       const byCategory = HARNESS_CATEGORIES.filter((c) => hits.some((e) => e.category === c));

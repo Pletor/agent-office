@@ -33,6 +33,8 @@ const GROUP_MAX = 64, NAME_MAX = 100;
 const DEVICE = /^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i;
 const CASELESS = process.platform === 'win32' || process.platform === 'darwin';
 const AUDIT_KEEP = 200;
+/** The most a request body may be: room for 128 KiB of content escaped as JSON. */
+const REQUEST_MAX = 1024 * 1024;
 const CREATE_FLAGS = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
 
 export interface ElementRequest { category: HarnessCategory; group: string; name: string; content: string }
@@ -122,8 +124,10 @@ export async function harnessElementRequest(ctx: Ctx, floor: Floor, req: http.In
   try {
     if (req.method !== 'POST') return send(res, 405, { error: 'Use POST' });
     if (!writable) return send(res, 403, { error: 'Only administrators (or the shared-password session) can create harness elements. Ask one to add it, or publish the file under .harness/ in the repository.' });
+    // A body announced past the request limit is answered before it is read (reading it would only be cut off).
+    if (Number(req.headers['content-length'] ?? 0) > REQUEST_MAX) return send(res, 413, { error: `The request is too large; an element may be at most ${HARNESS_MAX_BYTES / 1024} KiB.` }, { connection: 'close' });
     let raw: string;
-    try { raw = await readBody(req, 1024 * 1024); } catch { throw new HarnessError(`The request is too large; an element may be at most ${HARNESS_MAX_BYTES / 1024} KiB.`, 413); }
+    try { raw = await readBody(req, REQUEST_MAX); } catch { throw new HarnessError(`The request is too large; an element may be at most ${HARNESS_MAX_BYTES / 1024} KiB.`, 413); }
     let body: unknown;
     try { body = JSON.parse(raw); } catch { throw new HarnessError('Expected a JSON object {category, group, name, content}.'); }
     const request = parseElementRequest(body);

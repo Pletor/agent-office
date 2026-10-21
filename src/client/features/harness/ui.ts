@@ -1,5 +1,5 @@
 import './ui.css';
-import { harnessBundle, type HarnessCatalog, type HarnessEntry, type HarnessText } from '../../../shared/harness';
+import { harnessBundle, shortDigest, type HarnessCatalog, type HarnessEntry, type HarnessText } from '../../../shared/harness';
 import { h, openModal, toast, type Modal } from '../../ui/dom';
 import { cascadePanel } from './cascade';
 import { libraryKeys } from './keyboard';
@@ -33,7 +33,8 @@ export function openHarness(opened: string) {
   /** The profile the preview shows, so it can be relabelled once the project names are in. */
   let shown: { view: Parameters<typeof receives.show>[0]; ctx: HarnessContext } | undefined;
   const owner = (c: HarnessContext) => (c.kind === 'global' ? '' : 'Project ' + bar.projectName(c.floor));
-  const titleOf = (id: string) => catalog?.entries.find((e) => e.id === id)?.title;
+  /** An element by ID as the slot list and the draft name it: its title, revision and short digest. */
+  const titleOf = (id: string) => { const e = catalog?.entries.find((x) => x.id === id); return e && `${e.title} (revision ${e.version} · ${shortDigest(e.digest)})`; };
   const cascade = cascadePanel({
     opened, signal: abort.signal, label: (c) => bar.label(c), repoOf: (f) => bar.repoOf(f),
     onView: (view, c) => { shown = { view, ctx: c }; receives.show(view, c, bar.label(c), owner(c)); },
@@ -43,7 +44,8 @@ export function openHarness(opened: string) {
   const nav = categoryNavigator({ onPick: (id) => void read(id, true), current: () => current?.id, marks: () => ({ pack: selected, ...cascade.marks() }), onFilter: () => render(), onClear: () => { source.value = ''; } });
   const detail = elementDetail({
     copy: (text, what) => void copyText(text, what),
-    assign: (entry, slot) => cascade.assign(entry, slot),
+    // The editor opens on the draft (it covers the reader), and a toast says what happened.
+    assign: (entry, slot) => { const said = cascade.assign(entry, slot); el.dataset.pane = 'list'; toast(said); return said; },
     slotNames: () => cascade.slotNames(),
     usage: (id) => cascade.usage(id),
     assignBlocked: () => cascade.blocked(),

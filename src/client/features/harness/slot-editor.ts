@@ -67,7 +67,8 @@ export function slotEditor(events: SlotEditorEvents) {
   const save = h('button.btn.primary', { type: 'button' }, 'Save layer');
   const discard = h('button.btn', { type: 'button' }, 'Discard changes');
   const draft = h('section.harness-draft', { 'aria-label': 'Draft changes' }, draftTitle, diff, h('div.harness-actions', {}, save, discard));
-  const el = h('div.harness-slot-editor', {}, key.el, readOnly, list, empty, adder, draft);
+  // The draft bar comes first and stays in view while the list scrolls: what Save layer will store is always on screen.
+  const el = h('div.harness-slot-editor', {}, key.el, readOnly, draft, list, empty, adder);
   let state: SlotEditorState | undefined;
 
   save.onclick = () => events.save();
@@ -171,6 +172,7 @@ export function conflictNotice(onReload: () => void, onKeep: () => void) {
       text.textContent = `You started from revision ${opened ?? '?'}; the store is at revision ${now} now. ${detail} Keep editing puts your draft on top of revision ${now} (your changes win in the slots you changed, the rest stays as saved); Reload drops your draft.`;
       changed.replaceChildren(...(lines.length ? lines.map((l) => h('li', {}, h('code', {}, l.slot), ': ', l.from, ' → ', l.to)) : [h('li', {}, 'No slot of this level changed: the other save was at another level or project.')]));
       el.hidden = false;
+      el.scrollIntoView?.({ block: 'nearest' });
     },
     hide() { el.hidden = true; },
   };
