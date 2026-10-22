@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Changes } from '../src/server/changes.js';
@@ -162,4 +162,14 @@ test('a worktree deleted with its branch comes back from origin when it was push
   f.git('checkout', '-q', made.branch);
   const refused = await trees.restore(made);
   assert.ok('error' in refused && /already (checked out|used by worktree)/.test(refused.error), JSON.stringify(refused));
+});
+
+test('a new worktree keeps .pr-lens/ out of git through the local exclude', (t) => {
+  const { dir } = fixture(t);
+  const made = new Worktrees(dir).create('lens-seat');
+  assert.equal(typeof made, 'object');
+  const wt = path.join(dir, (made as { path: string }).path);
+  mkdirSync(path.join(wt, '.pr-lens'));
+  writeFileSync(path.join(wt, '.pr-lens', 'graph.json'), '{}');
+  assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: wt, encoding: 'utf8' }).trim(), '');
 });

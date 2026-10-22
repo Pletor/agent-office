@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -64,7 +64,9 @@ export class Worktrees {
       const { base, note } = this.startPoint(from);
       const rel = path.join(WORKTREES_DIR, slug, sub ?? '');
       const branch = `${BRANCH_PREFIX}${slug}`;
-      this.gitSync(['worktree', 'add', '-b', branch, path.resolve(root, rel), base]);
+      const abs = path.resolve(root, rel);
+      this.gitSync(['worktree', 'add', '-b', branch, abs, base]);
+      this.excludeLocal(abs, '.pr-lens/');
       return { path: rel, branch, base, from, note };
     } catch (err) {
       return `Could not create a git worktree: ${gitError(err)}`;
@@ -340,6 +342,15 @@ export class Worktrees {
   /** True for a folder inside .agent-office/worktrees, the only place this class deletes on its own. */
   owns(abs: string): boolean {
     return within(path.join(this.root, WORKTREES_DIR), real(abs));
+  }
+
+  /** Keeps a worker's scratch folder out of `git add` and so out of its pull request: one line in the repository's local info/exclude (never committed). */
+  private excludeLocal(cwd: string, entry: string): void {
+    try {
+      const file = path.resolve(cwd, this.gitSync(['rev-parse', '--git-path', 'info/exclude'], cwd));
+      const have = existsSync(file) ? readFileSync(file, 'utf8') : '';
+      if (!have.split(/\r?\n/).includes(entry)) appendFileSync(file, `${have && !have.endsWith('\n') ? '\n' : ''}${entry}\n`);
+    } catch { /* best effort: the worker is also told never to commit it */ }
   }
 
   private gitSync(args: string[], cwd = this.dir): string {

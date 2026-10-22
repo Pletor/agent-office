@@ -65,7 +65,7 @@ karta + záměr → worktree z main (vlastní npm ci) → práce → self-checks
 
 **Kde:** etapa **Revize**, hned po otevření PR. Je to vstup pro review (agent i člověk), ne kontrola kvality.
 
-- **Kdo kreslí:** pracovník, který změnu udělal, přes **lokální skill** `coldteadotai/pr-lens` (Claude Code v předplatném). Diagram ověří `npx @coldtea/pr-lens-cli validate`, vykreslí lokálně a přiloží k PR (`gh pr create --attach`).
+- **Kdo kreslí:** pracovník, který změnu udělal, přes **lokální skill** `coldteadotai/pr-lens` (Claude Code v předplatném). Diagram ověří `npx @coldtea/pr-lens-cli validate`, vykreslí lokálně (jen aby vznikla ověřená specifikace). Specifikace jde do Canvasu jako strukturovaný důkaz, do PR jde krátké textové shrnutí. Žádné obrázky a žádné vedlejší větve `pr-lens/*`.
 - **Bez hostované aplikace a bez API klíče:** nepoužíváme GitHub App, `analyze` s cizím modelem ani `canvas push`. Kód zůstává lokálně a platí pravidlo Opory „předplatné, ne API“.
 - **V Opoře:** odkaz na diagram je důkaz u review (`evidence.review.lens`). Review karta a Živý proces ho ukazují u PR. Pro profil `code` je to podmínka vstupu do review. Opravy pojmenování patří do `.github/pr-lens.yml`, ne do SVG.
 - **Proč tam:** review dnes čte diff naslepo. Diagram ukáže dosah změny (nové, změněné a odebrané části) a tok dat, takže review najde špatné napojení dřív, než se PR dostane do fronty.
