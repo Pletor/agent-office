@@ -8,7 +8,6 @@ import path from 'node:path';
 import {
   MUSE_HOOK_EVENTS,
   normalizeMuseHook,
-  validateMuseHook,
   withoutMuseLaunchArgs,
   writeMuseHome,
   writeMuseHook,
@@ -30,12 +29,12 @@ test('normalizes bounded root Muse hook payloads from camelCase or snake_case', 
 });
 
 test('rejects unknown, malformed, empty, oversized, and child-scoped Muse events', () => {
-  assert.equal(validateMuseHook('Unknown', { session_id: 'x' }), false);
-  assert.equal(validateMuseHook('Stop', null), false);
-  assert.equal(validateMuseHook('Stop', { session_id: '' }), false);
-  assert.equal(validateMuseHook('Stop', { session_id: 'x'.repeat(161) }), false);
-  assert.equal(validateMuseHook('Stop', { session_id: 'x', subagent_type: 'explore' }), false);
-  assert.equal(validateMuseHook('Stop', { session_id: 'x', parent_session_id: 'root' }), false);
+  assert.equal(normalizeMuseHook('Unknown', { session_id: 'x' }), undefined);
+  assert.equal(normalizeMuseHook('Stop', null), undefined);
+  assert.equal(normalizeMuseHook('Stop', { session_id: '' }), undefined);
+  assert.equal(normalizeMuseHook('Stop', { session_id: 'x'.repeat(161) }), undefined);
+  assert.equal(normalizeMuseHook('Stop', { session_id: 'x', subagent_type: 'explore' }), undefined);
+  assert.equal(normalizeMuseHook('Stop', { session_id: 'x', parent_session_id: 'root' }), undefined);
 });
 
 test('strips launch flags the office always sets itself', () => {

@@ -10,7 +10,6 @@ import {
   codexHookArgs,
   codexModelArgs,
   normalizeCodexHook,
-  validateCodexHook,
   writeCodexHook,
 } from '../src/server/codex.js';
 import { codex } from '../src/server/providers/codex.js';
@@ -28,13 +27,13 @@ test('normalizes bounded root Codex hook payloads and passes only the metric rea
 });
 
 test('rejects unknown, malformed, empty, oversized, and child-scoped events', () => {
-  assert.equal(validateCodexHook('Unknown', { session_id: 'x' }), false);
-  assert.equal(validateCodexHook('Stop', null), false);
-  assert.equal(validateCodexHook('Stop', { session_id: '' }), false);
-  assert.equal(validateCodexHook('Stop', { session_id: 'x'.repeat(161) }), false);
-  assert.equal(validateCodexHook('Stop', { session_id: 'x', agent_id: 'child-1' }), false);
-  assert.equal(validateCodexHook('Stop', { session_id: 'x', agent_type: 'explorer' }), false);
-  assert.equal(validateCodexHook('Stop', { session_id: 'x', agent_id: 'c'.repeat(161) }), false);
+  assert.equal(normalizeCodexHook('Unknown', { session_id: 'x' }), undefined);
+  assert.equal(normalizeCodexHook('Stop', null), undefined);
+  assert.equal(normalizeCodexHook('Stop', { session_id: '' }), undefined);
+  assert.equal(normalizeCodexHook('Stop', { session_id: 'x'.repeat(161) }), undefined);
+  assert.equal(normalizeCodexHook('Stop', { session_id: 'x', agent_id: 'child-1' }), undefined);
+  assert.equal(normalizeCodexHook('Stop', { session_id: 'x', agent_type: 'explorer' }), undefined);
+  assert.equal(normalizeCodexHook('Stop', { session_id: 'x', agent_id: 'c'.repeat(161) }), undefined);
 });
 
 test('generates one stable CLI hook override per supported event', () => {

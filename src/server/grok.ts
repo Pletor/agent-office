@@ -84,10 +84,6 @@ export function normalizeGrokHook(event: string, payload: unknown): GrokHookEven
   return result;
 }
 
-export function validateGrokHook(event: string, payload: unknown): boolean {
-  return !!normalizeGrokHook(event, payload);
-}
-
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }

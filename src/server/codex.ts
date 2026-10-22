@@ -77,11 +77,6 @@ export function normalizeCodexHook(event: string, payload: unknown): CodexHookEv
   return result;
 }
 
-/** Alias for callers that only need a validity check. */
-export function validateCodexHook(event: string, payload: unknown): boolean {
-  return !!normalizeCodexHook(event, payload);
-}
-
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
