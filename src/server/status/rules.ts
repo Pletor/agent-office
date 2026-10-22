@@ -101,6 +101,8 @@ export interface RunningFacts {
   /** dist's build stamp as the server started, and as it is on disk now. */
   built?: { sha?: string; dirty?: boolean };
   disk?: { sha?: string; dirty?: boolean };
+  /** The client bundle's own stamp (dist/public/build-info.json): a stale client after a merge shows here. */
+  client?: { sha?: string };
   /** HEAD of the install now. */
   headNow?: string;
   /** The running commit is an ancestor of the remote main (it's behind, not off on its own). */
@@ -125,6 +127,7 @@ export function runningReasons(r: RunningFacts, remote: string, remoteSha: strin
       );
     } else out.push({ level: 'bad', text: `Běží ${short(r.sha)}, který není v ${remote}`, where: r.sha, fix: 'dostaň změny do main přes PR, pak sestav z main a restartuj' });
   }
+  if (r.client?.sha && remoteSha && r.client.sha !== remoteSha) out.push({ level: r.dev ? 'warn' : 'bad', text: `Klient (dist/public) je sestavený z ${short(r.client.sha)}, ${remote} je ${short(remoteSha)}`, fix: 'npm run build a obnov stránku' });
   if (r.dev) {
     out.push({ level: 'ok', text: 'Vývojový režim: klienta servíruje Vite přímo ze zdrojů' });
     return out;

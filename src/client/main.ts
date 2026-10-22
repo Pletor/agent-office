@@ -62,6 +62,7 @@ import { installSeating } from './features/seating';
 import { installSmoke } from './features/smoke';
 import { installStatusWall } from './features/status';
 import { installBossAttention } from './features/bossattention';
+import { installCleanLine } from './features/cleanline';
 import { installLamplight } from './features/lamplight';
 import { installTelescope } from './features/telescope';
 import { installTv } from './features/tv';
@@ -184,6 +185,7 @@ parts.seating = installSeating(ctx, { shares: () => parts.talk.currentShares(), 
 installGong(ctx, { burstOver: parts.views.burstOver, workerViews: parts.views.workerViews, court: () => parts.worlds.court(), idleAgents: () => parts.worlds.idleAgents() });
 installStatusWall(ctx);
 installBossAttention(ctx, { answerWorker: parts.waiting.answerWorker });
+installCleanLine(ctx);
 
 parts.hintbar = installHintBar(ctx, core, parts);
 parts.emotes = installEmotes(ctx, { personOf });

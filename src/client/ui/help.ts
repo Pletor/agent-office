@@ -6,6 +6,7 @@ import { IS_MAC } from './termkeys';
 export const HELP_ROWS: readonly (readonly [string, string])[] = [
   ['📚 Harness', 'F8 anywhere, or E at the shelf opposite Docs: resources and Global → Repository → Task assignments; inspect the resolved handoff before dispatch'],
   ['Pro tebe', 'In Boss Office upstairs, E at the board inside the north glass opens decisions and questions, with exact Opora card links and worker terminals. System repairs are separate; nothing is automatically approved.'],
+  ['Čistá linie', 'In Boss Office upstairs, E at the board over the south window: the GitHub-style graph of main and its branches, the merge queue, the health of the line and the rules. Sloučit merges only the green PR at the head of the queue; Uklidit deletes only the confirmed list of merged branches and orphaned worktrees.'],
   ['OPORA', 'The live process wall above the north-wall boards: every card in its phase, blockers first. Aim and press E for the flow map with a card inspector, the live event stream (filter, pause reading) and OpenViking memory; it shows only real office, GitHub and Opora events.'],
   ['W A S D', 'Walk (hold Shift to run)'],
   ['Space', 'Jump'],

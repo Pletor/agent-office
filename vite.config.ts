@@ -54,7 +54,11 @@ function buildStamp(): Plugin {
       const status = sha ? git(['status', '--porcelain', '--untracked-files=no']) : undefined;
       const dist = resolve(import.meta.dirname, 'dist');
       mkdirSync(dist, { recursive: true });
-      writeFileSync(join(dist, 'build-info.json'), `${JSON.stringify({ ...(sha ? { sha } : {}), dirty: !!status, at: Date.now() })}\n`);
+      const stamp = `${JSON.stringify({ ...(sha ? { sha } : {}), dirty: !!status, at: Date.now() })}\n`;
+      writeFileSync(join(dist, 'build-info.json'), stamp);
+      // The client bundle's own copy travels with dist/public, so a stale client shows as one (Čistá linie).
+      mkdirSync(join(dist, 'public'), { recursive: true });
+      writeFileSync(join(dist, 'public', 'build-info.json'), stamp);
     },
   };
 }

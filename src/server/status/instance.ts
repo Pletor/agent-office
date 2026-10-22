@@ -13,13 +13,18 @@ export interface BuildStamp {
   at?: number;
 }
 
-export function readStamp(appDir: string): BuildStamp | undefined {
+export function readStamp(appDir: string, sub = 'dist'): BuildStamp | undefined {
   try {
-    const s = JSON.parse(readFileSync(path.join(appDir, 'dist', 'build-info.json'), 'utf8')) as Record<string, unknown>;
+    const s = JSON.parse(readFileSync(path.join(appDir, sub, 'build-info.json'), 'utf8')) as Record<string, unknown>;
     return { ...(typeof s.sha === 'string' && /^[0-9a-f]{40}$/.test(s.sha) ? { sha: s.sha } : {}), dirty: s.dirty === true, ...(typeof s.at === 'number' ? { at: s.at } : {}) };
   } catch {
     return undefined;
   }
+}
+
+/** dist/public/build-info.json: the commit the client bundle the office serves was built from (vite.config.ts). */
+export function readClientStamp(appDir: string): BuildStamp | undefined {
+  return readStamp(path.join(appDir, 'dist', 'public'), '');
 }
 
 const mtime = (file: string) => {
@@ -53,7 +58,7 @@ export interface OfficeStart {
 /** The office's running version against the remote main. */
 export async function officeRunning(run: Runner, start: OfficeStart, remoteSha: string | undefined): Promise<RunningFacts> {
   const { appDir } = start;
-  const facts: RunningFacts = { sha: start.sha, dev: start.dev, built: start.built, disk: readStamp(appDir) };
+  const facts: RunningFacts = { sha: start.sha, dev: start.dev, built: start.built, disk: readStamp(appDir), client: readClientStamp(appDir) };
   facts.headNow = await tryRun(run, 'git', ['rev-parse', 'HEAD'], appDir);
   if (start.sha && remoteSha && start.sha !== remoteSha) facts.behind = await isAncestor(run, appDir, start.sha, remoteSha);
   if (!start.built?.sha && start.sha) {
