@@ -110,6 +110,8 @@ export interface WorkerEvents {
   data(workerId: string, data: string, viewers: string[]): void;
   screen(workerId: string, frame: { cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }): void;
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
+  /** It called a tool, as its provider's hook described it (for the process journal, see server/process/). */
+  tool?(info: WorkerInfo, described: string): void;
 }
 
 /**

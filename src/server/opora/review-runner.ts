@@ -10,6 +10,8 @@ import { ReviewJobClient, ReviewJobError, type ReviewAssignment, type ReviewScop
 import { ReviewBudget, reviewConfig, type ReviewConfig } from './review-config.js';
 import { ReviewPoster, type Gh } from './review-github.js';
 import { runSlot, type SlotOutcome } from './review-slot.js';
+import { emitProcess } from '../process/hub.js';
+import { reviewEvent } from '../process/opora-events.js';
 
 /**
  * Review workers (OporaHub phase 3a, the office's side): on each bridge poll, while there's room
@@ -106,6 +108,7 @@ export class ReviewJobRunner {
         ttlSeconds: this.config.ttlSeconds,
         log: this.log,
       }).catch((): SlotOutcome => 'released').finally(() => this.running.delete(a.taskId));
+      emitProcess(this.deps.client.agent, reviewEvent(a.job, 'claimed', a.role)); void slot.then((o) => emitProcess(this.deps.client.agent, reviewEvent(a.job, o, a.role)));
       this.running.set(a.taskId, slot);
     }
   }
@@ -124,6 +127,7 @@ export class ReviewJobRunner {
       if (job.phase !== 'completed' || this.stopped) continue;
       try {
         const done = await this.poster.post(job, listing.findings);
+        if (done !== 'unchanged') emitProcess(this.deps.client.agent, reviewEvent(job, done));
         if (done !== 'unchanged') this.log(`🔎 ${done === 'posted' ? 'Posted' : 'Updated'} the review of ${job.repository}#${job.number} round ${job.round} on GitHub`, 'info');
       } catch (error) {
         this.once(`post:${job.reviewJobId}`, `🔎 Couldn't post review ${job.reviewJobId} to ${job.repository}#${job.number}: ${(error as Error).message}`, 'warn');

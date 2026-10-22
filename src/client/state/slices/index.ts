@@ -25,6 +25,7 @@ import { meeting } from './meeting';
 import { notify } from './notify';
 import { opora } from './opora';
 import { planning } from './planning';
+import { processJournal } from './process';
 import { rea } from './rea';
 import { status } from './status';
 import { prompts } from './prompts';
@@ -69,4 +70,5 @@ export const SLICES: readonly Slice[] = [
   opora,
   rea,
   status,
+  processJournal,
 ];

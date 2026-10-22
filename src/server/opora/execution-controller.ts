@@ -3,9 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { ExecutionClient, ExecutionError, type ExecutionClaim, type ExecutionLease, type ExecutionScope } from './execution-client.js';
 import type { ContextVersion } from './execution-context.js';
+import { emitProcess } from '../process/hub.js';
+import { heartbeatEvent } from '../process/opora-events.js';
 
 export const EXECUTION_TTL = 900;
-type Watch = { lease: ExecutionLease; deadline: number; expiry?: ReturnType<typeof setTimeout>; beat?: ReturnType<typeof setTimeout>; stopped: boolean };
+type Watch = { lease: ExecutionLease; deadline: number; expiry?: ReturnType<typeof setTimeout>; beat?: ReturnType<typeof setTimeout>; stopped: boolean; failing?: boolean };
 export function executionDeadline(lease: Pick<ExecutionLease, 'serverNow' | 'expiresAt'>, started: number) {
   const lifetime = Math.min(EXECUTION_TTL, lease.expiresAt - lease.serverNow) * 1000;
   if (!Number.isFinite(lifetime) || lifetime <= 0) throw new ExecutionError(409, true, 'Execution has expired');
@@ -99,6 +101,7 @@ export class ExecutionController {
   private stop(workerId: string, watch: Watch, reason: string) {
     if (watch.stopped) return;
     this.forget(workerId);
+    emitProcess(this.client.agent, heartbeatEvent(watch.lease, workerId, 'stopped', reason));
     this.stopped(workerId, reason);
   }
   private arm(workerId: string, watch: Watch) {
@@ -121,6 +124,7 @@ export class ExecutionController {
       if (watch.stopped) return;
       if (this.clock() >= watch.deadline) { this.stop(workerId, watch, 'Canvas execution deadline expired'); return; }
       watch.lease = lease;
+      if (watch.failing) { watch.failing = false; emitProcess(this.client.agent, heartbeatEvent(lease, workerId, 'recovered')); }
       watch.deadline = Math.min(executionDeadline(lease, started), this.caps.observe(lease, started));
       this.arm(workerId, watch);
       this.schedule(workerId, watch, 30_000);
@@ -128,7 +132,7 @@ export class ExecutionController {
       if (watch.stopped) return;
       if (error instanceof ExecutionError && error.terminal) this.stop(workerId, watch, error.message);
       else if (this.clock() >= watch.deadline) this.stop(workerId, watch, 'Canvas execution deadline expired');
-      else this.schedule(workerId, watch, 2000);
+      else { if (!watch.failing) { watch.failing = true; emitProcess(this.client.agent, heartbeatEvent(watch.lease, workerId, 'retrying')); } this.schedule(workerId, watch, 2000); }
     }
   }
 }

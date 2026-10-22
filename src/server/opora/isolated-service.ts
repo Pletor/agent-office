@@ -4,6 +4,8 @@ import type { OporaState } from '../../shared/protocol/opora.js';
 import { inFocus } from '../../shared/opora-scope.js';
 import { createIsolatedExecutorRoutes, IsolatedExecutorRouteError, type IsolatedOfficeAccess } from '../http/routes/isolated-executors.js';
 import { ExecutionClient } from './execution-client.js';
+import { emitProcess } from '../process/hub.js';
+import { isolatedEvent } from '../process/opora-events.js';
 import { ExecutionController } from './execution-controller.js';
 import { contextVersionFromEnvironment, type ContextVersion } from './execution-context.js';
 import { ExecutorJournal } from './executors/journal.js';
@@ -51,7 +53,7 @@ export class IsolatedOfficeService implements IsolatedOfficeAccess {
     this.transport = isolatedTransport(options.transport ?? fetch);
     const directory = path.join(floor.dir, '.agent-office', 'isolated-executions');
     if (this.config || existsSync(directory)) {
-      try { this.journal = new ExecutorJournal(path.join(directory, 'provider')); this.store = new IsolatedStore(path.join(directory, 'requests')); this.store.list(); }
+      try { this.journal = new ExecutorJournal(path.join(directory, 'provider')); this.store = new IsolatedStore(path.join(directory, 'requests')); this.store.onStage = (run, prev) => emitProcess(floor.id, isolatedEvent(run, prev)); this.store.list(); }
       catch { this.broken = true; }
     }
     if (this.config && !this.broken) {

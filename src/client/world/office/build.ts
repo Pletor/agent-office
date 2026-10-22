@@ -12,6 +12,7 @@ import { bookshelf } from '../../features/bookshelf/world';
 import { harnessShelf } from '../../features/harness/world';
 import { cabinet } from '../../features/cabinet/world';
 import { whiteboard } from '../../features/whiteboard/world';
+import { processWall } from '../../features/process-wall/world';
 import { green, tee } from '../../features/golf/world';
 import { stack } from '../stack';
 import { tower } from '../tower';
@@ -85,6 +86,7 @@ function floorPlan() {
     statusScreen,
     hoop,
     whiteboard,
+    processWall,
     clearOfStairs,
   ] as const;
 }

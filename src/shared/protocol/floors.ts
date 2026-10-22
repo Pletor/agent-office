@@ -10,6 +10,7 @@ import type { JukeboxState } from '../jukebox.js';
 import type { WhiteboardView } from '../whiteboard.js';
 import type { AgentProvider } from './agents.js';
 import type { GhIssue, GhPull, GhState } from './github.js';
+import type { ProcessSnapshot } from './process.js';
 import type { MeetingState } from './meetings.js';
 import type { OporaState } from './opora.js';
 import type { PlanningState } from './planning.js';
@@ -130,6 +131,8 @@ export interface FloorView {
   cars: CarState[];
   /** Workers sent home and locked up in the dungeon, on a map that has one. */
   jail: JailState;
+  /** The floor's live process journal: its latest events (see protocol/process.ts). */
+  process: ProcessSnapshot;
 }
 
 export type FloorClientMsg =

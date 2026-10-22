@@ -16,6 +16,7 @@ import { oporaHandlers, oporaView } from './opora.js';
 import { planHandlers, planView } from './plan.js';
 import { planningHandlers, planningView } from './planning.js';
 import { presenceHandlers } from './presence.js';
+import { processHandlers, processView } from './process.js';
 import { queueHandlers, queueView } from './queue.js';
 import { reaHandlers } from './rea.js';
 import { rooftopHandlers } from './rooftop.js';
@@ -45,6 +46,7 @@ export const handlers: HandlerMap<ClientMsg> = {
   ...planHandlers,
   ...planningHandlers,
   ...presenceHandlers,
+  ...processHandlers,
   ...queueHandlers,
   ...reaHandlers,
   ...rooftopHandlers,
@@ -83,4 +85,5 @@ export const views: ViewPieces = {
   planning: planningView,
   opora: oporaView,
   cabinet: cabinetView,
+  process: processView,
 };

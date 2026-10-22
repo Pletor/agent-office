@@ -21,6 +21,8 @@ export interface IsolatedRun {
 /** Broker-private atomic checkpoints. An uncertain write poisons further execution. */
 export class IsolatedStore {
   private poisoned = false;
+  /** A run moved to another stage (for the floor's process journal). */
+  onStage?: (run: IsolatedRun, previous?: string) => void;
   constructor(private directory: string) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     if (lstatSync(directory).isSymbolicLink()) throw new Error('Private isolated state unavailable');
@@ -83,5 +85,6 @@ export class IsolatedStore {
       finally { closeSync(fd); }
       renameSync(temporary, file);
     } catch { this.poisoned = true; if (existsSync(temporary)) unlinkSync(temporary); throw new Error('Private isolated checkpoint failed'); }
+    if (previous?.stage !== run.stage) try { this.onStage?.(checked, previous?.stage); } catch { /* never fails a checkpoint */ }
   }
 }

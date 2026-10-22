@@ -8,6 +8,7 @@ import { ROOF } from '../../shared/rooftop.js';
 import type { FloorInfo, ServerMsg } from '../../shared/protocol.js';
 import type { Ctx, FloorHelpers, FloorsOpen } from './context.js';
 import { SLOW_CLIENT_BYTES, type Client } from './client.js';
+import { installProcess } from '../process/install.js';
 
 /** Finding floors, the elevator's list of them, and taking one off the building. */
 export function floorHelpers(ctx: Ctx): FloorHelpers {
@@ -80,7 +81,8 @@ export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen
     ledger: ctx.ledger,
     capacity: ctx.machine,
     prompts: ctx.prompts,
-    emit: ctx.toFloor,
+    // Everything a floor tells its browsers also feeds its process journal (see server/process/).
+    emit: installProcess(ctx),
     toast: ctx.toastFloor,
     termData: (workerId, data, viewers) => {
       const json = JSON.stringify({ t: 'term.data', workerId, data } satisfies ServerMsg);

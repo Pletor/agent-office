@@ -980,7 +980,7 @@ export class WorkerManager {
       emit: () => this.emitUpdate(w),
       persist: () => this.persist(),
       notePrompt: (prompt) => this.tasks.notePrompt(w, prompt),
-      noteTool: (tool) => this.tasks.noteTool(w, tool),
+      noteTool: (tool) => { this.tasks.noteTool(w, tool); this.events.tool?.({ ...w.info }, tool); },
       notePr: (command, output) => this.prs.noteOwn(w, command, output),
       clearTask: () => this.tasks.clear(w),
       scheduleScan: () => this.scheduleScan(w),

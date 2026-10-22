@@ -32,6 +32,7 @@ import { landedWork, landedWorkers, type Landed } from './leave-on-merge.js';
 import type { Ledger } from './usage.js';
 import type { Capacity } from './machine.js';
 import { officePrompt, type PromptSource } from './prompts.js';
+import { observeTool } from './process/observe.js';
 
 type ToastLevel = 'info' | 'warn' | 'error';
 
@@ -215,6 +216,7 @@ export class Floor {
         data: (workerId, data, viewers) => ctx.termData(workerId, data, viewers),
         screen: (workerId, frame) => ctx.emit(this, { t: 'screen', workerId, ...frame }, true),
         toast: (text, level) => ctx.toast(this, text, level),
+        tool: (info, described) => observeTool(this, info, described),
       },
       ctx.ledger,
       ctx.capacity,

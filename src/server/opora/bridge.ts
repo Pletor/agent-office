@@ -14,6 +14,7 @@ import { requestExecutionStop } from './execution-stop.js';
 import { createReviewRunner, type ReviewJobRunner } from './review-runner.js';
 import { createOporaUpkeep, type OporaUpkeep } from './upkeep-runner.js';
 import { createSelfCheckReporter, upkeepSelfChecks } from './self-checks.js';
+import { upkeepTap } from '../process/taps.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
 export interface BridgeFloor {
@@ -121,6 +122,7 @@ export class OporaBridge {
     this.reviews = createReviewRunner(url, `office-${floor.id}`, floor.dir, dataDir, log);
     this.upkeep = createOporaUpkeep(floor.dir, dataDir, (message, level) => this.events.toast(message, level), process.env,
       selfChecks && upkeepSelfChecks(selfChecks, dataDir, () => this.state.project && this.state.workspace ? { project: this.state.project.id, workspace: this.state.workspace } : undefined));
+    if (this.upkeep) this.upkeep.observe = upkeepTap(floor.id);
     this.restore();
     this.live = new ActivityFeed(this.client, () => ({ project: this.state.project?.id, workspace: this.state.workspace ?? undefined }), () => this.events.update(this.view()));
     this.pollTimer = setInterval(() => void this.poll(), POLL_MS);
