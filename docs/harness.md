@@ -138,6 +138,9 @@ The browser session equivalent is `GET /api/harness/kit?floor=F&problem=P&resour
 Add the object as `fields.harness` in an ordinary Opora specification proposal.
 This requires an Opora server supporting `harness.kit/1` (Canvas PR #46). Existing
 servers reject the optional field rather than activating a live mutable fallback.
+Set `AGENT_OFFICE_OPORA_CONTEXT_VERSION=2` on the office server for card execution;
+the default legacy context cannot execute a card with a pinned kit. Opora rejects
+that downgrade explicitly. Build and restart both server and client when deploying.
 The kit has at most 24 distinct resources and 96 KiB including JSON metadata and
 Unicode escapes. An empty selection pins an empty kit. IDs are catalog IDs, never
 filesystem paths. The chosen slot is stable for each resource ID.

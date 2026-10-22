@@ -183,3 +183,33 @@ Replay returns counts, determinate percentage, 95% Wilson interval, determinate 
 This CLI is an **offline evaluator**, not an evidence authority. Its output is always `authority: offline-untrusted`, `promotionAllowed: false`. An input claiming `tier: verified` authenticates nothing. It neither changes profiles nor promotes tools nor writes OpenViking. Production ingestion must derive tiers from authenticated source adapters. Existing office `tool.use` events lack immutable resource versions and terminal invocation results; they must not be silently converted to success observations. The office process ring/push queue are bounded and the Opora outbox has retention, so durable projections need a transactional cursor and explicit gap handling before live learning can be claimed.
 
 Verification of this slice: typecheck and client/server build pass; focused Harness/context/size tests pass (40 pass, one skipped), including CLI subprocess checks. `npm test` again stalls in the baseline clone tests; the bounded full run completes with 909 pass, 35 fail, four cancelled and one skipped. Its 39 failure/cancellation row names exactly match the pre-change baseline (no added or missing failure names). Full-suite health is still red. No office UI changed in this slice.
+
+### Accepted-kit producer and native projection milestones
+
+Agent-office PR #48 also implements `office-harness --kit PROBLEM ID ...`, the authenticated
+worker/session equivalents, and the missing plugins/permissions categories. The producer
+reads through existing catalog boundaries, pins exact content and SHA-256 and enforces the
+same escaped-JSON budget as Opora. Ordinary workers cannot select machine-only resources.
+A real CLI-produced two-resource payload passed the Canvas validator without rewriting.
+See [accepted kits](harness.md#accepted-tool-kits) for usage and context-v2 deployment settings.
+
+Canvas PR #46 adds accepted `fields.harness`, context-v2 revalidation, complete review
+visibility and a durable projection registered in the existing native outbox transaction.
+Reported step outcomes, unique human closure of merged work and withdrawal on reopening
+remain separate. The projection survives retention and reopening the database, deduplicates
+sources and rejects stale accepted lineage (including change-and-restore). It exposes scoped
+counts, coverage and uncertainty through a read-only API. No second event bus is introduced.
+This code is in review branches, not deployed production behavior.
+
+Additional verification: Harness/size focused suite 38 pass/one skip; final API/kit/size subset
+seven pass; typecheck and build pass. Headless desktop/mobile library state suite and both new
+categories pass. The later bounded whole Office suite has 905 pass, 32 fail, six cancelled and
+one skipped. It contains additional timing failures in execution/worktrees compared with the
+earlier baseline; all 21 tests of those two files pass when rerun separately. The entire suite
+remains red. Canvas library tests cover trust, rollback, version cohorts, retention, closure
+withdrawal and protocol downgrade; 259 existing event/context/database regression tests pass.
+
+Live invocation evidence, observed runner identity, seven-level editing, autonomous ranking,
+candidate evaluation/promotion, real Context7 queries, verified lesson delivery to OpenViking
+and the production pilot remain outstanding. The native projection measures selection/result
+association; missing invocation/cost/runtime values remain unknown and promotion stays off.
