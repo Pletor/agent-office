@@ -6,6 +6,13 @@ import { h } from '../../ui/dom';
 import { PHASE_CZ, phaseIndex, SOURCE_CZ, type Lane } from './lanes';
 import { clock, eventMark, safeGithub } from './view';
 
+/** Sections other features add at the end of the inspector (the Lens, features/lens), each given the lane. */
+const sections: ((lane: Lane) => Node | null)[] = [];
+export function addInspectorSection(section: (lane: Lane) => Node | null): () => void {
+  sections.push(section);
+  return () => { const i = sections.indexOf(section); if (i >= 0) sections.splice(i, 1); };
+}
+
 const isCheck = (e: ProcessEvent) => e.kind === 'pr.checks' || e.kind === 'check.self' || (e.kind === 'tool.use' && (e.tool?.action === 'test' || e.tool?.action === 'failing'));
 
 function onTurn(lane: Lane): HTMLElement {
@@ -60,5 +67,6 @@ export function renderInspector(lane?: Lane): Node[] {
         h('div.t', { title: e.detail ?? '' }, e.title))));
   }
   out.push(h('section.pw-sec', {}, h('span.k', {}, 'Poslední události'), lane.events.length ? tl : h('span.pw-note', {}, 'Karta je známá ze stavu kanceláře, ale zatím nic nehlásila.')));
+  for (const section of sections) { const el = section(lane); if (el) out.push(el); }
   return out;
 }

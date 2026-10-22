@@ -72,6 +72,7 @@ import { installWaiting } from './features/waiting';
 import { installWalking } from './features/walking';
 import { installWhiteboard } from './features/whiteboard';
 import { installProcessWall } from './features/process-wall';
+import { installLens } from './features/lens';
 import { installWorkerActions } from './features/workers/actions';
 import { installWorkerViews } from './features/workers/views';
 
@@ -198,6 +199,7 @@ installChat(ctx);
 parts.talk = installVoice(ctx, { tv: parts.tv });
 installDictation(ctx);
 installProcessWall(ctx);
+installLens(ctx);
 parts.hud = installHud(ctx, core, parts);
 
 // ---- Main loop ---------------------------------------------------------------------------------------

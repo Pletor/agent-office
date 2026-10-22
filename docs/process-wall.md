@@ -14,13 +14,25 @@ The wall is redrawn only when an event or the office's state arrives, while a ma
 
 ## The window
 
-- **Proces:** the blockers as chips (click one to select its lane), the flow map with every lane (rows slide to their new order, held still while the pointer is over the list), and the **card inspector**: who is on turn (a human, when a worker asks), the phase, Opora run, branch and PR link, the checks the events reported (a test call is "spuštěno · výsledek nepotvrzen", not a pass) and the lane's latest events.
+- **Proces:** the blockers as chips (click one to select its lane), the flow map with every lane (rows slide to their new order, held still while the pointer is over the list), and the **card inspector**: who is on turn (a human, when a worker asks), the phase, Opora run, branch and PR link, the checks the events reported (a test call is "spuštěno · výsledek nepotvrzen", not a pass), the lane's latest events and, for a lane that is an Opora card, its **Lens** (below).
 - **Události:** the floor's journal, newest first, filterable by card or worker. **Pozastavit čtení** holds the list still while events keep arriving; the button counts the waiting ones and **Pokračovat ve čtení** shows them.
 - **Paměť:** memory-phase events from the journal, and the live **OpenViking** read through Opora. Choose a role and a query to recall existing memories, with source URI, origin and retrieval score. An optional project field takes an exact Opora project ID; an office branch/repository name is never silently treated as that identity.
 - **Source health** in the header: Kancelář (socket and the age of its last event), Opora (linked, connected, age), GitHub (snapshot age, or its error) and OpenViking (what the Paměť tab last saw).
 - The top-right **✕** and **Esc** close the window through the office's normal modal lifecycle, straight back into mouse-look.
 
 There is no invented advancement when the office is idle, and the wall never launches work or changes a PR.
+
+## Lens
+
+A lane that is an Opora card has a **Lens** section at the end of its inspector, with three small tabs:
+
+- **Změna (PR):** the card's newest PR Lens (the spec its worker sent with the pull request, see [PR Lens diagrams](opora-review-evidence.md#pr-lens-diagrams)), with its PR number and state and whether it is for the PR's current head ("Lens je ze starší verze" when not).
+- **Mapa oblasti:** the card's newest area map, the Lens drawn from its accepted plan before code existed.
+- **Plán oblasti:** the plan Lens of the card's area (its Opora sector), on an Opora that has it.
+
+The diagram is drawn as a compact view of the spec: its title and summary, each lane with its cards (a delta badge `+` added, `~` changed, `−` removed, `=` unchanged, the card's kind, files with line ranges and badges), the edges (the hero one in bold) and each flow's steps. It is capped (12 lanes, 16 cards a lane, 40 edges, 6 flows) and says so when cut. A spec over 64 KiB is not inline in Opora, so only its size is known; **Otevřít v Opoře ↗** opens the card's Lens there (`?ohCard=<card>&ohTab=lens` on the floor's Opora address) for the full interactive view. A tab with nothing says why: Opora has none yet, the Opora doesn't have that endpoint (404), or Opora isn't answering.
+
+The page asks the office, `GET /api/opora-lens?floor=<id>&card=<nodeId>[&area=<sector>]` (signed in), and the office asks Opora with the floor's own link (`GET /api/oporahub/review-lens` and `GET /api/oporahub/plan-lens`, its usual `X-Opora-Actor`, read-only, 5 s deadline, 512 KiB bound). Each answer is kept 30 s on both sides, so the window's redraw on every event doesn't ask again. The page names a card, never a project: the project and workspace are the floor's link, and a floor without one says so. Every spec string is data: the office keeps only the fields shown, as capped single-line text, and the page puts them in its own elements as text (no HTML, no SVG markup from the spec). The pinned SVG renderer (`@coldtea/pr-lens-renderer@0.3.2`) isn't used in the page: it imports `node:crypto` and `zod`, so it can't go into the browser bundle as it is.
 
 ## Live data and limits
 
@@ -71,6 +83,8 @@ OpenViking must be running independently (the local setup uses Docker and Ollama
 
 ## Implementation and validation
 
-`src/client/features/process-wall/` owns the feature: `lanes.ts` (the pure mapping of journal + store into lanes, blockers and counts), `live.ts` (live/disconnected and source health), `motion.ts` (the wall's event-driven motion), `texture.ts` and `paint.ts` (the 2048×512 canvas), and the window (`ui.ts`, `flow.ts`, `inspector.ts`, `stream.ts`, `memtab.ts`, `memory.ts`, `ui.css`, `flow.css`). The feature joins the main install list and office fixture registry. The server journal is `src/server/process/` with its protocol domain `process`, WS handler and `process` client slice; `tests/process-journal.test.ts` covers the ring and seq, redaction, hook/board/queue/canvas mappings and the Opora push. It is available on the office map, not on alternate castle/station maps or `/lite`.
+`src/client/features/process-wall/` owns the feature: `lanes.ts` (the pure mapping of journal + store into lanes, blockers and counts), `live.ts` (live/disconnected and source health), `motion.ts` (the wall's event-driven motion), `texture.ts` and `paint.ts` (the 2048×512 canvas), and the window (`ui.ts`, `flow.ts`, `inspector.ts` (whose `addInspectorSection` lets another feature add a section), `stream.ts`, `memtab.ts`, `memory.ts`, `ui.css`, `flow.css`). The feature joins the main install list and office fixture registry. The server journal is `src/server/process/` with its protocol domain `process`, WS handler and `process` client slice; `tests/process-journal.test.ts` covers the ring and seq, redaction, hook/board/queue/canvas mappings and the Opora push. It is available on the office map, not on alternate castle/station maps or `/lite`.
+
+The Lens is `src/client/features/lens/` (its section and styles), `src/shared/opora-lens.ts` (the shape and the spec's normalisation), `src/server/opora/lens-reader.ts` (the Opora reads and their cache) and `src/server/http/routes/opora-lens.ts`; `tests/opora-lens.test.ts` covers them.
 
 Run `npm run typecheck`, `npm test`, and `npm run build`. `tests/process-wall.test.ts` verifies lane keys, phase and trail rules (info events and recalls don't move a marker), store-only lanes, every blocker kind and the store overruling stale events, ordering, liveness, source health and the motion rules. Visual verification should run a separate built office with a temporary home, feed events through the server journal (`processHub.emit`), and screenshot the wall texture, the window's tabs, a narrow viewport, Esc/✕ back to pointer lock, and a disconnect.
