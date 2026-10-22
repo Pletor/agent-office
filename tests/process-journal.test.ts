@@ -161,7 +161,7 @@ function clock() {
 const events = (n: number, from = 1): ProcessEvent[] => {
   const j = new ProcessJournal('p');
   for (let i = 1; i < from; i++) j.add(ev);
-  return Array.from({ length: n }, () => j.add({ ...ev, refs: { project: 'p1' } }));
+  return Array.from({ length: n }, () => j.add({ ...ev, refs: { project: 'p1', workspace: 'w1' } }));
 };
 
 test('Opora push batches 50 within 250 ms, retries the same batch, and backs off quietly on 404', async () => {

@@ -2,7 +2,7 @@
 // and the push to Opora (see install.ts). Any part of the office says what happened with
 // `emitProcess(floor, event)`; it never throws and never waits.
 
-import type { OporaState, ProcessEvent } from '../../shared/protocol.js';
+import type { OporaState, ProcessEvent, ProcessSnapshot, ProcessStreamHealth } from '../../shared/protocol.js';
 import { ProcessJournal, SNAPSHOT_SIZE, type ProcessInput } from './journal.js';
 
 /** What the hub reads of a floor: its checkout (to keep paths out) and its Opora link (for refs). */
@@ -19,6 +19,8 @@ export class ProcessHub {
   private sinks = new Set<ProcessSink>();
   /** The Canvas execution each worker runs, as its claim said. */
   private executions = new Map<string, string>();
+  /** Each floor's live Opora event stream, when it has one (see opora-stream.ts). */
+  readonly streams = new Map<string, ProcessStreamHealth>();
   /** This boot, so a floor's event ids never repeat after a restart. */
   readonly boot = Date.now().toString(36);
 
@@ -79,9 +81,15 @@ export class ProcessHub {
     }
   }
 
-  snapshot(floorId: string, after = 0, limit = SNAPSHOT_SIZE) {
+  snapshot(floorId: string, after = 0, limit = SNAPSHOT_SIZE): ProcessSnapshot {
     const j = this.journals.get(floorId);
-    return { events: j ? j.since(after, limit) : [], seq: j?.seq ?? 0 };
+    const stream = this.streams.get(floorId);
+    return { events: j ? j.since(after, limit) : [], seq: j?.seq ?? 0, ...(stream ? { stream: { ...stream } } : {}) };
+  }
+
+  /** Whether Opora's event stream is live for the floor, so what the bridge's polls derive is a duplicate. */
+  streamLive(floorId: string): boolean {
+    return !!this.streams.get(floorId)?.connected;
   }
 
   forget(floorId: string) {

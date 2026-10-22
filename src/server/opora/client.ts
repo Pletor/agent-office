@@ -158,8 +158,8 @@ export class OporaClient {
   }
 
   /** The office's live process events, for Opora's Hub (see server/process/push.ts); a 404 on an Opora without it. */
-  async processEvents(events: unknown[]): Promise<void> {
-    await this.post('/api/oporahub/process-events', { events });
+  async processEvents(events: unknown[]): Promise<{ accepted?: number; duplicates?: number; rejected?: { index?: number; id?: string; error?: string }[] }> {
+    return this.post('/api/oporahub/process-events', { events });
   }
 
   private get<T>(path: string, query: Record<string, string> = {}): Promise<T> {

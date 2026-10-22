@@ -28,6 +28,8 @@ export interface ProcessRefs {
   pr?: number;
   sha?: string;
   url?: string;
+  /** The office queue task (its id) a `queue.task` event is about. */
+  task?: string;
 }
 
 export interface ProcessEvent {
@@ -52,10 +54,19 @@ export interface ProcessEvent {
   tool?: { name: string; action?: ProcessToolAction; target?: string };
 }
 
+/** The floor's live link to Opora's event stream (server/process/opora-stream.ts), when it has one. */
+export interface ProcessStreamHealth {
+  connected: boolean;
+  /** When the last event came over it (ISO 8601), if any did. */
+  lastEventAt?: string;
+}
+
 /** The latest events of a floor, oldest first, and the newest seq it has handed out (0 before any). */
 export interface ProcessSnapshot {
   events: ProcessEvent[];
   seq: number;
+  /** Opora's event stream for this floor; absent when the floor has none (not linked, or turned off). */
+  stream?: ProcessStreamHealth;
 }
 
 export type ProcessClientMsg =
@@ -66,4 +77,6 @@ export type ProcessServerMsg =
   /** One new event on your floor, as it happened. */
   | { t: 'process.event'; event: ProcessEvent }
   /** Your floor's latest events, when you asked to catch up. */
-  | ({ t: 'process.snapshot' } & ProcessSnapshot);
+  | ({ t: 'process.snapshot' } & ProcessSnapshot)
+  /** The floor's Opora event stream connected or dropped (`stream` absent: the floor has none now). */
+  | { t: 'process.stream'; stream?: ProcessStreamHealth };

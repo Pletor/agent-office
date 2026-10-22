@@ -1,11 +1,14 @@
 // Puts the process journal into the office: the hub finds the building's floors, every new event goes
-// to the browsers on its floor at once, and (unless AGENT_OFFICE_PROCESS_PUSH=0) to the floor's Opora.
+// to the browsers on its floor at once, and (unless AGENT_OFFICE_PROCESS_PUSH=0) to the floor's Opora;
+// and each floor linked to an Opora project follows Opora's event stream into its journal (unless
+// AGENT_OFFICE_PROCESS_PUSH=0 or AGENT_OFFICE_OPORA_STREAM=0).
 
 import type { ServerMsg } from '../../shared/protocol.js';
 import type { Floor } from '../floor.js';
 import { processHub } from './hub.js';
 import { observeProcess } from './observe.js';
 import { ProcessPushers } from './push.js';
+import { OporaStreams } from './opora-stream.js';
 
 interface ProcessOffice {
   floors: Map<string, Floor>;
@@ -14,6 +17,14 @@ interface ProcessOffice {
 
 let pushers: ProcessPushers | undefined;
 let off: (() => void) | undefined;
+let streams: OporaStreams | undefined;
+let sweep: NodeJS.Timeout | undefined;
+
+/** Stops every floor's Opora event stream (the office is closing). */
+export function stopProcessStreams() {
+  clearInterval(sweep);
+  streams?.stopAll();
+}
 
 /** Wires the hub up once; hands back the floor outlet that also feeds the journal. */
 export function installProcess(office: ProcessOffice, env: NodeJS.ProcessEnv = process.env) {
@@ -21,6 +32,18 @@ export function installProcess(office: ProcessOffice, env: NodeJS.ProcessEnv = p
   pushers?.stop();
   pushers = env.AGENT_OFFICE_PROCESS_PUSH === '0' ? undefined : new ProcessPushers();
   const push = pushers;
+  stopProcessStreams();
+  streams = env.AGENT_OFFICE_PROCESS_PUSH === '0' || env.AGENT_OFFICE_OPORA_STREAM === '0' ? undefined
+    : new OporaStreams(processHub, (floorId, stream) => {
+      const floor = office.floors.get(floorId);
+      if (floor) office.toFloor(floor, { t: 'process.stream', ...(stream ? { stream } : {}) });
+    });
+  const live = streams;
+  // A floor taken off the building takes its stream with it.
+  if (live) {
+    sweep = setInterval(() => live.retain((id) => office.floors.has(id)), 15_000);
+    sweep.unref?.();
+  }
   off?.();
   off = processHub.onEvent((floorId, event) => {
     const floor = office.floors.get(floorId);
@@ -39,6 +62,7 @@ export function installProcess(office: ProcessOffice, env: NodeJS.ProcessEnv = p
   });
   return (floor: Floor, msg: ServerMsg, droppable?: boolean) => {
     office.toFloor(floor, msg, droppable);
+    if (msg.t === 'opora') live?.sync(floor.id, msg.state);
     observeProcess(floor, msg);
   };
 }

@@ -27,7 +27,7 @@ test('lane key: the card first, then the queue task, then worker and branch, the
   assert.equal(r.key(ev({ refs: { cardId: 'C1', workerId: 'w1' } })), 'card:C1');
   assert.equal(r.key(ev({ refs: { workerId: 'w3' } })), 'card:H07', 'a worker on an Opora run belongs to its card');
   assert.equal(r.key(ev({ refs: { workerId: 'w2' } })), 'task:t9');
-  assert.equal(r.key(ev({ kind: 'queue.task', title: 'Úkol ve frontě: Fix it', refs: {} })), 'task:t9');
+  assert.equal(r.key(ev({ kind: 'queue.task', title: 'Úkol ve frontě: Fix it', refs: { task: 't9' } })), 'task:t9');
   assert.equal(r.key(ev({ refs: { workerId: 'w1' } })), 'worker:w1:office/w1');
   assert.equal(r.key(ev({ refs: { branch: 'office/w1' } })), 'worker:w1:office/w1');
   assert.equal(r.key(ev({ source: 'github', refs: { pr: 77 } })), 'pr:77');

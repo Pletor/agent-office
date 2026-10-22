@@ -14,6 +14,9 @@ export interface ObservedFloor {
   readonly github?: { refresh(): unknown };
 }
 
+/** What the bridge derives from its polls that Opora's event stream sends itself (stage.changed, result.reported, card.closed). */
+const STREAMED = new Set(['card.status', 'stage', 'run.result']);
+
 class FloorObserver {
   workers = new Map<string, WorkerInfo>();
   tasks?: Map<string, QueueTask>;
@@ -76,8 +79,10 @@ class FloorObserver {
         return this.emit(events);
       }
       case 'opora': {
-        const events = oporaEvents(this.opora, msg.state);
+        let events = oporaEvents(this.opora, msg.state);
         this.opora = oporaSeen(msg.state);
+        // Opora's event stream already said it, as it happened: the poll's view of it is a late duplicate.
+        if (this.hub.streamLive(this.floor.id)) events = events.filter((e) => e.source !== 'opora' || !STREAMED.has(e.kind));
         return this.emit(events);
       }
     }

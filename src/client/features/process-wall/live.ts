@@ -44,6 +44,8 @@ export interface HealthInput {
   up: boolean;
   events: readonly ProcessEvent[];
   opora: { connected: boolean; linked: boolean };
+  /** Opora's event stream for the floor, when the server follows one: it, not the polls, says whether Opora is live. */
+  stream?: { connected: boolean; lastEventAt?: string };
   github: { fetchedAt: number; error?: string; loading: boolean };
   /** What the memory tab last saw of OpenViking, if it was opened. */
   memory?: { label: string; ok: boolean; at: number };
@@ -60,8 +62,13 @@ export function sourceHealth(i: HealthInput): SourceHealth[] {
   };
   const age = (at: number) => (at ? `živě · ${ageWords(i.now - at)}` : 'živě · bez událostí');
   const office: SourceHealth = i.up ? { name: 'Kancelář', tone: 'good', text: age(lastOf('office')) } : { name: 'Kancelář', tone: 'bad', text: 'odpojeno' };
+  const st = i.stream;
+  const oporaAt = Math.max(lastOf('opora'), (st?.lastEventAt && Date.parse(st.lastEventAt)) || 0);
   const opora: SourceHealth = !i.opora.linked ? { name: 'Opora', tone: 'idle', text: 'nepropojeno' }
+    : st?.connected ? { name: 'Opora', tone: 'good', text: age(oporaAt) }
     : !i.opora.connected ? { name: 'Opora', tone: 'bad', text: 'odpojeno' }
+    // The stream dropped while the polls still answer: Opora is only as fresh as its last poll.
+    : st ? { name: 'Opora', tone: 'warn', text: oporaAt ? `stáří ${ageWords(i.now - oporaAt)}` : 'stáří · proud odpojen' }
     : { name: 'Opora', tone: 'good', text: age(lastOf('opora')) };
   const gh = i.github;
   const github: SourceHealth = gh.error ? { name: 'GitHub', tone: 'bad', text: 'chyba' }

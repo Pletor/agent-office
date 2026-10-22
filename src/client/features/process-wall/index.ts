@@ -40,7 +40,7 @@ export function installProcessWall(ctx: Ctx) {
   }
   function health() {
     const o = store.opora;
-    return sourceHealth({ up: ctx.net.up, events: store.process.events, opora: { connected: o.connected, linked: !!o.project }, github: store.pulls, memory, now: Date.now() });
+    return sourceHealth({ up: ctx.net.up, events: store.process.events, opora: { connected: o.connected, linked: !!o.project }, stream: store.process.stream, github: store.pulls, memory, now: Date.now() });
   }
   const data = (): PanelData => ({ board, events: store.process.events, health: health(), floor: store.currentFloor()?.name ?? '—', reduced: ctx.reduceMotion.matches });
   function refresh() {

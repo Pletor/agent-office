@@ -1,4 +1,4 @@
-import type { ProcessEvent } from '../../../shared/protocol';
+import type { ProcessEvent, ProcessStreamHealth } from '../../../shared/protocol';
 import type { Slice } from '../store';
 
 /** How many of the floor's process events the page keeps. */
@@ -11,6 +11,8 @@ export interface ProcessView {
   seq: number;
   /** A snapshot of this floor's journal has come in, so the list is the server's, not a guess. */
   connected: boolean;
+  /** The floor's live link to Opora's event stream, as the server last said; absent when it has none. */
+  stream?: ProcessStreamHealth;
 }
 
 declare module '../store' {
@@ -41,12 +43,16 @@ export const processJournal: Slice = {
     'process.snapshot'(s, m) {
       const known = new Set(s.process.events.map((e) => e.id));
       const events = keep([...s.process.events, ...m.events.filter((e) => !known.has(e.id))].sort((a, b) => a.seq - b.seq));
-      s.process = { events, seq: Math.max(s.process.seq, m.seq), connected: true };
+      s.process = { events, seq: Math.max(s.process.seq, m.seq), connected: true, stream: m.stream };
+      return ['process'];
+    },
+    'process.stream'(s, m) {
+      s.process = { ...s.process, stream: m.stream };
       return ['process'];
     },
   },
   enter(s, v) {
-    s.process = { events: keep(v.process?.events ?? []), seq: v.process?.seq ?? 0, connected: !!v.process };
+    s.process = { events: keep(v.process?.events ?? []), seq: v.process?.seq ?? 0, connected: !!v.process, stream: v.process?.stream };
     return ['process'];
   },
 };

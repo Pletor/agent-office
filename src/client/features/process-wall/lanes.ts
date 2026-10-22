@@ -139,8 +139,8 @@ export class LaneResolver {
       if (run) return `card:${run.cardId}`;
     }
     const tasks = this.input.tasks;
-    let task = wid ? this.taskOfWorker(wid) : undefined;
-    if (!task && e.kind === 'queue.task') task = tasks.find((t) => e.title.endsWith(`: ${t.title}`));
+    let task = r.task ? tasks.find((t) => t.id === r.task) : undefined;
+    if (!task && wid) task = this.taskOfWorker(wid);
     if (!task && r.pr) task = tasks.find((t) => t.pr?.number === r.pr);
     if (!task && r.branch) task = tasks.find((t) => t.branch === r.branch);
     if (task) return `task:${task.id}`;

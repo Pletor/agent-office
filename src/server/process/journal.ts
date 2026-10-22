@@ -17,7 +17,7 @@ export const SNAPSHOT_SIZE = 300;
 
 const STATES = new Set(['start', 'progress', 'ok', 'fail', 'wait', 'blocked', 'info']);
 const ACTIONS = new Set(['read', 'edit', 'test', 'web', 'command', 'failing']);
-const REF_TEXT = ['project', 'workspace', 'cardId', 'executionId', 'workerId', 'floor', 'branch', 'sha'] as const;
+const REF_TEXT = ['project', 'workspace', 'cardId', 'executionId', 'workerId', 'floor', 'branch', 'sha', 'task'] as const;
 
 export class ProcessJournal {
   private ring: ProcessEvent[] = [];

@@ -73,7 +73,7 @@ export function toolEvent(worker: WorkerInfo, described: string): ProcessInput {
 export function queueEvents(prev: Map<string, QueueTask> | undefined, tasks: QueueTask[]): ProcessInput[] {
   if (!prev) return [];
   const out: ProcessInput[] = [];
-  const refs = (t: QueueTask): ProcessInput['refs'] => ({ ...(t.workerId ? { workerId: t.workerId } : {}), ...(t.branch ? { branch: t.branch } : {}), ...(t.pr ? { pr: t.pr.number, url: t.pr.url } : {}) });
+  const refs = (t: QueueTask): ProcessInput['refs'] => ({ task: t.id, ...(t.workerId ? { workerId: t.workerId } : {}), ...(t.branch ? { branch: t.branch } : {}), ...(t.pr ? { pr: t.pr.number, url: t.pr.url } : {}) });
   const actor = (t: QueueTask): ProcessInput['actor'] => (t.workerId ? { kind: 'worker', id: t.workerId, ...(t.workerName ? { name: t.workerName } : {}) } : { kind: 'human', name: t.addedBy });
   for (const t of tasks) {
     const was = prev.get(t.id);
