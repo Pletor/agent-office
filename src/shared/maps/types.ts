@@ -254,7 +254,7 @@ export interface MapPlan {
   /** The meeting table's middle, and which side the head of the table is on (see MapConfig.council). */
   council?: { x: number; z: number; rotY: number };
   boards: Record<BoardKey, BoardDef>;
-  /** What's in the way on the floor, for walking round it (the office has its own: OFFICE_NAV). */
+  /** What's in the way on the floor, for walking round it (the office has its own: officeNav(level) in shared/nav.ts). */
   obstacles?: Obstacles;
   agents: { outfit: 'peasant' | 'none'; ageMinutes: number };
   /** The dungeon under the hall, worked out (see ./dungeon.ts). */

@@ -12,7 +12,7 @@ export interface PlanStep {
   kind?: string; files?: string[];
 }
 export type StepStatus = 'done' | 'failed' | 'skipped';
-export interface StepResult { stepId: string; status: StepStatus; evidence: { notes: string; checks?: string[]; commits?: string[] } }
+interface StepResult { stepId: string; status: StepStatus; evidence: { notes: string; checks?: string[]; commits?: string[] } }
 /** Step id → the commits made for it, oldest first. */
 export type StepCommits = Map<string, string[]>;
 

@@ -22,14 +22,6 @@ export interface FloorMenuOptions {
 
 let current: { el: HTMLElement; close(): void } | null = null;
 
-export function floorMenuOpen(): boolean {
-  return !!current;
-}
-
-export function closeFloorMenu() {
-  current?.close();
-}
-
 /** Opens the floor list under `anchor`, or closes it if it's open. */
 export function toggleFloorMenu(anchor: HTMLElement, opts: FloorMenuOptions): void {
   if (current) return current.close();

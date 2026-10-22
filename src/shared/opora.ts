@@ -112,11 +112,6 @@ export function frontierCards(answer: unknown, isCard: (id: string) => boolean, 
   return out;
 }
 
-/** An agent's name as Opora takes it (`[\w .:()-]`, no slash), for the card's worker. */
-export function oporaAgentName(floorId: string, cardId: string): string {
-  return `office-${floorId}-${cardId.slice(0, 8)}`.replace(/[^\w .:()-]/g, '-').slice(0, 80);
-}
-
 /** The browser tab Opora opens in from the office, by name, so opening it again goes back to the same tab. */
 export const OPORA_TAB = 'opora-canvas';
 

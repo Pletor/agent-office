@@ -15,8 +15,7 @@ export interface CanvasNode {
   host?: string;
 }
 
-/** The levels in cascade order, and what the switchboard calls each. */
-export const SCOPE_LEVELS: readonly OporaScopeLevel[] = ['env', 'domain', 'page', 'subpage'];
+/** What the switchboard calls each level. */
 export const SCOPE_LEVEL_NAME: Record<OporaScopeLevel, string> = { env: 'Prostředí', domain: 'Doména', page: 'Stránka', subpage: 'Podstránka' };
 
 /** Most nodes the cascade keeps, so a huge canvas can't swamp the floor's state. */
