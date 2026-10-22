@@ -133,14 +133,14 @@ export class PullRequestHandoff {
     const { lease, dir } = subject;
     const { repository, branch, headSha } = at;
     const id = lease.executionId;
-    let pr: { number: number; url: string }, existed: boolean;
+    let pr: { number: number; url: string }, existed: boolean, open = true;
     let lens: Awaited<ReturnType<PrLensAttachment['prepare']>>;
     try {
       await this.tools.git(['push', 'origin', `HEAD:refs/heads/${branch}`], dir);
       lens = this.lens.prepare(dir, { headSha });
-      const listed = JSON.parse((await this.tools.gh(['pr', 'list', '--repo', repository, '--head', branch, '--state', 'all', '--limit', '1', '--json', 'number,url'], dir)) || '[]') as { number: number; url: string }[];
+      const listed = JSON.parse((await this.tools.gh(['pr', 'list', '--repo', repository, '--head', branch, '--state', 'all', '--limit', '1', '--json', 'number,url,state'], dir)) || '[]') as { number: number; url: string; state?: string }[];
       existed = !!listed[0];
-      if (listed[0]) pr = { number: Number(listed[0].number), url: String(listed[0].url) };
+      if (listed[0]) { pr = { number: Number(listed[0].number), url: String(listed[0].url) }; open = String(listed[0].state ?? 'OPEN').toUpperCase() === 'OPEN'; }
       else {
         const target = subject.baseBranch && await this.onOrigin(subject.baseBranch, dir) ? subject.baseBranch : undefined;
         const steps = pinnedSteps(lease.assignment);
@@ -157,7 +157,10 @@ export class PullRequestHandoff {
       notify(`🛰️ Opora execution ${id}: ${reason}. Its Canvas result stands; open the PR by hand.`, 'warn');
       return { state: 'failed', headSha, reason };
     }
-    if (lens) { if (existed) await this.lens.comment(repository, pr.number, lens, dir); await this.lens.report(lease, { number: pr.number, headSha }, lens); }
+    if (lens) {
+      if (existed && open) await this.lens.comment(repository, pr.number, lens, dir).catch(() => undefined);
+      await this.lens.report(lease, { number: pr.number, headSha }, lens).catch(() => undefined);
+    }
     const link = await this.link(lease, { repository, number: pr.number, headRef: branch, headSha });
     const linked = { linked: 'linked to its Canvas execution', 'not-deployed': "Canvas can't link pull requests yet (404); its trailers let Canvas find it later", conflict: 'Canvas refused the link as a conflict (409)', failed: "Canvas didn't confirm the link" }[link];
     notify(`🛰️ ${existed ? 'Reused' : 'Opened'} ${repository}#${pr.number} for Opora execution ${id}: ${linked}`, link === 'linked' || link === 'not-deployed' ? 'info' : 'warn');
