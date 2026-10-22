@@ -61,7 +61,7 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 
 There's a lot more (a rooftop bar, an office dog, an arcade, a jukebox that keeps the songs you upload, supercars in the garage to drive round a scenic loop past a farm, pines, mountains and a beach): see [docs/features.md](docs/features.md).
 
-The planned autonomous learning loop, evidence metrics and H01–H24 integration work are specified in [Harness learning](docs/harness-learning.md). This is an implementation contract; outcome-based tool selection and automatic learning are not yet deployed.
+The autonomous learning loop, evidence metrics and H01–H24 integration work are specified in [Harness learning](docs/harness-learning.md). `npm run harness:replay -- observations.json` checks offline evidence and calculates version-specific rates with uncertainty. Live outcome-based selection and automatic learning are not yet deployed.
 
 ## Requirements
 
