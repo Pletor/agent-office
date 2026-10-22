@@ -180,3 +180,7 @@ sanitized evidence and explicitly distinguishes the negative and positive runs.
 ## Pull requests
 
 A run whose result carries `result.patch` (the remote agent is asked for `git format-patch --stdout <pinned>..HEAD`) gets it applied at the pinned commit in a throwaway worktree and handed off like a card worker's: branch, trailers, Canvas link and per-head idempotency. See [pull requests from the isolated broker](opora-review-evidence.md#pull-requests-from-the-isolated-broker).
+
+## Plan steps
+
+A card with pinned plan steps gets the same checklist and step protocol as a card worker ([plan steps](opora-execution.md#plan-steps)): one commit per step in `/workspace/repo` (`step <id>: <title>`) and `result.stepResults`. Each step's `evidence.commits` comes from git, never from the agent's claim. The patch's own commits are the remote container's, which exist nowhere else, so before the result goes to Canvas the office replays the patch exactly as the pull request will (same pinned commit, committer identity and dates, so the same SHAs) and sends each step the replayed commits whose subjects in `<pinned>..HEAD` read `step <id>:`. The pull request's `## Kroky plánu` section lists the same SHAs. With nothing replayed (no patch, `AGENT_OFFICE_OPORA_AUTO_PR=off`, no pull requests, or a patch that doesn't apply) the steps go without commits. `stepResults` Canvas would refuse (or any, for a card without steps) are left out of the result, which still goes through.

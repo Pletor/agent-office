@@ -372,6 +372,9 @@ export class OporaBridge {
           cards.push(c);
         }
       }
+      // Plan-step cards are ready by Canvas's own rule, routed pipeline or not (docs/opora-execution.md).
+      const ready = await this.client.claimReady(project.id, workspace).catch(() => null);
+      if (ready) for (const c of cards) if (ready.has(c.id)) c.ready = true;
       this.noteReady(`${project.id}/${workspace}`, cards);
       Object.assign(s, { connected: true, error: [lost, gone, this.focusLost()].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
     } catch (err) {
@@ -400,7 +403,7 @@ export class OporaBridge {
   private async handOut() {
     for (const [id, who] of [...this.handed]) {
       const card = this.state.cards.find((c) => c.id === id);
-      if (!card || card.status !== 'frontier' || this.runs.some((r) => r.cardId === id && r.state !== 'gone')) {
+      if (!card || card.status !== 'frontier' || this.runs.some((r) => r.cardId === id && r.state !== 'gone') || this.reportedBefore(id)) {
         if (!card || card.status === 'claimed' || card.status === 'closed') this.handed.delete(id);
         continue;
       }
@@ -420,11 +423,11 @@ export class OporaBridge {
     }
   }
 
-  /** Takes free cards while there's room under the limit, the routed ones first. */
+  /** Takes free cards while there's room under the limit: routed ones, and the ones Canvas says are ready to claim. */
   private async autopilot() {
     if (this.focusLost()) return;
     const busy = () => this.runs.filter((r) => r.state !== 'gone').length;
-    const free = this.state.cards.filter((c) => c.status === 'frontier' && c.profile && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone'));
+    const free = this.state.cards.filter((c) => c.status === 'frontier' && (c.profile || c.ready) && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone') && !this.reportedBefore(c.id));
     for (const card of free) {
       if (busy() >= this.state.maxRuns) return;
       const err = await this.take(card.id, this.autopilotBy || 'Autopilot', this.autopilotOwner);
@@ -433,6 +436,15 @@ export class OporaBridge {
         return;
       }
     }
+  }
+
+  /**
+   * Whether a run of this floor already reported a result for the card. Canvas frees a card once its
+   * result is in, while its pull request still waits for review and merge, so the autopilot and the
+   * hand-out would otherwise take it again and do the same work twice. A person can still ▶ Take it.
+   */
+  private reportedBefore(cardId: string): boolean {
+    return this.runs.some((r) => r.cardId === cardId && !!r.execution && !!this.executions.pullRequests.reported(r.execution.executionId));
   }
 
   /** Pushes the work of a run whose worker reported its result and opens its pull request (pull-request-handoff.ts). */

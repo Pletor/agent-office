@@ -5,6 +5,7 @@ import { gh } from '../github.js';
 import { run } from '../workers/process.js';
 import type { ExecutionLease } from './execution-client.js';
 import { draftPullRequest, handoffBranch, linkRequestId } from './pull-request-body.js';
+import { commitsFromLog, pinnedSteps } from './plan-steps.js';
 
 /**
  * Opora execution → pull request, without an LLM. Once a worker's result helper has stored its Canvas
@@ -135,7 +136,10 @@ export class PullRequestHandoff {
       if (listed[0]) pr = { number: Number(listed[0].number), url: String(listed[0].url) };
       else {
         const target = subject.baseBranch && await this.onOrigin(subject.baseBranch, dir) ? subject.baseBranch : undefined;
-        const { title, body } = draftPullRequest({ executionId: id, acceptedRevision: lease.acceptedRevision, cardId: lease.nodeId, cardName: subject.cardName, result, base: target });
+        const steps = pinnedSteps(lease.assignment);
+        // The PR's own commits per step, from their `step <id>:` messages (a legacy card has no steps and no section).
+        const stepCommits = steps.length ? commitsFromLog(await this.tools.git(['log', '--reverse', '--format=%H%x1f%s', `${subject.baseCommit}..HEAD`], dir).catch(() => ''), steps) : undefined;
+        const { title, body } = draftPullRequest({ executionId: id, acceptedRevision: lease.acceptedRevision, cardId: lease.nodeId, cardName: subject.cardName, result, base: target, steps, stepCommits });
         const out = await this.tools.gh(['pr', 'create', '--repo', repository, '--head', branch, ...(target ? ['--base', target] : []), '--title', title, '--body', body], dir);
         const match = PR_URL.exec(out);
         if (!match) throw new Error('gh did not return a pull request URL');

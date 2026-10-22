@@ -119,6 +119,16 @@ export class OporaClient {
     return this.get('/api/desktop-v3/frontier', { project, workspace, ...(nodeId ? { nodeId } : {}) });
   }
 
+  /**
+   * The cards Canvas's agent-state offers a ready `claim` for (accepted plan steps, budget, no
+   * unfinished predecessor). Throws on a Canvas without agent-state.
+   */
+  async claimReady(project: string, workspace: string): Promise<Set<string>> {
+    const doc = await this.get<{ actions?: unknown }>('/api/oporahub/agent-state', { project, workspace });
+    const actions = Array.isArray(doc.actions) ? (doc.actions as Record<string, unknown>[]) : [];
+    return new Set(actions.filter((a) => a && a.verb === 'claim' && a.status === 'ready' && typeof a.targetId === 'string').map((a) => a.targetId as string));
+  }
+
   /** One drawing layer's Excalidraw scene: a card's or sector's own (its id), or a storyboard moment's (`sb/<card>/<moment>`). */
   async drawing(project: string, workspace: string, layer: string): Promise<{ elements: Record<string, unknown>[] }> {
     const d = await this.get<{ scene?: { elements?: unknown } }>('/api/drawing', { project, workspace, layer });

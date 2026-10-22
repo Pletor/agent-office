@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
+import { stepsSection, type PlanStep, type StepCommits } from './plan-steps.js';
 
 /** What the pull request is drafted from: the execution's identity and the worker's reported result. */
 export interface PullRequestDraftInput {
   executionId: string; acceptedRevision: string; cardId: string; cardName?: string;
   result: Record<string, unknown>; base?: string;
+  /** The plan steps pinned in the execution's assignment, and the PR's own commits for each (from their `step <id>:` messages). */
+  steps?: PlanStep[]; stepCommits?: StepCommits;
 }
 
 const TITLE_MAX = 72;
@@ -70,9 +73,12 @@ export function draftPullRequest(input: PullRequestDraftInput): { title: string;
   const risk = text(result.risk) ?? 'Not assessed by the worker. This is agent-reported work, not independently verified: review the diff and run the checks before merging.';
   const revert = text(result.revert) ?? text(result.revertPlan)
     ?? `Close this pull request unmerged, or revert its merge commit on ${input.base ? `\`${input.base}\`` : 'the base branch'}; the Canvas card keeps its accepted revision.`;
+  const steps = stepsSection(input.steps ?? [], result.stepResults, input.stepCommits ?? new Map());
   const body = [
     '## Summary', clip(text(result.summary) ?? '(no summary)', SUMMARY_MAX),
-    '## Tests and checks', checks.length ? checks.map(line => `- ${line}`).join('\n') : 'None reported by the worker.',
+    ...(steps ? ['## Kroky plánu', steps] : []),
+    // Canvas's merge gate wants the PR template's `Testing`, `Risk` and `Revert plan` sections by name.
+    '## Testing', checks.length ? checks.map(line => `- ${line}`).join('\n') : 'None reported by the worker.',
     '## Risk', clip(risk, LINE_MAX * 4),
     '## Revert plan', clip(revert, LINE_MAX * 4),
     '---',

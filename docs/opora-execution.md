@@ -56,6 +56,41 @@ It must not trigger the legacy agent-output or completion API. A successful resu
 ends Canvas authority; the next Office heartbeat stops that worker. Its authority
 warning does not invalidate an already stored successful receipt.
 
+## Plan steps
+
+Canvas pins a card's accepted plan steps (`spec.steps`, Canvas's
+`docs/oporahub-plan-steps.md`) in the execution's immutable `assignment.steps`. When
+there are any, the prompt carries them as an ordered checklist (id, title, kind,
+`dependsOn`, every acceptance condition, `files` globs) and a fixed protocol:
+
+- work strictly step by step in that (topological) order;
+- one commit per step, with the message `step <id>: <title>`;
+- verify each step's acceptance (run the relevant tests) before the next one, keeping
+  each check's command and outcome for that step's `evidence.checks`;
+- a step whose acceptance can't be met is reported `failed` (and the rest `skipped`),
+  instead of improvising around it;
+- files outside the step's globs are edited only with a note saying which and why.
+
+The result then carries `stepResults: [{stepId, status: done|failed|skipped,
+evidence: {notes, checks?, commits?}}]`. The helper doesn't take the agent's word for
+the commits: it reads this branch's own commits (`git log HEAD --not --remotes` in the
+worker's worktree), maps each `step <id>:` message to its step, and puts exactly those
+SHAs in each step's `evidence.commits` (none found: none sent). It then validates
+`stepResults` as Canvas does (known, unique step ids; status; `notes` up to 4000
+characters; at most 50 checks of 1-500 characters and 50 SHAs) and, if Canvas would
+refuse them, says why and sends nothing, so the agent can fix the same file and run the
+helper again. `selfChecks` work as before, next to `stepResults`.
+
+Readiness follows Canvas, not the old desktop-v3 pipeline: on each read the office also asks
+`GET /api/oporahub/agent-state` which cards have a `claim` action `ready` (accepted steps, budget,
+no unfinished predecessor over a `next` edge), and the 🤖 autopilot takes those as well as routed
+cards. A Canvas without agent-state leaves the autopilot on routed cards only.
+
+A card without steps (an older Canvas, or a legacy accepted spec) gets the old prompt,
+and any `stepResults` in its result are left out. Code: `src/server/opora/plan-steps.ts`,
+used by `execution-prompt.ts`, `execution-worker.ts`, `pull-request-body.ts` and, for the
+[isolated broker](opora-isolated-execution.md), `isolated-service.ts` and `isolated-reports.ts`.
+
 ## Pull request handoff
 
 No agent has to open the execution's pull request. Once the result helper has a
@@ -68,8 +103,12 @@ result, on each 20-second poll and before the lease is released:
    branch `opora/<first 12 characters of the card id>/<executionId>` on `origin`.
 2. It reuses the pull request already open (or closed) for that branch, or opens one
    with `gh pr create`, titled `Opora: <card title>`, against the branch the worktree
-   was cut from. The body has the result's summary, the tests and checks from its
-   `evidence`/`checks`/`tests`, its `risk` and `revert` (or defaults), and ends with
+   was cut from. The body has the result's summary, for a card with [plan steps](#plan-steps)
+   a `## Kroky plánu` section (each step with its reported status, its checks and the PR's
+   own commits for it, read from the `step <id>:` messages in `<base>..HEAD`), and the sections Canvas's PR template
+   rule asks for by name: `## Testing` (the tests and checks from its
+   `evidence`/`checks`/`tests`), `## Risk` and `## Revert plan` (its `risk` and `revert`,
+   or defaults), and ends with
    the trailers `Opora-Execution: <executionId>`, `Opora-Revision: <acceptedRevision>`
    and `Opora-Card: <cardId>`.
 3. It links the pull request with POST `/api/oporahub/executions/{executionId}/pull-request`
@@ -78,6 +117,11 @@ result, on each 20-second poll and before the lease is released:
    execution and head commit, so a retry is the same request. 404 (Canvas without
    the endpoint) is logged and the trailers let Canvas discover the PR later; 409 is
    logged as a conflict and not retried.
+
+Once a run of the floor has reported a result for a card, the 🤖 autopilot and the
+orchestrator's hand-out leave that card alone: Canvas shows it free again while its pull
+request waits for review and merge, and taking it again would do the same work twice. A
+person can still take it with **▶ Take** (after accepting a changed plan, say).
 
 What became of each head commit is kept in `<executionId>-pull-request.json`, so the
 same commit is never pushed or linked twice; a later commit updates the same PR and
