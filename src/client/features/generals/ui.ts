@@ -23,7 +23,8 @@ export function openGenerals(): Modal {
     h('header', {}, h('h2', {}, 'generals.io'), expand,
       h('a.btn', { href: URL, target: '_blank', rel: 'noopener noreferrer' }, '↗ Open in a tab')),
     status, frame,
-    h('p.generals-fallback', {}, 'Game not loading? Check your connection or use Open in a tab.'));
+    h('p.generals-fallback', {}, 'Game not loading? Check your connection or use Open in a tab. ',
+      h('a', { href: '/userscripts/generals-hide-ads.user.js', download: 'generals-hide-ads.user.js', title: 'Install in Tampermonkey, then reopen the game. Hides containers; does not block ad requests.' }, 'Hide ad containers (userscript)')));
   const fullscreenChanged = () => {
     if (document.fullscreenElement === el) wasFullscreen = true;
     else if (wasFullscreen) active?.close();

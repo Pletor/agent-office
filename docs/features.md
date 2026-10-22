@@ -90,3 +90,16 @@ Internet access is required and gameplay connects directly to generals.io. The o
 Browser proof: [Boss PC launcher](shots/generals/boss-pc.png), [live game window](shots/generals/generals-window.png), [fullscreen](shots/generals/generals-fullscreen.png). Run `node tests/generals.browser.mjs` against an isolated production preview at `GENERALS_OFFICE_URL` (default `http://127.0.0.1:4659`, password `generals-preview`, with a project floor). The check loads the real external site; it does not create a game account or join a multiplayer match.
 
 The Boss PC launcher keeps J separate from its label and stays above the hint bar at narrow widths. The boss chair omits the WASD hint; movement still gets you up. Ads belong to generals.io: its [Supporter program](https://generals.io/support) removes them for the game account; the office cannot hide ads inside a cross-origin iframe.
+
+#### Hide advertising containers with a userscript
+
+Download **Hide ad containers (userscript)** from the game window footer, or use [generals-hide-ads.user.js](../src/client/public/userscripts/generals-hide-ads.user.js). This is an optional browser-side script, not a switch that the office can turn on remotely.
+
+1. Install [Tampermonkey](https://www.tampermonkey.net/) in the browser where you use the office. Follow its browser-specific instructions for allowing userscripts.
+2. Open its dashboard, create a new script, replace the editor contents with the downloaded file and save (or import the file through the dashboard utilities).
+3. Allow the extension to run on `https://generals.io/*`, including embedded frames. Close and reopen the Boss PC game. The script also works when opening generals.io in its own tab.
+4. To undo, disable **generals.io — hide ad containers** in the manager and reopen the game.
+
+The script targets the game's verified queue/replay advertising containers and Google Publisher Tag slots. It leaves game controls, account status and supporter checks alone, makes no network requests and covers dynamically inserted containers. It only hides ads and reclaims their queue padding: it does not stop ad downloads, trackers, or guarantee removal of new ad formats after a site update. It has no effect until installed in your browser. The office itself still cannot style the cross-origin frame.
+
+Validation: `node tests/generals-userscript.browser.mjs` checks a separate-origin iframe with clearly labeled ad-slot fixtures, late insertion, game controls and unrelated origins. It also loads the real generals.io page and injects the exact userscript to check compatibility without creating an account or joining a match. Userscript-manager installation is a separate manual browser step.
