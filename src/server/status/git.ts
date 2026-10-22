@@ -59,14 +59,14 @@ export function githubRepo(url: string): string | undefined {
 
 /** Every pull request of the repository, newest first (`gh pr list --state all`), or undefined without gh. */
 export async function listPrs(run: Runner, dir: string, repo: string, gh = 'gh'): Promise<PrFact[] | undefined> {
-  const out = await tryRun(run, gh, ['pr', 'list', '--repo', repo, '--state', 'all', '--limit', '300', '--json', 'number,state,headRefName,url'], dir);
+  const out = await tryRun(run, gh, ['pr', 'list', '--repo', repo, '--state', 'all', '--limit', '300', '--json', 'number,state,headRefName,url,isDraft'], dir);
   if (out === undefined) return undefined;
   try {
     const rows = JSON.parse(out) as unknown;
     if (!Array.isArray(rows)) return undefined;
     return rows
       .filter((r): r is PrFact => !!r && typeof r.number === 'number' && typeof r.headRefName === 'string' && ['OPEN', 'MERGED', 'CLOSED'].includes(r.state))
-      .map((r) => ({ number: r.number, state: r.state, headRefName: r.headRefName, ...(typeof r.url === 'string' ? { url: r.url } : {}) }));
+      .map((r) => ({ number: r.number, state: r.state, headRefName: r.headRefName, ...(typeof r.url === 'string' ? { url: r.url } : {}), ...(r.isDraft === true ? { isDraft: true } : {}) }));
   } catch {
     return undefined;
   }
