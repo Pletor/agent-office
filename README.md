@@ -63,6 +63,8 @@ There's a lot more (a rooftop bar, an office dog, an arcade, a jukebox that keep
 
 The autonomous learning loop, evidence metrics and H01–H24 integration work are specified in [Harness learning](docs/harness-learning.md). `npm run harness:replay -- observations.json` checks offline evidence and calculates version-specific rates with uncertainty. Live outcome-based selection and automatic learning are not yet deployed.
 
+Agents can prepare a versioned kit with `office-harness --kit PROBLEM resource-id ...` and attach it as `fields.harness` in an Opora specification proposal. The kit pins accessible resource content and SHA-256; Opora must support `harness.kit/1`. See [Harness kits](docs/harness.md#accepted-tool-kits).
+
 ## Requirements
 
 **Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP and memory references. Press **F8** anywhere (or **E** at the shelf) to open it across the whole screen, on a phone too. Save **Global → Repository → Task** assignments, inspect inherited values and export context packs. The Opora orchestrator can assign repository/task profiles with `office-harness`; each Opora card handoff includes the resolved, content-bearing snapshot. Assignments do not install tools or activate MCP/memory servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md).

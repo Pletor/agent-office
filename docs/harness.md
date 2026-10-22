@@ -124,6 +124,32 @@ Every `OporaBridge.take` path (manual take, autopilot, orchestrator handout) res
 
 This first integration applies to **Opora card dispatch**, not arbitrary direct hires or the unrelated file-planning queue. Scalar settings are **context requirements**, not runtime provider flags: `settings.model` does not change the actual model selection. Resources do not install hooks, execute scripts, connect MCP, start OpenViking, grant tool permissions or override native runner/user instructions. Confirm those capabilities in the selected runner before relying on them.
 
+## Accepted tool kits
+
+`office-harness --kit ts.references guide:testing guide:rules` emits a `harness.kit/1`
+JSON object with exact resource content and SHA-256. A local shell can use
+`node bin/office-harness.js --project PATH --kit ts.references RESOURCE_ID ...`
+after building. Office workers use the same command through their authenticated
+hook connection; ordinary workers can select project-published resources and
+portable guides, while machine resources retain the catalog's administrator boundary.
+The browser session equivalent is `GET /api/harness/kit?floor=F&problem=P&resource=ID`
+(repeat `resource` for each selection).
+
+Add the object as `fields.harness` in an ordinary Opora specification proposal.
+This requires an Opora server supporting `harness.kit/1` (Canvas PR #46). Existing
+servers reject the optional field rather than activating a live mutable fallback.
+The kit has at most 24 distinct resources and 96 KiB including JSON metadata and
+Unicode escapes. An empty selection pins an empty kit. IDs are catalog IDs, never
+filesystem paths. The chosen slot is stable for each resource ID.
+
+`requires` starts empty because catalog documents do not prove runner capabilities.
+The planner must declare and verify execution requirements when preparing executable
+tools. Categories now include `plugins` and `permissions`; both are published
+references. No tool or plugin is installed or run by this command. Missing and
+inaccessible resources fail the complete build. Later edits produce new hashes while
+previously emitted kits retain their exact content. On PowerShell, save stdout with
+`| Set-Content -Encoding utf8 kit.json` when a UTF-8 file is needed by another CLI.
+
 ## Verification
 
 Run `npm run typecheck`, `npm test`, and `npm run build`. Focused coverage: `node --import tsx --import=#tests/css --test tests/harness*.test.ts tests/opora.test.ts tests/size.test.ts`.

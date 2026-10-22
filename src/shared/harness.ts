@@ -1,5 +1,5 @@
 /** Portable context entries; executable resources are read, never run by the library. */
-export const HARNESS_CATEGORIES = ['instructions', 'skills', 'hooks', 'rules', 'commands', 'scripts', 'tools', 'mcp', 'memory', 'testing', 'operations'] as const;
+export const HARNESS_CATEGORIES = ['instructions', 'skills', 'hooks', 'rules', 'commands', 'scripts', 'tools', 'mcp', 'memory', 'plugins', 'permissions', 'testing', 'operations'] as const;
 export type HarnessCategory = typeof HARNESS_CATEGORIES[number];
 export interface HarnessEntry {
   id: string;

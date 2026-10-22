@@ -16,10 +16,15 @@ export async function remoteHarness(argv) {
   if (task) url.searchParams.set('task', task);
   let body;
   if (action === '--catalog' && !args.length) url.searchParams.set('catalog', '1');
+  else if (action === '--kit' && args.length >= 1) {
+    url.searchParams.set('kit', '1');
+    url.searchParams.set('problem', args.shift());
+    for (const id of args) url.searchParams.append('resource', id);
+  }
   else if (action === '--assign' && args.length === 2 && ['repository', 'task'].includes(args[0])) {
     const data = JSON.parse(readFileSync(args[1], 'utf8'));
     body = JSON.stringify({ scope: args[0], revision: data.revision, layer: data.layer });
-  } else if (action !== '--effective' || args.length) throw new Error('Usage: office-harness --catalog | --effective [--task ID] | --assign repository|task file.json [--task ID]');
+  } else if (action !== '--effective' || args.length) throw new Error('Usage: office-harness --catalog | --kit PROBLEM id ... | --effective [--task ID] | --assign repository|task file.json [--task ID]');
   const response = await fetch(url, {
     method: body ? 'POST' : 'GET',
     headers: { authorization: 'Bearer ' + (process.env.AGENT_OFFICE_HOOK_TOKEN ?? ''), 'content-type': 'application/json' },

@@ -6,6 +6,7 @@ import { HarnessProfiles, HarnessError, parseHarnessLayer } from './profiles.js'
 import { harnessHandoff } from './handoff.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { oporaHarnessTask } from '../../shared/harness-cascade.js';
+import { buildHarnessKit } from './kit.js';
 
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean) {
   try {
@@ -49,6 +50,11 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   const admin = !!active && (!plan.owner || ctx.accounts.get(plan.owner)?.role === 'admin');
   if (req.method === 'GET' && url.searchParams.has('catalog')) {
     return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin)).list());
+  }
+  if (req.method === 'GET' && url.searchParams.has('kit')) {
+    try { return send(res, 200, await buildHarnessKit(new HarnessLibrary(harnessSources(floor.dir, admin)),
+      url.searchParams.get('problem') ?? '', url.searchParams.getAll('resource')), { 'cache-control': 'no-store' }); }
+    catch (err) { return send(res, err instanceof HarnessError ? err.status : 400, { error: (err as Error).message }, { 'cache-control': 'no-store' }); }
   }
   return harnessProfileRequest(ctx, floor, req, res, url, admin, admin, false);
 }
