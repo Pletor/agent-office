@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { layoutGraph, prOfSubject, refsOf, topoOrder, type GraphCommit } from '../src/shared/cleanline.js';
 import { parseLog } from '../src/server/cleanline/graph.js';
 import { buildQueue, mergeRefusal, queueItem, type OpenPr } from '../src/server/cleanline/queue.js';
+import { mergeHead } from '../src/server/cleanline/index.js';
 import { driftFlags, healthFlags, type LineState, type RefInfo, type WtInfo } from '../src/server/cleanline/health.js';
 import { cleanupPlan, removeWorktree, runCleanup, type Disk } from '../src/server/cleanline/cleanup.js';
 import { runningReasons } from '../src/server/status/rules.js';
@@ -73,7 +74,7 @@ test('git log records parse into commits with refs and PR numbers; a window cut 
   assert.equal(rows[1].cut, true);
 });
 
-const pr = (n: number, over: Partial<OpenPr> = {}): OpenPr => ({ number: n, title: `PR ${n}`, headRefName: `b${n}`, baseRefName: 'main', isDraft: false, reviewDecision: '', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', createdAt: `2026-10-${String(10 + n).padStart(2, '0')}T00:00:00Z`, statusCheckRollup: [{ conclusion: 'SUCCESS', status: 'COMPLETED' }], ...over });
+const pr = (n: number, over: Partial<OpenPr> = {}): OpenPr => ({ number: n, title: `PR ${n}`, headRefName: `b${n}`, headRefOid: String(n).repeat(40).slice(0, 40), baseRefName: 'main', isDraft: false, reviewDecision: '', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', createdAt: `2026-10-${String(10 + n).padStart(2, '0')}T00:00:00Z`, statusCheckRollup: [{ conclusion: 'SUCCESS', status: 'COMPLETED' }], ...over });
 
 test('the queue puts green PRs first, oldest first, and flags stacked, behind, conflicting and draft ones', () => {
   const q = buildQueue([
@@ -100,15 +101,42 @@ test('the queue puts green PRs first, oldest first, and flags stacked, behind, c
 
 test('the merge guard refuses a PR that is not the head, or a head that is not green', () => {
   const q = buildQueue([pr(4), pr(5)]);
-  assert.equal(mergeRefusal(q, 4), undefined);
-  assert.match(mergeRefusal(q, 5)!, /není na řadě/);
+  const sha4 = '4'.repeat(40);
+  assert.equal(mergeRefusal(q, 4, sha4), undefined);
+  assert.match(mergeRefusal(q, 5, '5'.repeat(40))!, /není na řadě/);
+  assert.match(mergeRefusal(q, 4, 'a'.repeat(40))!, /se od zobrazení změnil/, 'a push after the window showed it is refused');
   const red = buildQueue([pr(4, { mergeStateStatus: 'BEHIND' })]);
-  assert.match(mergeRefusal(red, 4)!, /není zelený/);
-  assert.match(mergeRefusal([], 4)!, /prázdná/);
+  assert.match(mergeRefusal(red, 4, sha4)!, /není zelený/);
+  assert.match(mergeRefusal([], 4, sha4)!, /prázdná/);
+});
+
+test('mergeHead re-reads GitHub and merges only the shown head commit, with --match-head-commit', async () => {
+  const calls: string[][] = [];
+  let open: OpenPr[] = [pr(4), pr(5)];
+  const run = async (cmd: string, args: string[]) => {
+    calls.push([cmd, ...args]);
+    if (cmd === 'git' && args[0] === 'remote' && args.length === 1) return 'fork';
+    if (cmd === 'git' && args[1] === 'get-url') return 'https://github.com/Pletor/demo.git';
+    if (cmd === 'gh' && args[1] === 'list') return JSON.stringify(open);
+    if (cmd === 'gh' && args[1] === 'merge') return '';
+    throw new Error(`unexpected ${cmd} ${args.join(' ')}`);
+  };
+  const t = { id: 'floor' as const, dir: '/nowhere/demo', label: 'demo' };
+  const sha4 = '4'.repeat(40);
+  assert.equal((await mergeHead(t, 5, '5'.repeat(40), { run, live: [] })).status, 409);
+  assert.equal((await mergeHead(t, 4, 'b'.repeat(40), { run, live: [] })).status, 409);
+  open = [pr(4, { mergeStateStatus: 'BEHIND' })];
+  assert.equal((await mergeHead(t, 4, sha4, { run, live: [] })).status, 409);
+  assert.ok(!calls.some((c) => c[2] === 'merge'), 'nothing merged while refused');
+  open = [pr(4)];
+  assert.equal((await mergeHead(t, 4, sha4, { run, live: [] })).status, 200);
+  const merge = calls.find((c) => c[0] === 'gh' && c[2] === 'merge')!;
+  assert.deepEqual(merge.slice(1), ['pr', 'merge', '4', '--squash', '--delete-branch', '--match-head-commit', sha4, '--repo', 'Pletor/demo']);
+  assert.ok(!merge.includes('--admin') && !calls.some((c) => c.includes('review')), 'never approves or bypasses');
 });
 
 const ref = (name: string, over: Partial<RefInfo> = {}): RefInfo => ({ name, local: `${name}-sha`, idleH: 1, ahead: 2, localMerged: false, ...over });
-const wt = (path: string, over: Partial<WtInfo> = {}): WtInfo => ({ path, dirty: 0, primary: false, idleH: 1, ...over });
+const wt = (path: string, over: Partial<WtInfo> = {}): WtInfo => ({ path, dirty: 0, primary: false, idleH: 1, recentH: 48, headSha: 'e'.repeat(40), headInMain: false, ...over });
 const line = (over: Partial<LineState> = {}): LineState => ({ dir: '/repo', remote: 'fork/main', mainName: 'main', mainSha: 'f'.repeat(40), refs: [], worktrees: [wt('/repo', { primary: true })], protect: ['/repo'], ...over });
 
 test('health flags stacked PRs, far-behind branches, merged leftovers, orphans, a dirty main checkout and drift', () => {
@@ -175,13 +203,14 @@ test('cleanup runs only confirmed items still in a fresh plan, backs every branc
     refs: [ref('done', { localMerged: true, pr: { number: 3, state: 'MERGED', headRefName: 'done' } })],
     worktrees: [wt('/repo', { primary: true }), wt('/wt/done', { branch: 'done' })],
   });
-  const disk: Disk = { isLink: (p) => /node_modules$/.test(p), exists: () => false, rmTree: () => assert.fail('no fallback needed') };
+  const disk: Disk = { isLink: (p) => /node_modules$/.test(p), unlink: (p) => calls.push(`unlink ${p}`), exists: () => false, rmTree: () => assert.fail('no fallback needed') };
   const plan = cleanupPlan(s);
   const r = await runCleanup(s, [...plan.items.map((i) => i.key), 'branch:main@x', 'branch:done@stale'], { run, disk, now: new Date('2026-10-22T10:00:00Z') });
-  assert.equal(r.done.length, 2);
+  assert.equal(r.done.length, 2, JSON.stringify(r));
   assert.equal(r.skipped.length, 2, 'unknown or changed keys are skipped');
   const i = (re: RegExp) => calls.findIndex((x) => re.test(x));
-  assert.ok(i(/node_modules/) < i(/worktree remove/), 'junction first');
+  assert.ok(i(/^unlink .*node_modules$/) >= 0 && i(/^unlink .*node_modules$/) < i(/worktree remove/), 'junction link removed first, without a shell');
+  assert.ok(i(/update-ref refs\/cleanline-backup\/20261022T100000\/wt-done e{40}/) >= 0 && i(/update-ref .*wt-done/) < i(/worktree remove/), 'worktree HEAD backed up first');
   assert.ok(i(/update-ref refs\/cleanline-backup\/20261022T100000\/done done-sha/) >= 0);
   assert.ok(i(/update-ref/) < i(/branch -D done/), 'backup before delete');
   assert.match(r.backup!, /refs\/cleanline-backup\/20261022T100000/);
@@ -189,11 +218,47 @@ test('cleanup runs only confirmed items still in a fresh plan, backs every branc
 
 test('a worktree git refuses for uncommitted work is never force-deleted; a long-path failure falls back to \\\\?\\ and a prune', async () => {
   let removed = '';
-  const disk: Disk = { isLink: () => false, exists: () => true, rmTree: (p) => { removed = p; } };
+  const disk: Disk = { isLink: () => false, unlink: () => assert.fail('no link'), exists: () => true, rmTree: (p) => { removed = p; } };
   await assert.rejects(removeWorktree(async (_c, a) => { if (a.includes('remove')) throw new Error("fatal: '/wt' contains modified or untracked files"); return ''; }, '/repo', '/wt', disk));
   assert.equal(removed, '');
   const calls: string[] = [];
   await removeWorktree(async (_c, a) => { calls.push(a.join(' ')); if (a.includes('remove')) throw new Error('Filename too long'); return ''; }, '/repo', '/wt', disk);
   assert.equal(removed, '/wt');
   assert.ok(calls.includes('worktree prune'));
+});
+
+test('a detached worktree is an orphan only when its HEAD is in main; nothing is planned without the remote main', () => {
+  const s = line({ worktrees: [wt('/repo', { primary: true }), wt('/wt/mine', { idleH: 99 }), wt('/wt/done', { idleH: 99, headInMain: true }), wt('/wt/onmain', { branch: 'main', idleH: 99 })] });
+  assert.deepEqual(cleanupPlan(s).items.map((i) => i.name), ['/wt/done']);
+  assert.ok(!healthFlags(s, []).some((f) => f.where === '/wt/mine' || f.where === '/wt/onmain'), 'unmerged work is nobody\'s orphan');
+  const blind = line({ mainSha: undefined, refs: [], worktrees: [wt('/repo', { primary: true }), wt('/wt/x', { branch: 'gone', headInMain: true, idleH: 99 })] });
+  assert.deepEqual(cleanupPlan(blind), { items: [], kept: [] });
+});
+
+test('a worktree touched in the last 24 h, or with a process in it, is never planned', () => {
+  const merged = ref('done', { localMerged: true, pr: { number: 3, state: 'MERGED', headRefName: 'done' } });
+  const plan = (w: Partial<WtInfo>) => cleanupPlan(line({ refs: [merged], worktrees: [wt('/repo', { primary: true }), wt('/wt/done', { branch: 'done', ...w })] }));
+  assert.deepEqual(plan({}).items.map((i) => i.kind).sort(), ['branch', 'worktree']);
+  for (const w of [{ recentH: 2 }, { busy: true }]) {
+    const p = plan(w);
+    assert.ok(!p.items.some((i) => i.kind === 'worktree'), JSON.stringify(w));
+    assert.ok(!p.items.some((i) => i.name === 'done'), 'its branch stays with it');
+  }
+});
+
+test('never deletes on origin when a fork is the main line, nor a branch an upstream also has', () => {
+  const merged = (name: string, over: Partial<RefInfo> = {}) => ref(name, { localMerged: true, remote: `${name}-r`, remoteMerged: true, pr: { number: 1, state: 'MERGED', headRefName: name }, ...over });
+  const viaOrigin = cleanupPlan(line({ remote: 'origin/main', remotes: ['origin', 'fork'], refs: [merged('a')] }));
+  assert.deepEqual(viaOrigin.items.map((i) => i.kind), ['branch']);
+  assert.ok(viaOrigin.kept.some((k) => k.name === 'origin/a'));
+  const upstream = cleanupPlan(line({ remotes: ['origin', 'fork'], refs: [merged('b', { elsewhere: true })] }));
+  assert.deepEqual(upstream.items, []);
+  const unmergedPr = cleanupPlan(line({ refs: [merged('c', { pr: undefined, ahead: 3 })] }));
+  assert.deepEqual(unmergedPr.items.map((i) => i.kind), ['branch'], 'a remote branch goes only with its merged PR');
+});
+
+test('a build stamped dirty is drift', () => {
+  const sha = 'a'.repeat(40);
+  assert.deepEqual(driftFlags({ mainSha: sha, serverSha: sha, serverBuilt: sha, clientSha: sha, clientDirty: true, dev: false }).map((f) => [f.kind, f.level]), [['drift-client', 'bad']]);
+  assert.deepEqual(driftFlags({ mainSha: sha, serverSha: sha, serverBuilt: sha, serverBuiltDirty: true, clientSha: sha, dev: false }).map((f) => f.kind), ['drift-server']);
 });

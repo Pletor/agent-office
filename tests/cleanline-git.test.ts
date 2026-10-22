@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { readLine } from '../src/server/cleanline/state.js';
@@ -48,8 +48,19 @@ function fixture(t: { after(fn: () => void): void }) {
   return { dir, wtDone, wtOpen };
 }
 
+/** Sets everything in `p` (and below) two days back. */
+function age(p: string) {
+  const old = new Date(Date.now() - 48 * 3_600_000);
+  if (statSync(p).isDirectory()) for (const n of readdirSync(p)) age(path.join(p, n));
+  utimesSync(p, old, old);
+}
+
 test('a real repository: squash-merged branches are found, the graph has main and a side lane, and Uklidit removes only them', async (t) => {
   const { dir, wtDone, wtOpen } = fixture(t);
+  const fresh = await readLine(execRunner, dir, { remote: 'fork/main', live: [], protect: [dir] });
+  assert.ok(!cleanupPlan(fresh).items.some((i) => i.kind === 'worktree'), 'a worktree touched just now stays');
+  age(wtDone);
+  age(path.join(dir, '.git', 'worktrees', 'wt-done'));
   const state = await readLine(execRunner, dir, { remote: 'fork/main', live: [], protect: [dir] });
   const done = state.refs.find((r) => r.name === 'done')!;
   assert.equal(done.localMerged, true, 'squash detected');
@@ -65,7 +76,7 @@ test('a real repository: squash-merged branches are found, the graph has main an
   const flags = healthFlags(state, []);
   assert.ok(flags.some((f) => f.kind === 'merged-not-deleted' && f.where === 'done'));
   const plan = cleanupPlan(state);
-  assert.deepEqual(plan.items.map((i) => `${i.kind}:${i.kind === 'worktree' ? path.basename(i.name) : i.name}`).sort(), ['branch:done', 'remote-branch:done', 'worktree:wt-done']);
+  assert.deepEqual(plan.items.map((i) => `${i.kind}:${i.kind === 'worktree' ? path.basename(i.name) : i.name}`).sort(), ['branch:done', 'worktree:wt-done']);
 
   const r = await runCleanup(state, plan.items.map((i) => i.key), { run: execRunner });
   assert.equal(r.skipped.length, 0, JSON.stringify(r.skipped));
@@ -73,8 +84,8 @@ test('a real repository: squash-merged branches are found, the graph has main an
   assert.equal(existsSync(wtOpen), true, 'the open, dirty worktree stays');
   const refs = execFileSync('git', ['for-each-ref', '--format=%(refname)'], { cwd: dir, encoding: 'utf8' });
   assert.doesNotMatch(refs, /refs\/heads\/done\n/);
-  assert.doesNotMatch(refs, /refs\/remotes\/fork\/done\n/);
+  assert.match(refs, /refs\/remotes\/fork\/done\n/, 'without a merged PR on record, the remote copy stays');
   assert.match(refs, /refs\/cleanline-backup\/\d{8}T\d{6}\/done\n/);
-  assert.match(refs, /refs\/cleanline-backup\/\d{8}T\d{6}\/remote\/done\n/);
+  assert.match(refs, /refs\/cleanline-backup\/\d{8}T\d{6}\/wt-wt-done\n/);
   assert.match(refs, /refs\/heads\/open\n/);
 });

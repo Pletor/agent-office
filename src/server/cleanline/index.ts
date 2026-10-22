@@ -92,7 +92,9 @@ async function compute(t: Target, deps: LineDeps): Promise<Omit<CleanLine, 'canA
   let drift: DriftFacts | undefined;
   if (samePath(t.dir, APP_DIR)) {
     const running = statusWall()?.state.office.repo?.runningSha ?? START_SHA;
-    drift = { mainSha: state.mainSha, serverSha: running, serverBuilt: readStamp(APP_DIR)?.sha, clientSha: readClientStamp(APP_DIR)?.sha, dev: DEV };
+    const built = readStamp(APP_DIR);
+    const client = readClientStamp(APP_DIR);
+    drift = { mainSha: state.mainSha, serverSha: running, serverBuilt: built?.sha, serverBuiltDirty: !!built?.dirty, clientSha: client?.sha, clientDirty: !!client?.dirty, dev: DEV };
   }
   const health = healthFlags(state, queue, drift);
   const plan = cleanupPlan(state);
@@ -142,18 +144,19 @@ export function audit(dataDir: string, who: string, action: string, t: Target, d
  * Squash-merges PR `n`, only if it's at the head of the queue and green right now (read again from
  * GitHub, never from the cache). Never approves anything. Returns the refusal or gh's error.
  */
-export async function mergeHead(t: Target, n: number, deps: LineDeps): Promise<{ error?: string; status: number }> {
+export async function mergeHead(t: Target, n: number, sha: string, deps: LineDeps): Promise<{ error?: string; status: number }> {
   const run = deps.run ?? execRunner;
   const remote = await remoteMain(run, t.dir, remoteOf(deps.env ?? process.env, t.dir));
   const repo = await ghRepoOf(run, t.dir, remote);
   if (!repo) return { status: 409, error: 'Remote není na GitHubu.' };
   const open = await listOpenPrs(run, t.dir, repo);
   if (!open) return { status: 503, error: 'Seznam PR z GitHubu nelze přečíst; nic se neslučuje.' };
-  const refusal = mergeRefusal(buildQueue(open, remote.split('/').slice(1).join('/') || 'main'), n);
+  const refusal = mergeRefusal(buildQueue(open, remote.split('/').slice(1).join('/') || 'main'), n, sha);
   if (refusal) return { status: 409, error: refusal };
   try {
-    // --repo keeps gh out of the checkout: no local branch switching in a shared folder.
-    await run('gh', ['pr', 'merge', String(n), '--squash', '--delete-branch', '--repo', repo], t.dir);
+    // --repo keeps gh out of the checkout: no local branch switching in a shared folder. --match-head-commit:
+    // GitHub refuses if anything was pushed after the check above.
+    await run('gh', ['pr', 'merge', String(n), '--squash', '--delete-branch', '--match-head-commit', sha, '--repo', repo], t.dir);
   } catch (err) {
     return { status: 502, error: (err as Error).message.split('\n')[0].slice(0, 300) };
   } finally {

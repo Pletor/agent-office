@@ -38,7 +38,7 @@ function commitRow(r: GraphRow, d: CleanLine): HTMLElement {
 
 export interface Act {
   canAct: boolean;
-  merge(pr: number): Promise<string | undefined>;
+  merge(pr: number, sha: string): Promise<string | undefined>;
   plan(): Promise<CleanupPlan>;
   cleanup(keys: string[]): Promise<CleanupResult>;
 }
@@ -60,7 +60,7 @@ export function queueTab(d: CleanLine, act: Act): HTMLElement {
 function queueCard(q: QueueItem, i: number, d: CleanLine, act: Act): HTMLElement {
   const status = h('p.cl-action-status', { role: 'status' });
   const head = i === 0;
-  const button = head && q.green && act.canAct ? h('button.btn.cl-merge', { type: 'button', 'data-cl-key': `merge-${q.number}` }, `Sloučit #${q.number}`) : null;
+  const button = head && q.green && act.canAct && q.headSha ? h('button.btn.cl-merge', { type: 'button', 'data-cl-key': `merge-${q.number}` }, `Sloučit #${q.number}`) : null;
   const card = h('article.cl-card', { 'data-green': String(q.green), 'data-head': String(head) },
     h('header', {}, h('span.cl-pos', {}, head ? 'NA ŘADĚ' : `${i + 1}.`),
       q.url ? h('a', { href: q.url, target: '_blank', rel: 'noopener noreferrer' }, `#${q.number}`) : h('b', {}, `#${q.number}`),
@@ -73,13 +73,13 @@ function queueCard(q: QueueItem, i: number, d: CleanLine, act: Act): HTMLElement
   if (button) button.onclick = () => {
     const yes = h('button.btn.danger', { type: 'button', 'data-cl-key': `merge-yes-${q.number}` }, `Ano, squash-sloučit #${q.number} do ${d.repo.remote}`);
     const no = h('button.btn', { type: 'button' }, 'Zrušit');
-    const ask = h('div.cl-confirm', {}, h('p', {}, `Sloučit PR #${q.number} „${q.title}“ (squash, smazat větev)? Server znovu ověří, že je na řadě a zelený.`), yes, no);
+    const ask = h('div.cl-confirm', {}, h('p', {}, `Sloučit PR #${q.number} „${q.title}“ na commitu ${q.headSha!.slice(0, 7)} (squash, smazat větev)? Server znovu ověří, že je na řadě, zelený a beze změny.`), yes, no);
     button.replaceWith(ask);
     no.onclick = () => ask.replaceWith(button);
     yes.onclick = async () => {
       yes.disabled = no.disabled = true;
       status.textContent = 'Slučuji…';
-      const err = await act.merge(q.number);
+      const err = await act.merge(q.number, q.headSha!);
       status.textContent = err ? `Nesloučeno: ${err}` : `PR #${q.number} sloučen. Nasaď main (server i klient) a ukliď větev.`;
       ask.remove();
     };

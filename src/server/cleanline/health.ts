@@ -23,6 +23,8 @@ export interface RefInfo {
   remoteMerged?: boolean;
   pr?: PrFact;
   worker?: string;
+  /** A branch of the same name is on another remote (an upstream), where a PR the main remote can't see may be open. */
+  elsewhere?: boolean;
 }
 
 export interface WtInfo {
@@ -33,6 +35,13 @@ export interface WtInfo {
   primary: boolean;
   worker?: string;
   idleH: number;
+  /** Hours since any file in it (top levels, and its index) changed: under 24, someone may be working there. */
+  recentH?: number;
+  /** Its HEAD, and whether that commit is in main already (an ancestor of it). */
+  headSha?: string;
+  headInMain?: boolean;
+  /** A running process works inside it (best effort). */
+  busy?: boolean;
 }
 
 /** The repository as the board reads it. */
@@ -49,6 +58,8 @@ export interface LineState {
   current?: string;
   /** Folders never removed: the repository itself, the office's install, the server's cwd. */
   protect: string[];
+  /** The repository's remotes (git remote). */
+  remotes?: string[];
 }
 
 /** The office's own server and client against main (only for the office's own repository). */
@@ -59,6 +70,9 @@ export interface DriftFacts {
   serverBuilt?: string;
   /** The commit the client bundle (dist/public/build-info.json) was built from. */
   clientSha?: string;
+  /** Either was built with uncommitted changes in the tree. */
+  serverBuiltDirty?: boolean;
+  clientDirty?: boolean;
   /** Run from the sources: Vite may serve the client, so dist/public matters less. */
   dev: boolean;
 }
@@ -99,10 +113,11 @@ export function healthFlags(s: LineState, queue: readonly QueueItem[], drift?: D
 
 /** Why a worktree is an orphan (nobody's, and done or abandoned), or undefined while it's someone's work. */
 export function orphanWhy(w: WtInfo, s: LineState): string | undefined {
-  if (w.primary || w.worker) return undefined;
-  if (!w.branch) return w.idleH > IDLE_HOURS ? `odpojená HEAD, ${Math.round(w.idleH)} h bez pohybu` : undefined;
+  if (w.primary || w.worker || w.busy || !s.mainSha) return undefined;
+  // A detached HEAD (or one on main itself) is done only when its commit is already in main.
+  if (!w.branch || w.branch === s.mainName) return w.headInMain && w.idleH > IDLE_HOURS ? `${w.branch ? `na ${w.branch}` : 'odpojená HEAD'}, obsah je v main, ${Math.round(w.idleH)} h bez pohybu` : undefined;
   const ref = s.refs.find((r) => r.name === w.branch);
-  if (!ref || ref.local === undefined) return 'větev už neexistuje';
+  if (!ref || ref.local === undefined) return w.headInMain ? 'větev už neexistuje, obsah je v main' : undefined;
   if (ref.localMerged && (ref.pr?.state === 'MERGED' || ref.ahead > 0)) return `větev ${w.branch} je sloučená`;
   if (ref.ahead === 0 && w.idleH > IDLE_HOURS) return `0 commitů mimo main, ${Math.round(w.idleH)} h bez pohybu`;
   return undefined;
@@ -114,8 +129,10 @@ export function driftFlags(d: DriftFacts): HealthFlag[] {
   if (!d.mainSha) return out;
   if (!d.serverSha) out.push({ kind: 'drift-server', level: 'warn', text: 'Nelze zjistit, z jakého commitu běží server' });
   else if (d.serverSha !== d.mainSha) out.push({ kind: 'drift-server', level: 'bad', text: `Server běží z ${short(d.serverSha)}, main je ${short(d.mainSha)}`, fix: 'nasaď: ff pull, build vedle, restart' });
+  if (!d.dev && d.serverBuiltDirty) out.push({ kind: 'drift-server', level: 'bad', text: 'dist byl sestaven i s neuloženými změnami', fix: 'sestav čistě z main a restartuj' });
   if (!d.dev && d.serverBuilt && d.serverSha && d.serverBuilt !== d.serverSha) out.push({ kind: 'drift-server', level: 'bad', text: `dist je sestavený z ${short(d.serverBuilt)}, server běží z ${short(d.serverSha)}`, fix: 'npm run build a restart' });
   if (!d.clientSha) out.push({ kind: 'drift-client', level: 'warn', text: 'Klient (dist/public) nemá razítko sestavení', fix: 'npm run build (zapíše dist/public/build-info.json)' });
   else if (d.clientSha !== d.mainSha) out.push({ kind: 'drift-client', level: d.dev ? 'warn' : 'bad', text: `Klient (dist/public) je sestavený z ${short(d.clientSha)}, main je ${short(d.mainSha)}`, fix: 'npm run build:client (nebo celé nasazení) a obnov stránku' });
+  else if (d.clientDirty) out.push({ kind: 'drift-client', level: d.dev ? 'warn' : 'bad', text: `Klient (dist/public) byl sestaven z ${short(d.clientSha)} i s neuloženými změnami`, fix: 'sestav čistě z main a obnov stránku' });
   return out;
 }

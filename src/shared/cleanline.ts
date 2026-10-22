@@ -43,6 +43,8 @@ export interface QueueItem {
   url?: string;
   author: string;
   head: string;
+  /** The head commit shown: Sloučit sends it back and the merge happens only on exactly that commit. */
+  headSha?: string;
   base: string;
   draft: boolean;
   checks: ChecksState;
