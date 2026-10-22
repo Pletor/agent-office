@@ -19,6 +19,14 @@ const SECRETS: [RegExp, string][] = [
 /** Paths the office keeps its own data under: anything inside one of these is hidden. */
 const DATA_PATH = /(?:[A-Za-z]:)?[\\/][^\s"'`]*?[\\/]\.agent-office(?:[\\/][^\s"'`]*)?/g;
 
+/** Absolute paths that survive folding (Windows `C:\…`, POSIX `/a/b`): only the last name stays. URLs are not paths. */
+const ABS_WIN = /(?<![\w])[A-Za-z]:[\\/][^\s"'`]*/g;
+const ABS_POSIX = /(?<![\w:/.~-])\/(?:[^\s"'`/]+\/)+[^\s"'`/]*/g;
+function maskPath(p: string) {
+  const name = p.split(/[\\/]/).filter(Boolean).pop();
+  return name ? `…/${name}` : '…';
+}
+
 function escape(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -34,6 +42,7 @@ export function redact(text: unknown, max: number, roots: string[] = []): string
     const pattern = escape(root).replace(/\\\\|\//g, '[\\\\/]');
     s = s.replace(new RegExp(pattern, process.platform === 'win32' ? 'gi' : 'g'), root === os.homedir() ? '~' : '.');
   }
+  s = s.replace(ABS_WIN, maskPath).replace(ABS_POSIX, maskPath);
   s = s.trim();
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }

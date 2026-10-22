@@ -12,6 +12,9 @@ import type { ProcessHub } from './hub.js';
 import { outboxToProcess, type OutboxEvent } from './opora-outbox.js';
 
 export const STREAM_REOPEN_MS = 280_000;
+/** The most unparsed bytes (characters) kept from one connection, and the most in one frame; more is a broken or hostile peer. */
+export const STREAM_MAX_BUFFER = 1_000_000;
+export const STREAM_MAX_FRAME = 256_000;
 /** Canvas sends `: heartbeat` every 15 s: this long without a byte is a dead connection. */
 export const STREAM_SILENT_MS = 45_000;
 const BACKOFF_MS = [1000, 2000, 5000, 10_000, 30_000];
@@ -163,10 +166,12 @@ export class OporaStream {
         if (done) return true;
         alive();
         buf += decoder.decode(value, { stream: true });
+        if (buf.length > STREAM_MAX_BUFFER) throw new Error('Opora stream frame too large');
         let at: number;
         while ((at = buf.search(/\r?\n\r?\n/)) >= 0) {
           const frame = buf.slice(0, at);
           buf = buf.slice(at + (buf[at] === '\r' ? 4 : 2));
+          if (frame.length > STREAM_MAX_FRAME) throw new Error('Opora stream frame too large');
           this.frame(frame);
         }
       }

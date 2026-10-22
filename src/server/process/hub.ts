@@ -92,6 +92,11 @@ export class ProcessHub {
     return !!this.streams.get(floorId)?.connected;
   }
 
+  /** The floors that have a journal. */
+  journalIds(): string[] {
+    return [...this.journals.keys()];
+  }
+
   forget(floorId: string) {
     this.journals.delete(floorId);
   }

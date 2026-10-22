@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import type { Ctx } from '../../core/context';
 import { hintTitle, key, onE } from '../../core/hint';
 import { store } from '../../state';
+import { watchProcessGaps } from './catchup';
 import { buildBoard, LaneResolver, type Board, type BoardInput } from './lanes';
 import { lastEventLabel, liveness, sourceHealth, type Liveness } from './live';
 import { WallMotion } from './motion';
@@ -43,7 +44,13 @@ export function installProcessWall(ctx: Ctx) {
     return sourceHealth({ up: ctx.net.up, events: store.process.events, opora: { connected: o.connected, linked: !!o.project }, stream: store.process.stream, github: store.pulls, memory, now: Date.now() });
   }
   const data = (): PanelData => ({ board, events: store.process.events, health: health(), floor: store.currentFloor()?.name ?? '—', reduced: ctx.reduceMotion.matches });
+  let frame = 0;
+  /** Any number of changes in one frame redraw once. */
   function refresh() {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; redraw(); });
+  }
+  function redraw() {
     board = buildBoard(input());
     live = liveOf(Date.now());
     motion.observe(board.lanes, performance.now(), ctx.reduceMotion.matches);
@@ -80,5 +87,6 @@ export function installProcessWall(ctx: Ctx) {
     texture.draw({ board, live, age, reduced: ctx.reduceMotion.matches, now: performance.now() }, motion);
     dirty = false;
   });
-  refresh();
+  watchProcessGaps(ctx);
+  redraw();
 }

@@ -6,7 +6,7 @@
 import type { ServerMsg } from '../../shared/protocol.js';
 import type { Floor } from '../floor.js';
 import { processHub } from './hub.js';
-import { observeProcess } from './observe.js';
+import { forgetObserved, observeProcess } from './observe.js';
 import { ProcessPushers } from './push.js';
 import { OporaStreams } from './opora-stream.js';
 
@@ -26,6 +26,16 @@ export function stopProcessStreams() {
   streams?.stopAll();
 }
 
+/** Drops everything kept for floors that are gone. */
+export function sweepFloors(office: Pick<ProcessOffice, 'floors'>, live?: OporaStreams, hub = processHub) {
+  live?.retain((id) => office.floors.has(id));
+  for (const id of hub.journalIds()) {
+    if (office.floors.has(id)) continue;
+    hub.forget(id);
+    forgetObserved(id);
+  }
+}
+
 /** Wires the hub up once; hands back the floor outlet that also feeds the journal. */
 export function installProcess(office: ProcessOffice, env: NodeJS.ProcessEnv = process.env) {
   processHub.floors = (id) => office.floors.get(id);
@@ -39,11 +49,9 @@ export function installProcess(office: ProcessOffice, env: NodeJS.ProcessEnv = p
       if (floor) office.toFloor(floor, { t: 'process.stream', ...(stream ? { stream } : {}) });
     });
   const live = streams;
-  // A floor taken off the building takes its stream with it.
-  if (live) {
-    sweep = setInterval(() => live.retain((id) => office.floors.has(id)), 15_000);
-    sweep.unref?.();
-  }
+  // A floor taken off the building takes its stream, journal and baseline with it, so a floor id made again starts fresh.
+  sweep = setInterval(() => sweepFloors(office, live), 15_000);
+  sweep.unref?.();
   off?.();
   off = processHub.onEvent((floorId, event) => {
     const floor = office.floors.get(floorId);

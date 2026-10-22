@@ -47,7 +47,11 @@ export class ProcessJournal {
     }
     if (Number.isSafeInteger(input.refs?.pr) && input.refs!.pr! > 0) refs.pr = input.refs!.pr;
     const url = input.refs?.url;
-    if (typeof url === 'string' && /^https:\/\/[^\s@]+$/.test(url) && url.length <= 300) refs.url = url;
+    if (typeof url === 'string') {
+      // No query string or fragment: they carry tokens and state.
+      const bare = url.split(/[?#]/)[0];
+      if (/^https:\/\/[^\s@]+$/.test(bare) && bare.length <= 300) refs.url = bare;
+    }
     const event: ProcessEvent = {
       schema: PROCESS_SCHEMA,
       id: `${source}:${this.producer}:${seq}`,
