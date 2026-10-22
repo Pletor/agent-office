@@ -370,6 +370,9 @@ export class OporaBridge {
           cards.push(c);
         }
       }
+      // Plan-step cards are ready by Canvas's own rule, routed pipeline or not (docs/opora-execution.md).
+      const ready = await this.client.claimReady(project.id, workspace).catch(() => null);
+      if (ready) for (const c of cards) if (ready.has(c.id)) c.ready = true;
       this.noteReady(`${project.id}/${workspace}`, cards);
       Object.assign(s, { connected: true, error: [lost, gone, this.focusLost()].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
     } catch (err) {
@@ -418,11 +421,11 @@ export class OporaBridge {
     }
   }
 
-  /** Takes free cards while there's room under the limit, the routed ones first. */
+  /** Takes free cards while there's room under the limit: routed ones, and the ones Canvas says are ready to claim. */
   private async autopilot() {
     if (this.focusLost()) return;
     const busy = () => this.runs.filter((r) => r.state !== 'gone').length;
-    const free = this.state.cards.filter((c) => c.status === 'frontier' && c.profile && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone') && !this.reportedBefore(c.id));
+    const free = this.state.cards.filter((c) => c.status === 'frontier' && (c.profile || c.ready) && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone') && !this.reportedBefore(c.id));
     for (const card of free) {
       if (busy() >= this.state.maxRuns) return;
       const err = await this.take(card.id, this.autopilotBy || 'Autopilot', this.autopilotOwner);

@@ -74,6 +74,8 @@ function fakeOpora(dir: string) {
   const calls: { method: string; path: string; body?: Record<string, unknown>; headers: http.IncomingHttpHeaders }[] = [];
   const leases = new Map<string, string>();
   const executions = new Map<string, Record<string, unknown>>();
+  // Plan-step cards (accepted `spec.steps`, no routed pipeline) that Canvas's agent-state offers a ready claim for.
+  const stepCards: { id: string; name: string }[] = [];
   // Opora's page refuses to be framed, as it does until its embed_origins lists someone.
   const page: { headers: Record<string, string> } = { headers: { 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'" } };
   // Shop's workspaces; a test adds `main` and a work one (`work1`, with a card of its own).
@@ -131,13 +133,16 @@ function fakeOpora(dir: string) {
         case '/api/project-workspaces':
           return send(200, { workspaces });
         case '/api/view':
-          return send(200, { graph: { nodes: [{ id: 'a1', kind: 'area', name: 'Frontend' }, { id: 's1', kind: 'sector', name: 'Checkout', parentId: null }, { id: 'c1', kind: 'node', name: 'Cart page', parentId: 's1' }, { id: 'c2', kind: 'node', name: 'Pay API', parentId: 's1' }] } });
+          return send(200, { graph: { nodes: [{ id: 'a1', kind: 'area', name: 'Frontend' }, { id: 's1', kind: 'sector', name: 'Checkout', parentId: null }, { id: 'c1', kind: 'node', name: 'Cart page', parentId: 's1' }, { id: 'c2', kind: 'node', name: 'Pay API', parentId: 's1' }, ...stepCards.map((c) => ({ ...c, kind: 'node', parentId: 's1' }))] } });
+        case '/api/oporahub/agent-state':
+          return send(200, { actions: stepCards.map((c) => ({ verb: 'claim', status: leases.has(c.id) ? 'blocked' : 'ready', targetId: c.id })) });
         case '/api/desktop-v3/frontier':
           if (url.searchParams.get('nodeId') !== 's1') return send(200, { frontier: [{ id: 's1', name: 'Checkout' }] });
           return send(200, {
             frontier: [
               { id: 'c1', name: 'Cart page', pipeline: { profile: 'design', current: null } },
               { id: 'c2', name: 'Pay API', pipeline: { profile: 'code', current: null } },
+              ...stepCards.map((c) => ({ ...c, pipeline: { routed: false, profile: null, current: null } })),
             ].filter((c) => !leases.has(c.id)),
             claimed: [...leases.keys()].map((id) => ({ id, name: id })),
           });
@@ -160,7 +165,7 @@ function fakeOpora(dir: string) {
       send(404, { detail: 'nope' });
     });
   });
-  return { server, calls, leases, projects, page, workspaces };
+  return { server, calls, leases, projects, page, workspaces, stepCards };
 }
 
 async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeEvents['prepareTask']) {
@@ -251,6 +256,20 @@ test('the autopilot takes routed cards by itself, up to its limit', async (t) =>
   await new Promise((r) => setTimeout(r, 50));
   await f.bridge.poll();
   assert.equal(f.workers.length, 2);
+});
+
+test('the autopilot takes a plan-step card Canvas says is ready, without a routed pipeline', async (t) => {
+  const f = await fixture(t);
+  f.op.stepCards.push({ id: 'c3', name: 'Steps card' });
+  f.op.leases.set('c1', 'someone').set('c2', 'someone');
+  await f.bridge.poll();
+  assert.equal(f.state().cards.find((c) => c.id === 'c3')?.ready, true);
+  f.bridge.setAutopilot(true, 1, 'Ana');
+  await new Promise((r) => setTimeout(r, 50));
+  await f.bridge.poll();
+  const claims = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').map((c) => c.body?.nodeId);
+  assert.deepEqual(claims, ['c3']);
+  assert.equal(f.workers.length, 1);
 });
 
 test('the autopilot does not take a card again once the office reported its result', async (t) => {
