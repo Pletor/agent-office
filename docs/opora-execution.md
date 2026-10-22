@@ -81,6 +81,11 @@ characters; at most 50 checks of 1-500 characters and 50 SHAs) and, if Canvas wo
 refuse them, says why and sends nothing, so the agent can fix the same file and run the
 helper again. `selfChecks` work as before, next to `stepResults`.
 
+Readiness follows Canvas, not the old desktop-v3 pipeline: on each read the office also asks
+`GET /api/oporahub/agent-state` which cards have a `claim` action `ready` (accepted steps, budget,
+no unfinished predecessor over a `next` edge), and the 🤖 autopilot takes those as well as routed
+cards. A Canvas without agent-state leaves the autopilot on routed cards only.
+
 A card without steps (an older Canvas, or a legacy accepted spec) gets the old prompt,
 and any `stepResults` in its result are left out. Code: `src/server/opora/plan-steps.ts`,
 used by `execution-prompt.ts`, `execution-worker.ts`, `pull-request-body.ts` and, for the

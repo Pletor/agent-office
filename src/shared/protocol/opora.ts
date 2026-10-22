@@ -15,6 +15,8 @@ export interface OporaCard {
   /** Its pipeline's profile (code, design, goal…) and the stage on turn, once it's routed. */
   profile?: string;
   stage?: string;
+  /** Canvas's agent-state offers its claim as ready: accepted plan steps and no unfinished predecessor. */
+  ready?: boolean;
   group: OporaGroup;
 }
 
