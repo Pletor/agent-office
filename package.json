@@ -21,6 +21,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "opora:review-eval": "node --import tsx src/server/opora/review-eval-cli.ts",
+    "harness:replay": "node --import tsx src/server/harness-learning/replay-cli.ts",
     "start": "node bin/agent-office.js",
     "prepare": "npm run build"
   },

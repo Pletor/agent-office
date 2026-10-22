@@ -151,7 +151,7 @@ The supplemental draft is now in brief-vault `9f0b1f34594a4700b245e982bdbf1d77`,
 
 ### Verification of the baseline and available integrations
 
-Isolated Windows checkout of `fa9b1d9`, with independent dependencies (`npm ci --ignore-scripts` followed by successful `npm rebuild --foreground-scripts`). Only documentation differs from that baseline.
+Baseline measurements below were taken before implementation in an isolated Windows checkout of `fa9b1d9`, with independent dependencies (`npm ci --ignore-scripts` followed by successful `npm rebuild --foreground-scripts`).
 
 | Check | Observed result |
 | --- | --- |
@@ -164,6 +164,22 @@ Isolated Windows checkout of `fa9b1d9`, with independent dependencies (`npm ci -
 | Context7 remote MCP | Read-only `initialize` and `tools/list`: HTTP 200; advertised `resolve-library-id` and `query-docs`; no runner configuration changed |
 | OpenViking through Opora | Scoped role-backend/project/H25 recall: configured, 1 item, not truncated, 7,703 ms; no memory write |
 
-The bounded full-suite failure/cancellation rows occur in clone (5), codex-usage (1), dsh (18), install (1), jukebox-routes (1), maps (3), repos (3) and workers (7). Counts include file-level timeout rows and are not 39 independent product defects. Preserve the exact failing names when comparing a later implementation; no unrelated runtime fix is hidden in this documentation PR.
+The bounded full-suite failure/cancellation rows occur in clone (5), codex-usage (1), dsh (18), install (1), jukebox-routes (1), maps (3), repos (3) and workers (7). Counts include file-level timeout rows and are not 39 independent product defects. Preserve the exact failing names when comparing a later implementation; unrelated runtime fixes belong in separate changes.
 
 Local audit artifacts are in `C:/Users/Admin/AppData/Local/Temp/harness-learning-night/`: `typecheck.log`, `build.log`, `tests.log`, `tests-bounded.log`, `baseline-failures.json`, `focused.log`, `context7-probe.json`, `memory-probe.json`, `plan.png`. These paths are audit-machine locations, not shipped product dependencies. Raw recalled memory was not copied to the report. The successful protocol probes do not prove a documentation query or an automatic verified lesson write.
+
+### Implemented evidence replay (first H26 slice)
+
+Run `npm run harness:replay -- observations.json` from the repository. The input is an array of normalized observations (at most 10,000, file at most 8 MiB). Example:
+
+```json
+[{"source":"fixture","id":"event-1","revision":1,"attempt":"attempt-1","execution":"execution-1","cohort":{"resource":"script:check","digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runner":"codex@1","problem":"ts.references","scope":["global","project-1"]},"signal":"invocation","tier":"reported","outcome":"pass","durationMs":12}]
+```
+
+`scope` contains an ordered prefix of the seven hierarchy IDs, not display names. `digest` is the exact resource content SHA-256. `runner` must identify its version. Cohorts are isolated by every field; no cross-project or cross-version aggregation is implicit. Signals are `availability`, `invocation`, `acceptance`, `production`; tiers are `reported`, `check`, `verified`. Each signal/tier gets its own denominator. An observation can be `pass`, `fail` or `unknown`; unknown is neither success nor failure. Missing duration is `null`, an observed zero is `0`.
+
+Replay returns counts, determinate percentage, 95% Wilson interval, determinate coverage, distinct executions and observed duration coverage/mean. Retransmitting the same event revision is idempotent. A higher revision can correct a pass to failure or retract it to unknown; delivery order does not affect the result. Conflicting revisions, changed identity and multiple source identities for one unit fail closed. Availability/invocation count an attempt; acceptance/production count an execution, so task retries cannot inflate accepted outcomes. Source adapters must reconcile competing evidence before replay. These rates describe association with results, not causal contribution; repeated executions of one task are not proof of independent task diversity.
+
+This CLI is an **offline evaluator**, not an evidence authority. Its output is always `authority: offline-untrusted`, `promotionAllowed: false`. An input claiming `tier: verified` authenticates nothing. It neither changes profiles nor promotes tools nor writes OpenViking. Production ingestion must derive tiers from authenticated source adapters. Existing office `tool.use` events lack immutable resource versions and terminal invocation results; they must not be silently converted to success observations. The office process ring/push queue are bounded and the Opora outbox has retention, so durable projections need a transactional cursor and explicit gap handling before live learning can be claimed.
+
+Verification of this slice: typecheck and client/server build pass; focused Harness/context/size tests pass (40 pass, one skipped), including CLI subprocess checks. `npm test` again stalls in the baseline clone tests; the bounded full run completes with 909 pass, 35 fail, four cancelled and one skipped. Its 39 failure/cancellation row names exactly match the pre-change baseline (no added or missing failure names). Full-suite health is still red. No office UI changed in this slice.
