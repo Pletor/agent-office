@@ -118,7 +118,7 @@ export function installSeating(ctx: Ctx, deps: SeatingDeps) {
         const use = tv ? 'Watch the TV' : seat.game ? 'Play Minesweeper' : seat.bar ? 'Order a drink' : '';
         const opora = seat.game ? deps.opora.connected() : null;
         const desk = opora === null ? [] : opora ? [key('O', '🛰️ Opora full screen')] : [aside('Opora isn’t running'), key('O', '🛰️ Opora window')];
-        return { k: `${seat.id}|sitting|${tv}|${opora}`, parts: [hintTitle(seat.label), aside('sitting'), ...(use ? [key('E', use), ...desk, key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
+        return { k: `${seat.id}|sitting|${tv}|${opora}`, parts: [hintTitle(seat.label), aside('sitting'), ...(use ? [key('E', use), ...desk, ...(seat.game ? [] : [key('W A S D', 'Get up')])] : [key('E', 'Get up')])] };
       }
       const full = !freePlace(seat);
       return { k: `${seat.id}|${full}`, parts: [hintTitle(seat.label), seat.game ? aside('💣 Minesweeper on the monitor') : '', full ? aside('no room') : key('E', 'Sit down')] };

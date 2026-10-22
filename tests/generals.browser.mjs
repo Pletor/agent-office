@@ -26,6 +26,23 @@ try {
   await page.waitForTimeout(1000);
   await page.keyboard.press('e');
   await page.waitForFunction(() => window.__office.player.seat?.seatId === 'boss-chair');
+  for (const width of [1440, 800, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForFunction(() => {
+      const launcher = document.querySelector('.generals-launch'), hint = document.getElementById('hint');
+      return launcher.getBoundingClientRect().bottom + 10 <= hint.getBoundingClientRect().top;
+    });
+    const layout = await page.evaluate(() => {
+      const launcher = document.querySelector('.generals-launch');
+      const key = launcher.querySelector('kbd').getBoundingClientRect(), label = launcher.querySelector('span').getBoundingClientRect();
+      return { fits: launcher.scrollWidth <= launcher.clientWidth, separated: key.right < label.left, hint: document.getElementById('hint').textContent };
+    });
+    assert.ok(layout.fits && layout.separated, `J and label fit at ${width}px`);
+    assert.doesNotMatch(layout.hint, /W A S D|Get up/);
+    await page.screenshot({ path: `${shots}/boss-pc-${width}.png` });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(100);
   await page.screenshot({ path: `${shots}/boss-pc.png` });
   await page.keyboard.press('j');
   const game = page.frameLocator('iframe[title="generals.io online game"]');
