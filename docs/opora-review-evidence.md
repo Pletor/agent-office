@@ -1,4 +1,4 @@
-# Security reviews, self-check evidence, the reviewer eval and isolated PRs
+# Security reviews, self-check evidence, PR Lens diagrams, the reviewer eval and isolated PRs
 
 Back to the [README](../README.md). Builds on the [review workers](opora-review-workers.md), the [pull request handoff](opora-execution.md#pull-request-handoff) and [PR upkeep](opora-pr-upkeep.md). The Canvas side is in Opora Canvas's `docs/oporahub-review-jobs.md` ("Druh úlohy (`kind`)", "Důkaz vlastních kontrol") and `docs/oporahub-review-identity.md` ("Jak eval spustit").
 
@@ -33,6 +33,19 @@ Each (execution, head) is run and posted once; `.agent-office/opora-self-checks.
 A worker may also put `selfChecks` into its own result (`POST …/executions/{id}/results`), and the prompt says how. The result helper passes it on only if it matches the same shape; anything else is left out of the result (with a note on stderr), never the whole result refused.
 
 Code: `src/server/opora/self-checks.ts`, wired in `execution-dispatch.ts`, `pr-upkeep.ts` (`pushed`), `isolated-pull-request.ts` and `execution-worker.ts`.
+
+## PR Lens diagrams
+
+Canvas's `docs/cista-linie.md` §4: the worker that made a change draws it with [PR Lens](https://github.com/coldteadotai/pr-lens) (MIT), so review sees the change's reach and data flow, not just the diff. The **spec** (the validated graph document: lanes, cards with their files and line ranges, edges, flow steps with payloads) is the source of truth that agents (the reviewer, the next worker, the planner) read as data; the rendered SVG is only for people. Everything runs locally: no PR Lens GitHub App, no `analyze` with a model key, no `canvas push` ("subscription, not API").
+
+- **The worker** is told in its execution prompt to write the graph document of its diff to `.pr-lens/graph.json`, run `validate` until it passes and `render … --theme light --out .pr-lens/render`, keep `.pr-lens/` in the local git exclude (never committed), and never run `analyze`, `canvas` or `auth`. It's also told that reviewers read its spec instead of screenshots, so card names and paths must be exact, with naming fixes in `.github/pr-lens.yml`. The CLI is pinned (`npx -y -p @coldtea/pr-lens-cli@0.13.2 -p @coldtea/pr-lens-renderer@0.3.2 pr-lens`): renderer 0.3.3 was published with a `workspace:*` dependency npm can't install. A worker that can't run it skips it; it never blocks the result.
+- **The handoff** looks for `.pr-lens/render/manifest.json` after pushing the branch. The CLI only renders a document that validates; the office then takes the top view (architecture overview first) and checks it's a self-contained SVG (≤1 MB, no script, event handler or external reference). It puts the spec the pictures show (`.pr-lens/render/drawn.graph.json`, ≤512 KiB, `kind: graph`) at `.pr-lens/spec.json` and that SVG beside it on a side branch `pr-lens/<head branch>`, pointed at the PR's head, through the GitHub contents API (`gh api`, argument lists, no shell), so the PR's own diff never carries them. The image link (`https://github.com/<repo>/raw/<commit>/.pr-lens/<file>.svg`) goes into a `## PR Lens` section of a new PR's body, before the trailers, or into a comment on a reused PR. GitHub CLI 2.99's `gh pr create --attach` would do the same upload; the side branch works with any `gh`.
+- **Canvas** gets `POST /api/oporahub/review-jobs/lens` with `{project, workspace, executionId, lens: {url, prNumber, headSha, validatedAt, specUrl, specSha256, specBytes, spec?}}` (`validatedAt`: when the render was written; `spec`: the document itself when it's at most 64 KiB, else agents fetch `specUrl` and check the hash). It's optional, non-blocking review evidence (`evidence.review.lens`). A Canvas without the endpoint (404) or refusing it changes nothing about the pull request. A `pr.lens` process event (review, ok) shows it on the live process wall.
+- **Nothing found, an unusable render, or `AGENT_OFFICE_OPORA_PR_LENS=off`**: skipped silently, and the worker isn't asked to draw. Name corrections belong in the project's `.github/pr-lens.yml`, which `render` applies.
+
+Side branches `pr-lens/…` stay after the merge, like the Opora head branches; clean them up with the rest.
+
+Code: `src/server/opora/pr-lens.ts`, called from `pull-request-handoff.ts` and `execution-prompt.ts`.
 
 ## The reviewer eval
 

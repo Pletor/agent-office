@@ -6,6 +6,7 @@ import { run } from '../workers/process.js';
 import type { ExecutionLease } from './execution-client.js';
 import { draftPullRequest, handoffBranch, linkRequestId } from './pull-request-body.js';
 import { commitsFromLog, pinnedSteps } from './plan-steps.js';
+import { PrLensAttachment, withLensSection } from './pr-lens.js';
 
 /**
  * Opora execution → pull request, without an LLM. Once a worker's result helper has stored its Canvas
@@ -56,7 +57,11 @@ export class PullRequestHandoff {
   /** Reasons already said once per execution, so a poll every 20 s doesn't repeat them. */
   private said = new Set<string>();
   constructor(private directory: string, private base: string, private agent: string,
-    private tools: HandoffTools = defaultHandoffTools()) {}
+    private tools: HandoffTools = defaultHandoffTools()) {
+    this.lens = new PrLensAttachment(path.join(directory, 'opora-executions'), base, agent, tools);
+  }
+  /** The worker's PR Lens diagram, shown on the pull request and reported as optional evidence (pr-lens.ts). */
+  private lens: PrLensAttachment;
 
   private file(executionId: string, kind: 'reported' | 'pull-request') {
     return path.join(this.directory, 'opora-executions', `${executionId}-${kind}.json`);
@@ -129,8 +134,10 @@ export class PullRequestHandoff {
     const { repository, branch, headSha } = at;
     const id = lease.executionId;
     let pr: { number: number; url: string }, existed: boolean;
+    let lens: Awaited<ReturnType<PrLensAttachment['prepare']>>;
     try {
       await this.tools.git(['push', 'origin', `HEAD:refs/heads/${branch}`], dir);
+      lens = await this.lens.prepare(dir, { repository, branch, headSha, executionId: id });
       const listed = JSON.parse((await this.tools.gh(['pr', 'list', '--repo', repository, '--head', branch, '--state', 'all', '--limit', '1', '--json', 'number,url'], dir)) || '[]') as { number: number; url: string }[];
       existed = !!listed[0];
       if (listed[0]) pr = { number: Number(listed[0].number), url: String(listed[0].url) };
@@ -140,7 +147,7 @@ export class PullRequestHandoff {
         // The PR's own commits per step, from their `step <id>:` messages (a legacy card has no steps and no section).
         const stepCommits = steps.length ? commitsFromLog(await this.tools.git(['log', '--reverse', '--format=%H%x1f%s', `${subject.baseCommit}..HEAD`], dir).catch(() => ''), steps) : undefined;
         const { title, body } = draftPullRequest({ executionId: id, acceptedRevision: lease.acceptedRevision, cardId: lease.nodeId, cardName: subject.cardName, result, base: target, steps, stepCommits });
-        const out = await this.tools.gh(['pr', 'create', '--repo', repository, '--head', branch, ...(target ? ['--base', target] : []), '--title', title, '--body', body], dir);
+        const out = await this.tools.gh(['pr', 'create', '--repo', repository, '--head', branch, ...(target ? ['--base', target] : []), '--title', title, '--body', lens ? withLensSection(body, lens.markdown) : body], dir);
         const match = PR_URL.exec(out);
         if (!match) throw new Error('gh did not return a pull request URL');
         pr = { number: Number(match[1]), url: match[0] };
@@ -150,6 +157,7 @@ export class PullRequestHandoff {
       notify(`🛰️ Opora execution ${id}: ${reason}. Its Canvas result stands; open the PR by hand.`, 'warn');
       return { state: 'failed', headSha, reason };
     }
+    if (lens) { if (existed) await this.lens.comment(repository, pr.number, lens, dir); await this.lens.report(lease, { number: pr.number, headSha }, lens); }
     const link = await this.link(lease, { repository, number: pr.number, headRef: branch, headSha });
     const linked = { linked: 'linked to its Canvas execution', 'not-deployed': "Canvas can't link pull requests yet (404); its trailers let Canvas find it later", conflict: 'Canvas refused the link as a conflict (409)', failed: "Canvas didn't confirm the link" }[link];
     notify(`🛰️ ${existed ? 'Reused' : 'Opened'} ${repository}#${pr.number} for Opora execution ${id}: ${linked}`, link === 'linked' || link === 'not-deployed' ? 'info' : 'warn');
