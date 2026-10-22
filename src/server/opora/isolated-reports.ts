@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { ManagedAgentsHttp } from './executors/managed-http.js';
 import { ExecutorFailure, type ExecutionIntent } from './executors/types.js';
 import { digest, object, validateIntent } from './executors/validation.js';
+import { commitsFromPatch, withStepCommits, type PlanStep } from './plan-steps.js';
 
 export type ReportJson = null | boolean | number | string | ReportJson[] | { [key: string]: ReportJson };
 export interface RemoteReportedResult {
@@ -57,7 +58,8 @@ function safe(value: unknown, depth = 0): boolean {
 }
 
 /** Provider GET attests message provenance only. Its contents remain an untrusted agent claim. */
-export async function readRemoteReport(http: ManagedAgentsHttp, input: ExecutionIntent, sessionId: string): Promise<RemoteReportedResult | null> {
+export async function readRemoteReport(http: ManagedAgentsHttp, input: ExecutionIntent, sessionId: string,
+  steps: PlanStep[] = []): Promise<RemoteReportedResult | null> {
   const intent = validateIntent(input);
   const message = await http.readLatestMessage(sessionId);
   if (!message) return null;
@@ -67,9 +69,22 @@ export async function readRemoteReport(http: ManagedAgentsHttp, input: Execution
     || !['intentId', 'executionId', 'epoch', 'acceptedRevision', 'assignmentDigest'].every(key => report[key] === intent[key as keyof ExecutionIntent])
     || !object(report.result) || !safe(report.result) || typeof report.result.summary !== 'string'
     || !report.result.summary.trim() || report.result.summary.length > 8000) throw new ExecutorFailure();
-  const result = structuredClone(report.result) as RemoteReportedResult['result'];
+  const result = remoteStepResults(structuredClone(report.result) as RemoteReportedResult['result'], steps);
   const body = { eventId: message.eventId, processedAt: message.processedAt, result };
   const requestId = createHash('sha256').update(intent.intentId + sessionId + message.eventId).digest('hex');
   return { ...body, requestId, digest: digest({ ...body, intentId: intent.intentId, executionId: intent.executionId,
     epoch: intent.epoch, acceptedRevision: intent.acceptedRevision, assignmentDigest: intent.assignmentDigest, sessionId }) };
+}
+
+/**
+ * Plan steps on the isolated path: each step's commits come from the patch's own `From <sha>` /
+ * `Subject: step <id>:` lines, never from the agent; stepResults Canvas would refuse (or any, for a
+ * card without pinned steps) are left out, so the rest of the result still goes through.
+ */
+export function remoteStepResults(result: RemoteReportedResult['result'], steps: PlanStep[]): RemoteReportedResult['result'] {
+  if (!('stepResults' in result)) return result;
+  const checked = withStepCommits(result, steps, commitsFromPatch(typeof result.patch === 'string' ? result.patch : '', steps));
+  if (!checked.problem) return checked.result as RemoteReportedResult['result'];
+  const { stepResults: _refused, ...rest } = result;
+  return rest as RemoteReportedResult['result'];
 }
