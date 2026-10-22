@@ -127,6 +127,23 @@ test('amber for an open PR, and for a seated worker’s branch', async () => {
   assert.match(seated.panel.reasons[0].text, /Rozpracováno: Nibble/);
 });
 
+test('an open draft PR is parked work: green, with the drafts counted in the all-in-main line', async () => {
+  const draft = await officeLight({ branches: [{ name: 'h07', ahead: 2 }], prs: [{ number: 12, state: 'OPEN', isDraft: true, headRefName: 'h07', url: 'https://github.com/o/r/pull/12' }] });
+  assert.equal(draft.panel.light, 'green', JSON.stringify(draft.reasons));
+  const parked = draft.reasons.find((r) => r.text === 'PR #12 je odložený (draft)');
+  assert.ok(parked, JSON.stringify(draft.reasons));
+  assert.equal(parked.level, 'ok');
+  assert.equal(parked.fix, 'vrať ho z draftu, až na něm budete pracovat');
+  assert.equal(parked.url, 'https://github.com/o/r/pull/12');
+  assert.ok(draft.reasons.some((r) => /^Všechna práce je v fork\/main \(a{7}\) \(odloženo: 1 draft PR\)$/.test(r.text)), JSON.stringify(draft.reasons));
+  const ready = await officeLight({ branches: [{ name: 'h07', ahead: 2 }], prs: [{ number: 12, state: 'OPEN', isDraft: false, headRefName: 'h07' }] });
+  assert.equal(ready.panel.light, 'amber');
+  assert.equal(ready.panel.reasons[0].text, 'PR #12 je otevřený');
+  assert.ok(!ready.reasons.some((r) => /Všechna práce/.test(r.text)));
+  const clean = await officeLight({});
+  assert.ok(clean.reasons.some((r) => /^Všechna práce je v fork\/main \(a{7}\)$/.test(r.text)), JSON.stringify(clean.reasons));
+});
+
 test('squash-merged branches count as merged: by the merged PR, or by their changes already being in main', async () => {
   // gh: the PR merged (a squash leaves no ancestry, so the branch is still "ahead").
   const byPr = await officeLight({ branches: [{ name: 'squashed', ahead: 5 }], prs: [{ number: 3, state: 'MERGED', headRefName: 'squashed' }] });

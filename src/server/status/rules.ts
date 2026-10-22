@@ -4,12 +4,14 @@
 // Red: work that isn't in main and nobody is on (orphaned), or a build that doesn't match.
 import type { StatusLevel, StatusLight, StatusPanel, StatusReason } from '../../shared/protocol.js';
 
-/** A pull request for a branch, as `gh pr list --json number,state,headRefName,url` says. */
+/** A pull request for a branch, as `gh pr list --json number,state,headRefName,url,isDraft` says. */
 export interface PrFact {
   number: number;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
   headRefName: string;
   url?: string;
+  /** A draft: work parked on purpose, not work waiting to be finished. */
+  isDraft?: boolean;
 }
 
 /** A branch, local or on the remote, and how it stands against the remote main. */
@@ -70,19 +72,23 @@ export function repoReasons(f: RepoFacts): StatusReason[] {
     else out.push({ level: 'bad', text: `Worktree bez workera má neuložené změny (${files(w.dirty)})`, where: w.path, fix: 'commitni a otevři PR, nebo worktree smaž' });
   }
   let merged = 0;
+  let parked = 0;
   for (const b of f.branches) {
     if (b.ahead <= 0) continue;
     const pr = b.pr;
     const where = b.remote ? `${f.remote.split('/')[0]}/${b.name}` : b.name;
     if (pr?.state === 'MERGED' || b.inMain) merged++;
-    else if (pr?.state === 'OPEN') out.push({ level: 'warn', text: `PR #${pr.number} je otevřený`, where, fix: `dokonči a mergni PR #${pr.number}`, url: pr.url });
+    else if (pr?.state === 'OPEN' && pr.isDraft) {
+      parked++;
+      out.push({ level: 'ok', text: `PR #${pr.number} je odložený (draft)`, where, fix: 'vrať ho z draftu, až na něm budete pracovat', url: pr.url });
+    } else if (pr?.state === 'OPEN') out.push({ level: 'warn', text: `PR #${pr.number} je otevřený`, where, fix: `dokonči a mergni PR #${pr.number}`, url: pr.url });
     else if (b.worker) out.push({ level: 'warn', text: `Rozpracováno: ${b.worker} (${commits(b.ahead)} mimo main)`, where, fix: 'nech workera dokončit a otevřít PR' });
     else if (pr?.state === 'CLOSED') out.push({ level: 'bad', text: `PR #${pr.number} je zavřený bez merge, ${commits(b.ahead)} mimo main`, where, fix: 'otevři PR znovu, nebo větev smaž', url: pr.url });
     else out.push({ level: 'bad', text: `Větev má ${commits(b.ahead)} mimo main a žádný PR`, where, fix: 'otevři PR' });
   }
   if (merged) out.push({ level: 'ok', text: `${plural(merged, 'větev je', 'větve jsou', 'větví je')} už v main (sloučené PR)`, fix: 'větve můžeš smazat' });
   if (!f.prLookup) out.push({ level: 'ok', text: 'gh není k dispozici: sloučení poznávám podle obsahu větví' });
-  if (!out.some((r) => r.level !== 'ok') && f.remoteSha) out.unshift({ level: 'ok', text: `Všechna práce je v ${f.remote} (${short(f.remoteSha)})` });
+  if (!out.some((r) => r.level !== 'ok') && f.remoteSha) out.unshift({ level: 'ok', text: `Všechna práce je v ${f.remote} (${short(f.remoteSha)})${parked ? ` (odloženo: ${parked} draft PR)` : ''}` });
   return out;
 }
 
