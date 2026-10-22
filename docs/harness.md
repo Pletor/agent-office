@@ -2,6 +2,8 @@
 
 Back to the [README](../README.md).
 
+The [autonomous learning contract](harness-learning.md) combines the seven-level H01–H24 plan with measured tool selection, versioned experiences, Context7 and OpenViking. It distinguishes planned behavior from the implementation described below.
+
 ![Harness and Docs on either side of the balcony doors](images/harness-shelves.png)
 
 The **Harness** bookshelf stands on the other side of the balcony doors from **Docs**, with the same wooden case and books. Walk up and press **E**. The window supports search, category and source filters, source availability, reading, and a selection of up to 24 resources. **Copy pack** or **Download pack** produces a model-neutral Markdown context pack with source paths. Close with the top-right ✕ or Esc to return to mouse-look.
