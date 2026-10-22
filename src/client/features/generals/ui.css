@@ -1,5 +1,6 @@
-.generals-launch { position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%); z-index: 20; display: inline-flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px); white-space: nowrap; }
-.generals-launch kbd { flex: none; font: inherit; padding: 2px 7px; border: 1px solid currentColor; border-radius: 4px; }
+.boss-pc-launcher { position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; width: max-content; max-width: calc(100vw - 24px); }
+.boss-pc-launcher .btn { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.boss-pc-launcher kbd { flex: none; font: inherit; padding: 2px 7px; border: 1px solid currentColor; border-radius: 4px; }
 .modal.generals { width: min(1200px, 96vw); max-width: 96vw; height: 88dvh; max-height: 96dvh; display: flex; flex-direction: column; overflow: hidden; background: #222; color: #fff; }
 .generals header { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 12px; flex-wrap: wrap; color: #282b40; }
 .generals header h2 { flex: 1; margin: 0; font-size: 1.2rem; }

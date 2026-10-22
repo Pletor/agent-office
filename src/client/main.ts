@@ -187,7 +187,7 @@ installGong(ctx, { burstOver: parts.views.burstOver, workerViews: parts.views.wo
 installStatusWall(ctx);
 installBossAttention(ctx, { answerWorker: parts.waiting.answerWorker });
 installCleanLine(ctx);
-installGenerals(ctx);
+installGenerals(ctx, { openWork: opora.openFull });
 
 parts.hintbar = installHintBar(ctx, core, parts);
 parts.emotes = installEmotes(ctx, { personOf });
