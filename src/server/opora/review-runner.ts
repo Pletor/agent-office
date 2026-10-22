@@ -7,7 +7,7 @@ import { resolveCommand } from '../workers/process.js';
 import { claudeReviewAgent, type ReviewAgent } from './review-agent.js';
 import { prepareCheckout, type Checkout, type Git } from './review-checkout.js';
 import { ReviewJobClient, ReviewJobError, type ReviewAssignment, type ReviewScope } from './review-client.js';
-import { ReviewBudget, reviewConfig, type ReviewConfig } from './review-config.js';
+import { idleClaimDelay, ReviewBudget, reviewConfig, type ReviewConfig } from './review-config.js';
 import { ReviewPoster, type Gh } from './review-github.js';
 import { runSlot, type SlotOutcome } from './review-slot.js';
 import { emitProcess } from '../process/hub.js';
@@ -19,7 +19,9 @@ import { reviewEvent } from '../process/opora-events.js';
  * and run each in a fresh model context (review-slot.ts); then post every completed job's findings
  * to its pull request (review-github.ts). Off unless `AGENT_OFFICE_OPORA_REVIEWS` is on; while
  * Canvas has review jobs off (409 review_jobs_disabled) or doesn't have them (404) it backs off
- * quietly and tries again later.
+ * quietly and tries again later. While claims keep finding no slot, it claims less and less often
+ * (idleClaimDelay), and goes back to every poll once it gets a slot or the listing shows a job with
+ * slots open (`find` or `vote`).
  */
 
 type Level = 'info' | 'warn';
@@ -29,6 +31,8 @@ export interface ReviewRunnerDeps {
   git: Git;
   gh: Gh;
   now(): number;
+  /** In [0, 1), for the jitter of the idle wait; Math.random unless a test fixes it. */
+  random?(): number;
 }
 
 export class ReviewJobRunner {
@@ -36,6 +40,9 @@ export class ReviewJobRunner {
   private budget: ReviewBudget;
   private poster: ReviewPoster;
   private quietUntil = 0;
+  /** Claims in a row that found no slot, and when the next claim may go out. */
+  private misses = 0;
+  private idleUntil = 0;
   private ticking?: Promise<void>;
   private said = new Set<string>();
   private stopped = false;
@@ -64,6 +71,9 @@ export class ReviewJobRunner {
 
   shutdown() { this.stopped = true; }
 
+  /** New review work may be waiting: the next pass claims again without waiting out the idle backoff. */
+  wake() { this.misses = 0; this.idleUntil = 0; }
+
   private once(key: string, message: string, level: Level) {
     if (this.said.has(key)) return;
     this.said.add(key);
@@ -80,11 +90,12 @@ export class ReviewJobRunner {
 
   private async pass(scope: ReviewScope) {
     if (this.deps.now() < this.quietUntil) return;
-    await this.claim(scope);
+    if (this.deps.now() >= this.idleUntil) await this.claim(scope);
     if (this.config.post && this.deps.now() >= this.quietUntil) await this.publish(scope);
   }
 
   private async claim(scope: ReviewScope) {
+    let got = false;
     while (!this.stopped && !this.budget.blocked(this.running.size)) {
       const requestId = `rc-${randomBytes(16).toString('hex')}`;
       let task: ReviewAssignment | null = null;
@@ -98,7 +109,9 @@ export class ReviewJobRunner {
         return;
       }
       this.said.delete('disabled');
-      if (!task) return;
+      if (!task) { this.missed(got); return; }
+      got = true;
+      this.wake();
       this.budget.started();
       const a = task;
       const slot = runSlot(scope, a, {
@@ -113,6 +126,13 @@ export class ReviewJobRunner {
     }
   }
 
+  /** A claim came back empty: after slots this pass, claim again next poll; else wait longer each time. */
+  private missed(got: boolean) {
+    if (got) return;
+    this.misses++;
+    this.idleUntil = this.deps.now() + idleClaimDelay(this.misses, this.config, (this.deps.random ?? Math.random)());
+  }
+
   private checkout(a: ReviewAssignment): Promise<Checkout> {
     return prepareCheckout(this.deps.git, this.repoDir, path.join(this.dataDir, 'opora-reviews', 'checkouts'), a.job, `${a.taskId}-${a.epoch}`);
   }
@@ -123,6 +143,7 @@ export class ReviewJobRunner {
       if (error instanceof ReviewJobError) this.off(error);
       return;
     }
+    if (listing.jobs.some((job) => job.phase === 'find' || job.phase === 'vote')) this.wake();
     for (const job of listing.jobs) {
       if (job.phase !== 'completed' || this.stopped) continue;
       try {

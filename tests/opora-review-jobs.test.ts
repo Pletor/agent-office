@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ReviewJobClient, type KnownFinding, type ReviewAssignment, type ReviewJob } from '../src/server/opora/review-client.js';
-import { ReviewBudget, reviewConfig } from '../src/server/opora/review-config.js';
+import { idleClaimDelay, ReviewBudget, reviewConfig } from '../src/server/opora/review-config.js';
 import { checkFinder, checkVoter, findingFingerprint, parseAnswer } from '../src/server/opora/review-output.js';
 import { claudeReviewArgs, type ReviewRun } from '../src/server/opora/review-agent.js';
 import { runSlot, submitRequestId } from '../src/server/opora/review-slot.js';
@@ -147,14 +147,14 @@ test('heartbeats run while the model works; a lost lease aborts it without submi
   assert.ok(!gone.calls.some((c) => c.path.endsWith('/submit') || c.path.endsWith('/release')));
 });
 
-function runnerWith(answers: Record<string, unknown>, over: { now?: () => number; gh?: (args: string[]) => Promise<string>; parallel?: number; post?: boolean } = {}) {
+function runnerWith(answers: Record<string, unknown>, over: { now?: () => number; random?: () => number; gh?: (args: string[]) => Promise<string>; parallel?: number; post?: boolean } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-review-'));
   const fake = canvas(answers);
   const runs: ReviewRun[] = [];
   const logs: string[] = [];
   const config = { ...reviewConfig({ AGENT_OFFICE_OPORA_REVIEWS: 'on' }), maxParallel: over.parallel ?? 2, post: over.post ?? false };
   const runner = new ReviewJobRunner(config, dir, dir, {
-    client: fake.client, now: over.now ?? Date.now, gh: over.gh ?? (async () => ''),
+    client: fake.client, now: over.now ?? Date.now, random: over.random ?? (() => 0), gh: over.gh ?? (async () => ''),
     git: async () => { throw new Error('no git in this test'); },
     agent: async (r) => { runs.push(r); return '{"findings":[]}'; },
   }, (m) => logs.push(m));
@@ -193,6 +193,53 @@ test('Canvas with review jobs off (409) makes the runner back off quietly, then 
   await runner.tick(scope);
   assert.equal(calls.filter((c) => c.path.endsWith('/claim')).length, 2);
   assert.equal(logs.length, 1, 'still quiet');
+});
+
+test('idle claim delay: doubles from the base per empty claim up to the cap, jitter only shortens it, never under the base', () => {
+  const config = { idleBaseMs: 20_000, idleMaxMs: 300_000 };
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6, 50].map((m) => idleClaimDelay(m, config, 0)), [0, 20_000, 40_000, 80_000, 160_000, 300_000, 300_000, 300_000]);
+  assert.equal(idleClaimDelay(5, config, 0.999), 240_060);
+  assert.equal(idleClaimDelay(1, config, 0.999), 20_000, 'never under the base');
+  assert.equal(idleClaimDelay(3, config, 0.5), 72_000);
+  assert.equal(reviewConfig({}).idleMaxMs, 300_000);
+  assert.equal(reviewConfig({ AGENT_OFFICE_OPORA_REVIEW_IDLE_MAX: '60' }).idleMaxMs, 60_000);
+  assert.equal(reviewConfig({ AGENT_OFFICE_OPORA_REVIEW_IDLE_MAX: '5' }).idleMaxMs, 20_000);
+});
+
+test('empty claims back the runner off; a claimed slot or an open job in the listing brings it back to every poll', async (t) => {
+  let now = 0;
+  let open: { task: unknown } = { task: null };
+  let jobs: ReviewJob[] = [];
+  const { runner, calls, dir } = runnerWith({
+    '/claim': () => { const out = open; open = { task: null }; return out; },
+    '/submit': (b: { requestId: string }) => receipt(b),
+    '/review-jobs': () => ({ enabled: true, jobs, findings: [] }),
+  }, { now: () => now, post: true });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const claims = () => calls.filter((c) => c.path.endsWith('/claim')).length;
+  // Polls every 20 s for an hour with nothing to review: 1 claim at 0, then waits of 20, 40, 80, 160, 300, 300… s.
+  for (; now <= 3_600_000; now += 20_000) await runner.tick(scope);
+  assert.equal(claims(), 16, 'instead of 181 claims at one per poll');
+  // An open job in the listing (seen on this poll) resets it: the next poll claims and gets a slot.
+  jobs = [job({ phase: 'find' })];
+  await runner.tick(scope);
+  const before = claims();
+  open = { task: assignment('finder') };
+  now += 20_000;
+  await runner.tick(scope);
+  await runner.idle();
+  assert.equal(claims(), before + 2, 'claimed a slot, then one empty claim');
+  // After a slot was claimed, the empty claim that followed doesn't start a backoff.
+  jobs = [];
+  now += 20_000;
+  await runner.tick(scope);
+  assert.equal(claims(), before + 3, 'next poll claims again (first miss: wait one poll)');
+  now += 20_000;
+  await runner.tick(scope);
+  assert.equal(claims(), before + 4);
+  now += 20_000;
+  await runner.tick(scope);
+  assert.equal(claims(), before + 4, 'the second miss in a row waits two polls');
 });
 
 test('a completed job is posted once as a COMMENT review with inline comments; a second pass updates or skips, never duplicates', async (t) => {

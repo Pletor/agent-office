@@ -16,13 +16,16 @@ Off by default. It runs only when both sides are on: Canvas with `OPORA_REVIEW_J
 | `AGENT_OFFICE_OPORA_REVIEW_TTL` | `600` | Seconds of slot lease asked of Canvas (30–3600); a heartbeat renews it every third. |
 | `AGENT_OFFICE_OPORA_REVIEW_TIMEOUT_MIN` | `20` | Minutes one model run may take before it's killed and the slot released. |
 | `AGENT_OFFICE_OPORA_REVIEW_MODEL` | Claude Code's default | `--model` for the review runs. |
+| `AGENT_OFFICE_OPORA_REVIEW_IDLE_MAX` | `300` | Longest wait in seconds (20–3600) between claims while Canvas keeps answering that there's no slot (see below). |
 | `AGENT_OFFICE_OPORA_REVIEW_POST` | on | `off` stops posting completed reviews to GitHub; the findings stay on Canvas. |
 
 When Canvas answers 409 `review_jobs_disabled` (or 404, a Canvas without review jobs), the floor logs it once and asks again ten minutes later.
 
+**Idle backoff.** A claim that finds no slot makes the floor wait before claiming again: 20 seconds after the first, then 40, 80, 160 and on up to `AGENT_OFFICE_OPORA_REVIEW_IDLE_MAX` (5 minutes by default), each shortened by up to a fifth at random so floors don't ask in step. An idle floor so claims about 16 times an hour instead of 180. It goes back to claiming on every poll as soon as it gets a slot, or when the review job listing it reads for posting shows a job in phase `find` or `vote`, so new work waits at most one poll once Canvas lists it.
+
 ## What a slot does
 
-On each 20-second poll of the floor's Opora bridge, while there's room under both limits, the office claims a slot (`POST /api/oporahub/review-jobs/claim`, as `X-Opora-Actor: agent; name=office-<floor>-review`) of the floor's linked project and workspace, and runs it:
+On each 20-second poll of the floor's Opora bridge (less often while idle, see above), while there's room under both limits, the office claims a slot (`POST /api/oporahub/review-jobs/claim`, as `X-Opora-Actor: agent; name=office-<floor>-review`) of the floor's linked project and workspace, and runs it:
 
 1. **A read-only checkout.** It fetches the pull request (`refs/pull/<n>/head`, else the commit) from the floor's `origin`, which must be the job's repository, and adds a detached worktree at `headSha` under `.agent-office/opora-reviews/checkouts/`. The diff is `sinceSha..headSha` in a later round, else from the merge base with `baseSha`, else with `origin`'s default branch. The worktree is removed when the slot ends; nothing is committed or pushed from it.
 2. **A fresh model context.** Every slot, and its one repair attempt, is a new `claude -p` process with `--no-session-persistence`, no `--resume`/`--continue`, none of the user's or project's settings, hooks, MCP servers or plugins, and only the `Read`, `Grep` and `Glob` tools in that checkout. The slot token never goes into a prompt. The diff, earlier findings and candidates go in as quoted data, never as instructions.
@@ -40,4 +43,4 @@ Jobs of kind `security` get a security prompt and `security:` fingerprints, and 
 
 ## Code
 
-`src/server/opora/review-runner.ts` (the loop, limits and backoff, composed by `bridge.ts`), `review-client.ts` (the Canvas API), `review-slot.ts`, `review-checkout.ts`, `review-agent.ts`, `review-prompt.ts`, `review-output.ts` (parsing, validation, fingerprints), `review-github.ts` and `review-config.ts`. Tests: `tests/opora-review-jobs.test.ts`, with fakes for Canvas, git, gh and the model.
+`src/server/opora/review-runner.ts` (the loop, limits and backoff, composed by `bridge.ts`), `review-config.ts` (settings, the hourly budget and `idleClaimDelay`), `review-client.ts` (the Canvas API), `review-slot.ts`, `review-checkout.ts`, `review-agent.ts`, `review-prompt.ts`, `review-output.ts` (parsing, validation, fingerprints) and `review-github.ts`. Tests: `tests/opora-review-jobs.test.ts`, with fakes for Canvas, git, gh and the model.

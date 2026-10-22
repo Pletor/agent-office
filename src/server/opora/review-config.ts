@@ -18,6 +18,10 @@ export interface ReviewConfig {
   post: boolean;
   /** How long to stay quiet after Canvas says review jobs are off (409) or doesn't know them (404). */
   backoffMs: number;
+  /** The first wait after a claim that found no slot (about one bridge poll); it doubles while claims keep coming back empty. */
+  idleBaseMs: number;
+  /** The longest wait between empty claims. */
+  idleMaxMs: number;
 }
 
 const ON = /^(?:1|on|true|yes)$/i;
@@ -39,7 +43,21 @@ export function reviewConfig(env: NodeJS.ProcessEnv = process.env): ReviewConfig
     ...(/^[A-Za-z0-9._[\]-]{1,80}$/.test(model) ? { model } : {}),
     post: !OFF.test((env.AGENT_OFFICE_OPORA_REVIEW_POST ?? '').trim()),
     backoffMs: 10 * 60_000,
+    idleBaseMs: 20_000,
+    idleMaxMs: int(env.AGENT_OFFICE_OPORA_REVIEW_IDLE_MAX, 300, 20, 3600) * 1000,
   };
+}
+
+/**
+ * How long to wait before claiming again after `misses` claims in a row found no slot: the base
+ * doubled per miss up to the cap, then shrunk by up to a fifth at random (`random` in [0, 1)) so the
+ * floors' workers don't all ask Canvas in the same second. Never under the base, never over the cap.
+ */
+export function idleClaimDelay(misses: number, config: Pick<ReviewConfig, 'idleBaseMs' | 'idleMaxMs'>, random: number = Math.random()): number {
+  if (misses <= 0) return 0;
+  const base = Math.min(config.idleBaseMs, config.idleMaxMs);
+  const full = Math.min(config.idleMaxMs, base * 2 ** Math.min(misses - 1, 30));
+  return Math.max(base, Math.round(full * (1 - 0.2 * Math.min(Math.max(random, 0), 1))));
 }
 
 /** Slot starts in a rolling hour and slots running now, against the two limits. */
