@@ -6,6 +6,7 @@ import { harnessRoute, harnessProfileRoute } from './harness.js';
 import { agentRoutes } from './agents.js';
 import { authRoutes } from './auth.js';
 import { bossAttentionRoutes } from './boss-attention.js';
+import { cleanLineRoutes } from './cleanline.js';
 import { fileRoutes } from './files.js';
 import { githubRoutes } from './github.js';
 import { jukeboxRoutes } from './jukebox.js';
@@ -34,6 +35,7 @@ export const routes: readonly Route[] = [
   // Signed in.
   authRoutes.whoami,
   bossAttentionRoutes.read,
+  ...cleanLineRoutes,
   agentRoutes.models,
   fileRoutes.image,
   fileRoutes.whiteboardFile,
