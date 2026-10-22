@@ -17,7 +17,7 @@ import { isolatedClaim } from './isolated-claim.js';
 import { IsolatedObserver, observationPayload } from './isolated-observer.js';
 import { IsolatedStore, type IsolatedRequest, type IsolatedRun } from './isolated-storage.js';
 import { isolatedTransport } from './isolated-transport.js';
-import { readRemoteReport, remoteReportInstructions } from './isolated-reports.js';
+import { readRemoteReport, remoteReportInstructions, withReplayedCommits } from './isolated-reports.js';
 import { pinnedSteps, stepChecklist } from './plan-steps.js';
 import { findIsolatedReceipt, nativeResultPayload, submitIsolatedResult } from './isolated-results.js';
 import { IsolatedPullRequests, patchInstructions } from './isolated-pull-request.js';
@@ -280,8 +280,12 @@ export class IsolatedOfficeService implements IsolatedOfficeAccess {
     this.permitted(run, true);
     if (!run.pendingResult && !run.resultReceipt) {
       const http = new ManagedAgentsHttp(this.config!.managed, this.config!.secrets, this.transport);
-      const report = await readRemoteReport(http, run.intent, status.sessionId, pinnedSteps(run.lease.assignment));
+      const steps = pinnedSteps(run.lease.assignment);
+      let report = await readRemoteReport(http, run.intent, status.sessionId, steps);
       if (!report) return false;
+      // Step commits as the pull request branch will carry them (the patch replayed here), not the container's SHAs.
+      if (steps.length && 'stepResults' in report.result) report = withReplayedCommits(report, run.intent, status.sessionId, steps,
+        await this.pullRequests?.replayedStepCommits(run.lease, run.intent, report, steps).catch(() => undefined));
       this.permitted(this.current(key), true);
       this.patch(key, { pendingResult: { report, payload: nativeResultPayload(run.lease, report), attempted: false } });
     }

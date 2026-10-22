@@ -8,7 +8,9 @@ import { executionPrompt } from '../src/server/opora/execution-prompt.js';
 import { reportExecution } from '../src/server/opora/execution-worker.js';
 import { draftPullRequest } from '../src/server/opora/pull-request-body.js';
 import { PullRequestHandoff, type HandoffTools } from '../src/server/opora/pull-request-handoff.js';
-import { remoteStepResults } from '../src/server/opora/isolated-reports.js';
+import { remoteStepResults, withReplayedCommits, type RemoteReportedResult, type ReportJson } from '../src/server/opora/isolated-reports.js';
+import { IsolatedPullRequests } from '../src/server/opora/isolated-pull-request.js';
+import type { ExecutionIntent } from '../src/server/opora/executors/types.js';
 import { remoteSteps } from '../src/server/opora/isolated-service.js';
 import { commitsFromLog, commitsFromPatch, pinnedSteps, stepResultsProblem, withStepCommits } from '../src/server/opora/plan-steps.js';
 
@@ -22,7 +24,7 @@ const LOG = [`${SHA1}\x1fstep s1: Datový model`, `${'9'.repeat(40)}\x1fchore: u
 const lease = (assignment: Record<string, unknown> = { contextVersion: 'context', steps: STEPS }): ExecutionLease => ({
   project: 'project', workspace: 'work', nodeId: 'card-1', executionId: 'execution-1', token: 'PRIVATE-token', epoch: 7,
   acceptedRevision: 'a'.repeat(40), assignmentDigest: 'b'.repeat(64), assignment, state: 'running', serverNow: 100, expiresAt: 1000 });
-const done = (stepId: string, evidence: Record<string, unknown> = { notes: 'ok' }) => ({ stepId, status: 'done', evidence });
+const done = (stepId: string, evidence: { [key: string]: ReportJson } = { notes: 'ok' }) => ({ stepId, status: 'done', evidence });
 
 function directory(t: { after(fn: () => void): void }) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-steps-'));
@@ -151,4 +153,51 @@ test('the isolated broker gets the same checklist and its stepResults take their
   assert.deepEqual(remoteStepResults({ summary: 's', stepResults: [done('nope')] }, steps), { summary: 's' }, 'a bad shape is left out, the result stays');
   assert.deepEqual(remoteStepResults({ summary: 's', stepResults: [done('s1')] }, []), { summary: 's' }, 'legacy card');
   assert.deepEqual(remoteStepResults({ summary: 's' }, steps), { summary: 's' });
+});
+
+test("on the broker path Canvas gets the replayed commits of the PR branch, not the container's", async t => {
+  const PINNED = 'e'.repeat(40), REPLAYED1 = '4'.repeat(40), REPLAYED2 = '5'.repeat(40);
+  const steps = pinnedSteps({ steps: STEPS });
+  const patch = `From ${SHA1} Mon Sep 17 00:00:00 2001\nSubject: [PATCH 1/2] step s1: Datový model\n\n---\n`
+    + `From ${SHA2} Mon Sep 17 00:00:00 2001\nSubject: [PATCH 2/2] step s2: API\n\n---\n`;
+  const intent = { intentId: 'i'.repeat(64), executionId: 'execution-1', epoch: 7, acceptedRevision: 'a'.repeat(40), assignmentDigest: 'b'.repeat(64),
+    repository: { url: 'https://github.com/Pletor/shop', commitSha: PINNED } } as unknown as ExecutionIntent;
+  const report: RemoteReportedResult = { eventId: 'e', processedAt: '2026-10-22T10:00:00Z', requestId: 'q'.repeat(64), digest: 'd'.repeat(64),
+    result: { summary: 's', patch, stepResults: [done('s1', { notes: 'ok', commits: [SHA1] }), done('s2', { notes: 'ok', commits: [SHA2] })] } };
+  const git: { args: string[]; dir: string }[] = [];
+  let amFails = false;
+  const tools: HandoffTools = { env: {}, transport: (async () => new Response('{}')) as typeof fetch, gh: async () => '',
+    git: async (args, dir) => {
+      git.push({ args, dir });
+      if (args[0] === 'remote') return 'git@github.com:Pletor/shop.git';
+      if (args.includes('am') && args[0] !== 'am' && amFails) throw new Error('conflict');
+      if (args[0] === 'log') return [`${REPLAYED1}\x1fstep s1: Datový model`, `${REPLAYED2}\x1fstep s2: API`].join('\n');
+      return '';
+    } };
+  const prs = new IsolatedPullRequests(directory(t), directory(t), 'http://canvas', 'office-isolated', tools);
+  const replayed = await prs.replayedStepCommits(lease(), intent, report, steps);
+  assert.deepEqual([...replayed!], [['s1', [REPLAYED1]], ['s2', [REPLAYED2]]]);
+  const am = git.find(c => c.args.includes('am'))!, log = git.find(c => c.args[0] === 'log')!;
+  assert.ok(am.args.includes('--committer-date-is-author-date') && am.args.includes('user.name=Agent Office'), 'replayed as handOff replays it');
+  assert.equal(git.find(c => c.args[0] === 'worktree' && c.args[1] === 'add')!.args.at(-1), PINNED);
+  assert.ok(log.args.includes(`${PINNED}..HEAD`) && log.dir === am.dir, 'the step commits come from the replayed tree');
+  assert.ok(git.some(c => c.args[0] === 'worktree' && c.args[1] === 'remove'), 'the replay tree is removed');
+
+  const sent = withReplayedCommits(report, intent, 'session-1', steps, replayed);
+  assert.deepEqual(sent.result.stepResults, [done('s1', { notes: 'ok', commits: [REPLAYED1] }), done('s2', { notes: 'ok', commits: [REPLAYED2] })]);
+  assert.notEqual(sent.digest, report.digest, 'the digest covers the replayed commits');
+  assert.equal(sent.result.patch, patch);
+  assert.deepEqual(withReplayedCommits(report, intent, 'session-1', steps, undefined).result.stepResults, [done('s1'), done('s2')],
+    'no replay: no container SHAs reach Canvas');
+  const plain = { ...report, result: { summary: 's' } };
+  assert.equal(withReplayedCommits(plain, intent, 'session-1', steps, undefined), plain, 'no stepResults: untouched');
+
+  amFails = true;
+  assert.equal(await prs.replayedStepCommits(lease(), intent, report, steps), undefined, 'a patch that does not apply');
+  assert.ok(git.some(c => c.args[0] === 'am' && c.args[1] === '--abort'));
+  amFails = false;
+  assert.equal(await prs.replayedStepCommits(lease(), intent, plain, steps), undefined, 'no patch');
+  assert.equal(await prs.replayedStepCommits(lease(), intent, report, []), undefined, 'legacy card');
+  const off = new IsolatedPullRequests(directory(t), directory(t), 'http://canvas', 'o', { ...tools, env: { AGENT_OFFICE_OPORA_AUTO_PR: 'off' } });
+  assert.equal(await off.replayedStepCommits(lease(), intent, report, steps), undefined, 'AUTO_PR off: no PR branch to point at');
 });
