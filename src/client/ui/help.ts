@@ -4,6 +4,7 @@
 import { IS_MAC } from './termkeys';
 
 export const HELP_ROWS: readonly (readonly [string, string])[] = [
+  ['J', 'Near the Boss PC (no seat required): J plays generals.io; O opens Opora. Several visitors can use their own windows at once. Full screen expands the game; the top-right close button returns to the office.'],
   ['📚 Harness', 'F8 anywhere, or E at the shelf opposite Docs: resources and Global → Repository → Task assignments; inspect the resolved handoff before dispatch'],
   ['Pro tebe', 'In Boss Office upstairs, E at the board inside the north glass opens decisions and questions, with exact Opora card links and worker terminals. System repairs are separate; nothing is automatically approved.'],
   ['Čistá linie', 'In Boss Office upstairs, E at the board over the south window: the GitHub-style graph of main and its branches, the merge queue, the health of the line and the rules. Sloučit merges only the green PR at the head of the queue; Uklidit deletes only the confirmed list of merged branches and orphaned worktrees.'],

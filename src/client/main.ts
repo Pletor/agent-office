@@ -1,3 +1,4 @@
+import { installGenerals } from './features/generals';
 import './style.css';
 import { Net } from './net';
 import { DesktopNotifier } from './notify';
@@ -186,6 +187,7 @@ installGong(ctx, { burstOver: parts.views.burstOver, workerViews: parts.views.wo
 installStatusWall(ctx);
 installBossAttention(ctx, { answerWorker: parts.waiting.answerWorker });
 installCleanLine(ctx);
+installGenerals(ctx, { openWork: opora.openFull });
 
 parts.hintbar = installHintBar(ctx, core, parts);
 parts.emotes = installEmotes(ctx, { personOf });
