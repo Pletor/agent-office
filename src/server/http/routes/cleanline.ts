@@ -79,9 +79,10 @@ export const cleanLineRoutes = [
       const a = await action(ctx, req, res, session);
       if (!a) return;
       const n = Number(a.body.pr);
-      if (!Number.isInteger(n) || n <= 0) return send(res, 400, { error: 'Chybí číslo PR' });
-      const r = await mergeHead(a.t, n, { live: live(ctx) });
-      audit(ctx.cfg.dataDir, who(session), 'sloučit', a.t, `PR #${n} squash: ${r.error ? `odmítnuto (${r.error})` : 'sloučeno'}`);
+      const sha = typeof a.body.sha === 'string' ? a.body.sha : '';
+      if (!Number.isInteger(n) || n <= 0 || !/^[0-9a-f]{40}$/.test(sha)) return send(res, 400, { error: 'Chybí číslo PR nebo commit jeho hlavy' });
+      const r = await mergeHead(a.t, n, sha, { live: live(ctx) });
+      audit(ctx.cfg.dataDir, who(session), 'sloučit', a.t, `PR #${n} @${sha.slice(0, 12)} squash: ${r.error ? `odmítnuto (${r.error})` : 'sloučeno'}`);
       return send(res, r.status, r.error ? { error: r.error } : { ok: true });
     },
   },

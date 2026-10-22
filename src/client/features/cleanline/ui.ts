@@ -43,9 +43,9 @@ export function openCleanLine(controller: LineController) {
   const query = () => new URLSearchParams({ floor: controller.floor ?? '', repo: controller.repo });
   const act = (): Act => ({
     canAct: !!controller.view.data?.canAct,
-    merge: async (pr) => {
+    merge: async (pr, sha) => {
       try {
-        await post('/api/cleanline/merge', { ...floorBody(), pr });
+        await post('/api/cleanline/merge', { ...floorBody(), pr, sha });
         void controller.refresh(true);
         return undefined;
       } catch (err) {

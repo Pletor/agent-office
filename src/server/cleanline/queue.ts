@@ -11,6 +11,7 @@ export interface OpenPr {
   url?: string;
   author?: { login?: string } | null;
   headRefName?: string;
+  headRefOid?: string;
   baseRefName?: string;
   isDraft?: boolean;
   reviewDecision?: string | null;
@@ -88,6 +89,7 @@ export function queueItem(p: OpenPr, mainName = 'main'): QueueItem {
     ...(p.url ? { url: p.url } : {}),
     author: p.author?.login ?? '',
     head: p.headRefName ?? '',
+    ...(typeof p.headRefOid === 'string' && /^[0-9a-f]{40}$/.test(p.headRefOid) ? { headSha: p.headRefOid } : {}),
     base,
     draft: !!p.isDraft,
     checks,
@@ -111,12 +113,16 @@ export function buildQueue(prs: readonly OpenPr[], mainName = 'main'): QueueItem
   return items.sort((a, b) => Number(b.green) - Number(a.green) || (a.green ? 0 : distance(a) - distance(b)) || age(a) - age(b) || a.number - b.number);
 }
 
-/** Whether PR `n` may be merged now: it's the head of the queue and green. Returns the refusal, or undefined. */
-export function mergeRefusal(queue: readonly QueueItem[], n: number): string | undefined {
+/**
+ * Whether PR `n` at commit `sha` (the one the person saw) may be merged now: it's the head of the
+ * queue, green, and its head is still exactly that commit. Returns the refusal, or undefined.
+ */
+export function mergeRefusal(queue: readonly QueueItem[], n: number, sha: string): string | undefined {
   const head = queue[0];
   if (!head) return 'Fronta je prázdná.';
   if (head.number !== n) return `PR #${n} není na řadě: první ve frontě je #${head.number}.`;
   if (!head.green) return `PR #${n} není zelený: ${head.reasons.join('; ')}.`;
+  if (!head.headSha || head.headSha !== sha) return `PR #${n} se od zobrazení změnil (hlava ${head.headSha?.slice(0, 7) ?? '?'}, ne ${sha.slice(0, 7)}): obnov tabuli a zkontroluj ho znovu.`;
   return undefined;
 }
 
