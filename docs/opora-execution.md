@@ -56,6 +56,36 @@ It must not trigger the legacy agent-output or completion API. A successful resu
 ends Canvas authority; the next Office heartbeat stops that worker. Its authority
 warning does not invalidate an already stored successful receipt.
 
+## Plan steps
+
+Canvas pins a card's accepted plan steps (`spec.steps`, Canvas's
+`docs/oporahub-plan-steps.md`) in the execution's immutable `assignment.steps`. When
+there are any, the prompt carries them as an ordered checklist (id, title, kind,
+`dependsOn`, every acceptance condition, `files` globs) and a fixed protocol:
+
+- work strictly step by step in that (topological) order;
+- one commit per step, with the message `step <id>: <title>`;
+- verify each step's acceptance (run the relevant tests) before the next one, keeping
+  each check's command and outcome for that step's `evidence.checks`;
+- a step whose acceptance can't be met is reported `failed` (and the rest `skipped`),
+  instead of improvising around it;
+- files outside the step's globs are edited only with a note saying which and why.
+
+The result then carries `stepResults: [{stepId, status: done|failed|skipped,
+evidence: {notes, checks?, commits?}}]`. The helper doesn't take the agent's word for
+the commits: it reads this branch's own commits (`git log HEAD --not --remotes` in the
+worker's worktree), maps each `step <id>:` message to its step, and puts exactly those
+SHAs in each step's `evidence.commits` (none found: none sent). It then validates
+`stepResults` as Canvas does (known, unique step ids; status; `notes` up to 4000
+characters; at most 50 checks of 1-500 characters and 50 SHAs) and, if Canvas would
+refuse them, says why and sends nothing, so the agent can fix the same file and run the
+helper again. `selfChecks` work as before, next to `stepResults`.
+
+A card without steps (an older Canvas, or a legacy accepted spec) gets the old prompt,
+and any `stepResults` in its result are left out. Code: `src/server/opora/plan-steps.ts`,
+used by `execution-prompt.ts`, `execution-worker.ts`, `pull-request-body.ts` and, for the
+[isolated broker](opora-isolated-execution.md), `isolated-service.ts` and `isolated-reports.ts`.
+
 ## Pull request handoff
 
 No agent has to open the execution's pull request. Once the result helper has a
@@ -68,7 +98,9 @@ result, on each 20-second poll and before the lease is released:
    branch `opora/<first 12 characters of the card id>/<executionId>` on `origin`.
 2. It reuses the pull request already open (or closed) for that branch, or opens one
    with `gh pr create`, titled `Opora: <card title>`, against the branch the worktree
-   was cut from. The body has the result's summary and the sections Canvas's PR template
+   was cut from. The body has the result's summary, for a card with [plan steps](#plan-steps)
+   a `## Kroky plánu` section (each step with its reported status, its checks and the PR's
+   own commits for it, read from the `step <id>:` messages in `<base>..HEAD`), and the sections Canvas's PR template
    rule asks for by name: `## Testing` (the tests and checks from its
    `evidence`/`checks`/`tests`), `## Risk` and `## Revert plan` (its `risk` and `revert`,
    or defaults), and ends with

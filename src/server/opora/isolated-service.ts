@@ -17,7 +17,8 @@ import { isolatedClaim } from './isolated-claim.js';
 import { IsolatedObserver, observationPayload } from './isolated-observer.js';
 import { IsolatedStore, type IsolatedRequest, type IsolatedRun } from './isolated-storage.js';
 import { isolatedTransport } from './isolated-transport.js';
-import { readRemoteReport, remoteReportInstructions } from './isolated-reports.js';
+import { readRemoteReport, remoteReportInstructions, withReplayedCommits } from './isolated-reports.js';
+import { pinnedSteps, stepChecklist } from './plan-steps.js';
 import { findIsolatedReceipt, nativeResultPayload, submitIsolatedResult } from './isolated-results.js';
 import { IsolatedPullRequests, patchInstructions } from './isolated-pull-request.js';
 import { createSelfCheckReporter } from './self-checks.js';
@@ -176,7 +177,7 @@ export class IsolatedOfficeService implements IsolatedOfficeAccess {
           ...this.config!.managed });
         run = this.patch(key, { intent, stage: 'bound' });
         await this.report(key, null); this.permitted(this.current(key), true);
-        const result = await this.executor(run).start(intent, remotePrompt(lease.assignment) + '\n' + patchInstructions(intent) + '\n' + remoteReportInstructions(intent), async () => {
+        const result = await this.executor(run).start(intent, remotePrompt(lease.assignment) + '\n' + remoteSteps(lease.assignment) + patchInstructions(intent) + '\n' + remoteReportInstructions(intent), async () => {
           try {
             this.permitted(this.current(key), true);
             await this.report(key, this.executor(this.current(key)).status(intent.intentId));
@@ -279,8 +280,12 @@ export class IsolatedOfficeService implements IsolatedOfficeAccess {
     this.permitted(run, true);
     if (!run.pendingResult && !run.resultReceipt) {
       const http = new ManagedAgentsHttp(this.config!.managed, this.config!.secrets, this.transport);
-      const report = await readRemoteReport(http, run.intent, status.sessionId);
+      const steps = pinnedSteps(run.lease.assignment);
+      let report = await readRemoteReport(http, run.intent, status.sessionId, steps);
       if (!report) return false;
+      // Step commits as the pull request branch will carry them (the patch replayed here), not the container's SHAs.
+      if (steps.length && 'stepResults' in report.result) report = withReplayedCommits(report, run.intent, status.sessionId, steps,
+        await this.pullRequests?.replayedStepCommits(run.lease, run.intent, report, steps).catch(() => undefined));
       this.permitted(this.current(key), true);
       this.patch(key, { pendingResult: { report, payload: nativeResultPayload(run.lease, report), attempted: false } });
     }
@@ -322,5 +327,10 @@ function observationSemantic(payload: Record<string, unknown>) {
 export function remotePrompt(assignment: Record<string, unknown>) {
   return 'Work only on the accepted immutable assignment below in /workspace/repo. Do not claim independent verification. Return a concise result and changed files.\n'
     + canonical(assignment);
+}
+/** The plan-step checklist for a card with pinned steps, the same protocol as a card worker's; '' for a legacy card. */
+export function remoteSteps(assignment: Record<string, unknown>) {
+  const steps = stepChecklist(pinnedSteps(assignment), 'in /workspace/repo');
+  return steps ? steps + ' Put stepResults inside result.\n' : '';
 }
 export const isolatedExecutorRoutes = createIsolatedExecutorRoutes((_ctx, floor) => floor.isolatedExecutions);

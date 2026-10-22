@@ -3,7 +3,10 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { normalizeRepo } from '../../shared/floors.js';
 import type { ExecutionIntent } from './executors/types.js';
+import type { ExecutionLease } from './execution-client.js';
+import type { RemoteReportedResult } from './isolated-reports.js';
 import type { IsolatedRun } from './isolated-storage.js';
+import { commitsFromLog, type PlanStep, type StepCommits } from './plan-steps.js';
 import { autoPrDisabled, defaultHandoffTools, PullRequestHandoff, type HandoffOutcome, type HandoffTools } from './pull-request-handoff.js';
 import type { SelfCheckReporter } from './self-checks.js';
 import { throwaway } from './upkeep-tools.js';
@@ -97,28 +100,13 @@ export class IsolatedPullRequests {
       return outcome;
     };
     if (patch.length > MAX_PATCH || patch.includes('\0')) return say('its patch is too large or not text');
-    const { git } = this.tools;
-    const origin = normalizeRepo((await git(['remote', 'get-url', 'origin'], this.repo).catch(() => '')).trim());
-    if (!origin || origin.toLowerCase() !== (normalizeRepo(intent.repository.url) ?? '').toLowerCase()) return say("the floor's origin isn't the run's repository");
-    const pinned = intent.repository.commitSha;
-    try { await git(['cat-file', '-e', `${pinned}^{commit}`], this.repo); } catch {
-      await git(['fetch', '--no-tags', '--quiet', 'origin', pinned], this.repo).catch(() => '');
-    }
-
-    const mbox = this.file(id, 'isolated.patch');
-    mkdirSync(path.dirname(mbox), { recursive: true, mode: 0o700 });
-    writeFileSync(mbox, asMailbox(patch, `Opora card ${lease.nodeId}: ${String(result.summary).split('\n')[0]}`, pendingResult.report.processedAt), { mode: 0o600 });
+    const replayed = await this.replay(lease, intent, pendingResult.report, id);
+    if ('reason' in replayed) return say(replayed.reason);
+    const tree = replayed.tree, pinned = intent.repository.commitSha;
     // The handoff opens the PR from a stored result, as for a card worker; the patch itself stays out of the body.
     writeFileSync(this.file(id, 'reported.json'), JSON.stringify({ receiptId: resultReceipt.receiptId ?? null, result }, null, 2), { mode: 0o600 });
-
-    let tree: Awaited<ReturnType<typeof throwaway>> | undefined;
     let keep = false;
     try {
-      tree = await throwaway(git, this.repo, path.join(this.directory, 'trees'), id, pinned);
-      try { await git([...IDENTITY, 'am', '--committer-date-is-author-date', '--keep-cr', mbox], tree.dir); } catch (error) {
-        await git(['am', '--abort'], tree.dir).catch(() => '');
-        return say(`its patch doesn't apply to the pinned commit ${pinned.slice(0, 12)} (${(error as Error).message.slice(0, 200)})`);
-      }
       const outcome = await this.handoff.handOff({ lease, dir: tree.dir, baseCommit: pinned }, notify) ?? { state: 'skipped' as const, reason: 'no stored result' };
       this.remember(id, digest, outcome);
       if ((outcome.state === 'opened' || outcome.state === 'reused') && this.selfChecks) {
@@ -130,8 +118,49 @@ export class IsolatedPullRequests {
       }
       return outcome;
     } finally {
-      if (!keep) await tree?.cleanup();
-      rmSync(mbox, { force: true });
+      if (!keep) await tree.cleanup();
     }
+  }
+
+  /**
+   * Plan steps on the broker path, before the result goes to Canvas: the step commits as the pull
+   * request branch will carry them. The patch is replayed exactly as `handOff` replays it (same pinned
+   * commit, identity and dates, so the same SHAs) and each step's commits are read from the
+   * `step <id>:` subjects in `<pinned>..HEAD`. Undefined when there is nothing to replay or it fails.
+   */
+  async replayedStepCommits(lease: ExecutionLease, intent: ExecutionIntent, report: RemoteReportedResult, steps: PlanStep[]): Promise<StepCommits | undefined> {
+    const patch = report.result.patch;
+    if (!steps.length || typeof patch !== 'string' || !patch.trim() || patch.length > MAX_PATCH || patch.includes('\0') || autoPrDisabled(this.tools.env)) return undefined;
+    const replayed = await this.replay(lease, intent, report, `${lease.executionId}-steps`);
+    if ('reason' in replayed) return undefined;
+    try {
+      return commitsFromLog(await this.tools.git(['log', '--reverse', '--format=%H%x1f%s', `${intent.repository.commitSha}..HEAD`], replayed.tree.dir), steps);
+    } catch { return undefined; } finally { await replayed.tree.cleanup(); }
+  }
+
+  /** The patch applied with `git am` in a throwaway worktree at the pinned commit (the caller removes it), or why it can't be. */
+  private async replay(lease: ExecutionLease, intent: ExecutionIntent, report: RemoteReportedResult, key: string):
+    Promise<{ tree: Awaited<ReturnType<typeof throwaway>> } | { reason: string }> {
+    const { git } = this.tools;
+    const origin = normalizeRepo((await git(['remote', 'get-url', 'origin'], this.repo).catch(() => '')).trim());
+    if (!origin || origin.toLowerCase() !== (normalizeRepo(intent.repository.url) ?? '').toLowerCase()) return { reason: "the floor's origin isn't the run's repository" };
+    const pinned = intent.repository.commitSha;
+    try { await git(['cat-file', '-e', `${pinned}^{commit}`], this.repo); } catch {
+      await git(['fetch', '--no-tags', '--quiet', 'origin', pinned], this.repo).catch(() => '');
+    }
+    const mbox = this.file(key, 'isolated.patch');
+    mkdirSync(path.dirname(mbox), { recursive: true, mode: 0o700 });
+    const subject = `Opora card ${lease.nodeId}: ${String(report.result.summary).split('\n')[0]}`;
+    writeFileSync(mbox, asMailbox(String(report.result.patch), subject, report.processedAt), { mode: 0o600 });
+    let tree: Awaited<ReturnType<typeof throwaway>> | undefined;
+    try {
+      tree = await throwaway(git, this.repo, path.join(this.directory, 'trees'), key, pinned);
+      try { await git([...IDENTITY, 'am', '--committer-date-is-author-date', '--keep-cr', mbox], tree.dir); } catch (error) {
+        await git(['am', '--abort'], tree.dir).catch(() => '');
+        await tree.cleanup();
+        return { reason: `its patch doesn't apply to the pinned commit ${pinned.slice(0, 12)} (${(error as Error).message.slice(0, 200)})` };
+      }
+      return { tree };
+    } catch (error) { await tree?.cleanup(); throw error; } finally { rmSync(mbox, { force: true }); }
   }
 }

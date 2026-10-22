@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { ManagedAgentsHttp } from './executors/managed-http.js';
 import { ExecutorFailure, type ExecutionIntent } from './executors/types.js';
 import { digest, object, validateIntent } from './executors/validation.js';
+import { commitsFromPatch, withStepCommits, type PlanStep, type StepCommits } from './plan-steps.js';
 
 export type ReportJson = null | boolean | number | string | ReportJson[] | { [key: string]: ReportJson };
 export interface RemoteReportedResult {
@@ -57,7 +58,8 @@ function safe(value: unknown, depth = 0): boolean {
 }
 
 /** Provider GET attests message provenance only. Its contents remain an untrusted agent claim. */
-export async function readRemoteReport(http: ManagedAgentsHttp, input: ExecutionIntent, sessionId: string): Promise<RemoteReportedResult | null> {
+export async function readRemoteReport(http: ManagedAgentsHttp, input: ExecutionIntent, sessionId: string,
+  steps: PlanStep[] = []): Promise<RemoteReportedResult | null> {
   const intent = validateIntent(input);
   const message = await http.readLatestMessage(sessionId);
   if (!message) return null;
@@ -67,9 +69,40 @@ export async function readRemoteReport(http: ManagedAgentsHttp, input: Execution
     || !['intentId', 'executionId', 'epoch', 'acceptedRevision', 'assignmentDigest'].every(key => report[key] === intent[key as keyof ExecutionIntent])
     || !object(report.result) || !safe(report.result) || typeof report.result.summary !== 'string'
     || !report.result.summary.trim() || report.result.summary.length > 8000) throw new ExecutorFailure();
-  const result = structuredClone(report.result) as RemoteReportedResult['result'];
-  const body = { eventId: message.eventId, processedAt: message.processedAt, result };
-  const requestId = createHash('sha256').update(intent.intentId + sessionId + message.eventId).digest('hex');
+  const result = remoteStepResults(structuredClone(report.result) as RemoteReportedResult['result'], steps);
+  return seal(intent, sessionId, message.eventId, message.processedAt, result);
+}
+
+function seal(intent: ExecutionIntent, sessionId: string, eventId: string, processedAt: string, result: RemoteReportedResult['result']): RemoteReportedResult {
+  const body = { eventId, processedAt, result };
+  const requestId = createHash('sha256').update(intent.intentId + sessionId + eventId).digest('hex');
   return { ...body, requestId, digest: digest({ ...body, intentId: intent.intentId, executionId: intent.executionId,
     epoch: intent.epoch, acceptedRevision: intent.acceptedRevision, assignmentDigest: intent.assignmentDigest, sessionId }) };
+}
+
+/**
+ * The report as Canvas gets it once the office has replayed the patch (isolated-pull-request.ts): each
+ * step's commits are the replayed ones, the SHAs the pull request branch carries, never the container's.
+ * Without a replay (no patch, no pull request, a patch that doesn't apply) the steps keep no commits,
+ * since the container's SHAs exist nowhere Canvas or a reviewer could look them up. Same requestId, new digest.
+ */
+export function withReplayedCommits(report: RemoteReportedResult, intent: ExecutionIntent, sessionId: string,
+  steps: PlanStep[], replayed: StepCommits | undefined): RemoteReportedResult {
+  if (!steps.length || !('stepResults' in report.result)) return report;
+  const result = remoteStepResults(structuredClone(report.result), steps, replayed ?? new Map());
+  return seal(intent, sessionId, report.eventId, report.processedAt, result);
+}
+
+/**
+ * Plan steps on the isolated path: each step's commits come from git, never from the agent (by default
+ * the patch's own `From <sha>` / `Subject: step <id>:` lines; withReplayedCommits passes the replayed ones); stepResults Canvas would refuse (or any, for a
+ * card without pinned steps) are left out, so the rest of the result still goes through.
+ */
+export function remoteStepResults(result: RemoteReportedResult['result'], steps: PlanStep[],
+  commits: StepCommits = commitsFromPatch(typeof result.patch === 'string' ? result.patch : '', steps)): RemoteReportedResult['result'] {
+  if (!('stepResults' in result)) return result;
+  const checked = withStepCommits(result, steps, commits);
+  if (!checked.problem) return checked.result as RemoteReportedResult['result'];
+  const { stepResults: _refused, ...rest } = result;
+  return rest as RemoteReportedResult['result'];
 }
