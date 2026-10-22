@@ -58,9 +58,9 @@ export class PullRequestHandoff {
   private said = new Set<string>();
   constructor(private directory: string, private base: string, private agent: string,
     private tools: HandoffTools = defaultHandoffTools()) {
-    this.lens = new PrLensAttachment(path.join(directory, 'opora-executions'), base, agent, tools);
+    this.lens = new PrLensAttachment(base, agent, tools);
   }
-  /** The worker's PR Lens diagram, shown on the pull request and reported as optional evidence (pr-lens.ts). */
+  /** The worker's PR Lens diagram, summarised in the pull request as text and sent to Canvas as optional evidence (pr-lens.ts). */
   private lens: PrLensAttachment;
 
   private file(executionId: string, kind: 'reported' | 'pull-request') {
@@ -137,7 +137,7 @@ export class PullRequestHandoff {
     let lens: Awaited<ReturnType<PrLensAttachment['prepare']>>;
     try {
       await this.tools.git(['push', 'origin', `HEAD:refs/heads/${branch}`], dir);
-      lens = await this.lens.prepare(dir, { repository, branch, headSha, executionId: id });
+      lens = this.lens.prepare(dir, { headSha });
       const listed = JSON.parse((await this.tools.gh(['pr', 'list', '--repo', repository, '--head', branch, '--state', 'all', '--limit', '1', '--json', 'number,url'], dir)) || '[]') as { number: number; url: string }[];
       existed = !!listed[0];
       if (listed[0]) pr = { number: Number(listed[0].number), url: String(listed[0].url) };
