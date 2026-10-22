@@ -1,5 +1,6 @@
 /* The Lens section of the process wall's card inspector (features/lens/ui.ts). */
-.pw-sec.lens { display: grid; gap: 8px; }
+.pw-sec.lens { --mono: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace; display: grid; gap: 8px; min-width: 0; }
+.lens-body { display: grid; gap: 8px; min-width: 0; }
 .lens-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .lens-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
 .lens-tab { font: 800 12px/1.2 var(--font); padding: 3px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); cursor: pointer; }
@@ -8,30 +9,7 @@
 .lens-tab:focus-visible, .lens-open:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .lens-open { margin-left: auto; font-size: 12px; font-weight: 900; color: var(--ink); }
 .lens-meta { font-size: 11px; font-weight: 800; color: var(--muted); }
-.lens-graph { display: grid; gap: 8px; }
 .lens-title { font-size: 14px; font-weight: 900; overflow-wrap: anywhere; }
 .lens-sum { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.45; overflow-wrap: anywhere; }
-.lens-lanes { display: grid; gap: 6px; }
-.lens-lane { border: 2px solid var(--ink); border-radius: 10px; padding: 6px; background: var(--paper); display: grid; gap: 5px; }
-.lens-lh { display: flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .03em; }
-.lens-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 5px; }
-.lens-card { background: #fff; border: 2px solid var(--ink); border-radius: 8px; padding: 4px 6px; display: grid; gap: 2px; min-width: 0; font-size: 12px; }
-.lens-card.added { border-color: #059669; box-shadow: inset 4px 0 0 var(--good); }
-.lens-card.modified { box-shadow: inset 4px 0 0 var(--warn); }
-.lens-card.removed { border-style: dashed; opacity: .75; box-shadow: inset 4px 0 0 var(--bad); }
-.lens-card.unchanged { border-color: #c9bfb2; }
-.lens-ch { display: flex; gap: 5px; align-items: center; min-width: 0; }
-.lens-ch b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.lens-ch .kd { margin-left: auto; }
-.lens-file { font: 600 10.5px/1.3 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-.lens-badges { display: flex; gap: 3px; flex-wrap: wrap; }
-.lens-badges span { font-size: 10px; font-weight: 800; padding: 0 5px; border-radius: 6px; background: var(--paper-2); border: 1px solid var(--ink); }
 .lens-d { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 5px; border: 2px solid var(--ink); font: 900 11px/1 var(--mono); flex: none; background: #e9ecef; }
 .lens-d.added { background: var(--good); } .lens-d.modified { background: var(--warn); } .lens-d.removed { background: var(--bad); color: #fff; }
-.lens-k { font-size: 11px; font-weight: 900; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.lens-edges, .lens-flow { margin: 0; padding-left: 0; display: grid; gap: 3px; font-size: 12px; font-weight: 700; }
-.lens-edges { list-style: none; }
-.lens-edges li { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; }
-.lens-edges li.hero { font-weight: 900; }
-.lens-edges .lbl { color: var(--muted); }
-.lens-flow { padding-left: 20px; }

@@ -4,7 +4,7 @@
 // token and no write. Each answer is kept 30 s, so a window redrawn on every event doesn't ask
 // again; a 404 (an Opora without the endpoint), a 428, a timeout or a refusal is an answer too.
 
-import { lensGraph, str, type CardLens, type LensView, type PlanLens } from '../../shared/opora-lens.js';
+import { lensGraph, PLAN_STATS, str, type CardLens, type LensView, type PlanLens, type PlanStats } from '../../shared/opora-lens.js';
 
 const TTL_MS = 30_000;
 const TIMEOUT_MS = 5000;
@@ -55,9 +55,32 @@ export function planLens(r: Read): PlanLens {
   const d = r.status === 200 ? obj(r.data) : undefined;
   if (!d) return { state: 'unavailable' };
   if (d.spec === undefined || d.spec === null) return { state: 'none' };
-  const stats = obj(d.stats);
-  const numbers = stats ? Object.fromEntries(Object.entries(stats).filter(([k, v]) => /^[A-Za-z][A-Za-z0-9_]{0,30}$/.test(k) && typeof v === 'number' && Number.isFinite(v)).slice(0, 8)) as Record<string, number> : undefined;
-  return defined({ state: 'ok' as const, area: str(d.area, 80), digest: str(d.digest, 80), stats: numbers && Object.keys(numbers).length ? numbers : undefined, view: view({ spec: d.spec }) });
+  const raw = obj(d.stats), stats: PlanStats = {};
+  for (const k of PLAN_STATS) { const v = int(raw?.[k]); if (v !== undefined && v >= 0) stats[k] = v; }
+  const confirmed = confirmedCards(d.spec);
+  if (confirmed !== undefined) stats.confirmed = confirmed;
+  const g = obj(d.graphify);
+  const graphify = g ? defined({ available: g.available === true, sourceRevision: str(g.sourceRevision, 80) }) : undefined;
+  return defined({ state: 'ok' as const, area: str(d.area, 80), digest: str(d.digest, 80), stats: Object.keys(stats).length ? stats : undefined, graphify, view: view({ spec: d.spec }) });
+}
+
+/**
+ * Cards a human closed (`done.confirmed`), counted from the whole plan spec before it is capped:
+ * a card node with the badge `hotovo`, or an area or "Nezařazeno" group with `N/M hotovo`.
+ */
+export function confirmedCards(spec: unknown): number | undefined {
+  const nodes = obj(spec)?.nodes;
+  if (!Array.isArray(nodes)) return undefined;
+  let n = 0;
+  for (const node of nodes) {
+    const badges = obj(node)?.badges;
+    if (!Array.isArray(badges)) continue;
+    for (const b of badges) {
+      if (b === 'hotovo') n++;
+      else if (typeof b === 'string') { const m = /^(\d{1,6})\/\d{1,6} hotovo$/.exec(b); if (m) n += Number(m[1]); }
+    }
+  }
+  return n;
 }
 
 /** The two Opora reads, cached by Opora address, project, workspace and card or area. */

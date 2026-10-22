@@ -9,8 +9,11 @@ export type LensDelta = 'added' | 'modified' | 'removed' | 'unchanged';
 export interface LensFile { path: string; lines?: string }
 export interface LensNode { id: string; label: string; kind: string; delta: LensDelta; summary?: string; files: LensFile[]; badges: string[] }
 export interface LensLane { id: string; label: string; delta?: LensDelta; nodes: LensNode[] }
-export interface LensEdge { from: string; to: string; kind: string; delta: LensDelta; label?: string; hero: boolean }
-export interface LensFlow { title: string; steps: string[] }
+/** An edge between two node ids. `code` marks a link found in code (Graphify, `emphasis: muted`), not drawn by default. */
+export interface LensEdge { from: string; to: string; kind: string; delta: LensDelta; label?: string; hero: boolean; code: boolean }
+/** One step of a flow: a message between two node ids, or only a caption. */
+export interface LensStep { from?: string; to?: string; label?: string }
+export interface LensFlow { title: string; steps: LensStep[] }
 
 /** The part of a PR Lens graph document the window shows. */
 export interface LensGraph {
@@ -40,11 +43,16 @@ export interface CardLens {
   area?: LensView & { by?: string; createdAt?: string; acceptedRevision?: number };
 }
 
+/** Opora's numbers for a plan Lens (whitelisted), plus `confirmed`: cards a human closed (`hotovo`), counted by the office. */
+export interface PlanStats { areas?: number; cards?: number; withCode?: number; planned?: number; standalone?: number; unassigned?: number; confirmed?: number }
+export const PLAN_STATS = ['areas', 'cards', 'withCode', 'planned', 'standalone', 'unassigned'] as const;
+
 export interface PlanLens {
   state: 'ok' | LensAbsence;
   area?: string;
   digest?: string;
-  stats?: Record<string, number>;
+  stats?: PlanStats;
+  graphify?: { available: boolean; sourceRevision?: string };
   view?: LensView;
 }
 
@@ -96,13 +104,11 @@ export function lensGraph(spec: unknown): LensGraph | null {
     lanes.push(lane);
     byLane.set(id, lane);
   }
-  const labels = new Map<string, string>();
   let count = 0;
   for (const raw of arr(d.nodes)) {
     const n = obj(raw), id = str(n?.id, 80), lane = byLane.get(str(n?.lane, 80) ?? '');
     if (!id) continue;
     const label = str(n?.label) ?? id;
-    labels.set(id, label);
     if (!lane) continue;
     if (count >= MAX.nodes || lane.nodes.length >= MAX.perLane) { truncated = true; continue; }
     const files = arr(n?.files).map(file).filter((f): f is LensFile => !!f);
@@ -118,7 +124,7 @@ export function lensGraph(spec: unknown): LensGraph | null {
     if (!from || !to) continue;
     if (edges.length >= MAX.edges) { truncated = true; break; }
     const label = str(e?.label, 80);
-    edges.push({ from: labels.get(from) ?? from, to: labels.get(to) ?? to, kind: str(e?.kind, 24) ?? 'other', delta: delta(e?.delta) ?? 'unchanged', ...(label ? { label } : {}), hero: e?.emphasis === 'hero' });
+    edges.push({ from, to, kind: str(e?.kind, 24) ?? 'other', delta: delta(e?.delta) ?? 'unchanged', ...(label ? { label } : {}), hero: e?.emphasis === 'hero', code: e?.emphasis === 'muted' || label === 'kód' });
   }
   const flows: LensFlow[] = [];
   for (const raw of arr(d.flows)) {
@@ -127,10 +133,11 @@ export function lensGraph(spec: unknown): LensGraph | null {
     if (flows.length >= MAX.flows) { truncated = true; break; }
     const msgs = arr(f?.messages ?? f?.steps);
     if (msgs.length > MAX.steps) truncated = true;
-    const steps = msgs.slice(0, MAX.steps).map((m) => {
-      const s = obj(m), from = str(s?.from, 80), to = str(s?.to, 80), label = str(s?.label ?? s?.title, 100);
-      return from && to ? `${labels.get(from) ?? from} → ${labels.get(to) ?? to}${label ? ': ' + label : ''}` : label;
-    }).filter((s): s is string => !!s);
+    const steps = msgs.slice(0, MAX.steps).map((m): LensStep | undefined => {
+      const s = obj(m), from = str(s?.from, 80), to = str(s?.to, 80), label = str(s?.label ?? s?.title, 160);
+      if (from && to) return { from, to, ...(label ? { label } : {}) };
+      return label ? { label } : undefined;
+    }).filter((s): s is LensStep => !!s);
     flows.push({ title, steps });
   }
   const summary = str(d.summary, 400);

@@ -11,7 +11,10 @@ const spec = {
     { id: 'ui', label: '<img src=x onerror=alert(1)>', kind: 'ui', delta: 'modified', lane: 'client', files: [] },
     { id: 'ghost', label: 'No lane', kind: 'other', delta: 'removed', lane: 'nowhere' },
   ],
-  edges: [{ id: 'e', from: 'ui', to: 'reader', kind: 'http', delta: 'added', emphasis: 'hero', label: 'GET /api/opora-lens' }],
+  edges: [
+    { id: 'e', from: 'ui', to: 'reader', kind: 'http', delta: 'added', emphasis: 'hero', label: 'GET /api/opora-lens' },
+    { id: 'k', from: 'reader', to: 'ui', kind: 'dependency', delta: 'unchanged', emphasis: 'muted', label: 'kód' },
+  ],
   flows: [{ id: 'f', title: 'Načtení', participants: [], steps: [{ from: 'ui', to: 'reader', label: 'card' }] }],
 };
 
@@ -21,8 +24,11 @@ test('lensGraph keeps only what the window shows, as plain capped strings', () =
   assert.deepEqual(g.lanes.map((l) => [l.id, l.nodes.map((n) => n.id)]), [['server', ['reader']], ['client', ['ui']]]);
   assert.deepEqual(g.lanes[0].nodes[0].files, [{ path: 'src/server/opora/lens-reader.ts', lines: '1–90' }]);
   assert.equal(g.lanes[1].nodes[0].label, '<img src=x onerror=alert(1)>', 'kept as data; the page renders it as text');
-  assert.deepEqual(g.edges[0], { from: '<img src=x onerror=alert(1)>', to: 'LensReader', kind: 'http', delta: 'added', label: 'GET /api/opora-lens', hero: true });
-  assert.deepEqual(g.flows, [{ title: 'Načtení', steps: ['<img src=x onerror=alert(1)> → LensReader: card'] }]);
+  assert.deepEqual(g.edges[0], { from: 'ui', to: 'reader', kind: 'http', delta: 'added', label: 'GET /api/opora-lens', hero: true, code: false }, 'node ids, not labels');
+  assert.equal(g.edges[1].code, true, 'a Graphify edge (emphasis muted, label kód) is a code edge');
+  assert.deepEqual(g.flows, [{ title: 'Načtení', steps: [{ from: 'ui', to: 'reader', label: 'card' }] }]);
+  const msgs = lensGraph({ kind: 'graph', title: 't', lanes: [], flows: [{ title: 'F', messages: [{ from: 'a', to: 'b' }, { label: 'jen popisek\u0007' }, { from: 'a' }] }] })!;
+  assert.deepEqual(msgs.flows[0].steps, [{ from: 'a', to: 'b' }, { label: 'jen popisek' }]);
   assert.equal(lensGraph({ kind: 'area-map' }), null);
   assert.equal(lensGraph('x'), null);
   const big = lensGraph({ kind: 'graph', title: 't', lanes: [{ id: 'a', label: 'A' }], nodes: Array.from({ length: 40 }, (_, i) => ({ id: `n${i}`, label: 'x'.repeat(500), lane: 'a' })) })!;
@@ -49,9 +55,11 @@ test('the card and plan answers: records, none, 404, 428 and timeouts', () => {
   assert.deepEqual(cardLens({ status: 428 }), { state: 'unavailable' });
   assert.deepEqual(cardLens({ status: 0 }), { state: 'unavailable' });
   assert.deepEqual(planLens({ status: 404 }), { state: 'missing' });
-  const plan = planLens({ status: 200, data: { kind: 'plan', area: 's1', digest: 'd'.repeat(64), spec, stats: { cards: 4, bad: 'x', __proto__x: 1 }, graphify: { big: true } } });
+  const planSpec = { ...spec, nodes: [...spec.nodes, { id: 'a', label: 'A', lane: 'server', badges: ['hotovo'] }, { id: 'b', label: 'B', lane: 'server', badges: ['plán', 'hotovo'] }, { id: 'g', label: 'Oblast', lane: 'client', badges: ['3/7 hotovo'] }] };
+  const plan = planLens({ status: 200, data: { kind: 'plan', area: 's1', digest: 'd'.repeat(64), spec: planSpec, stats: { cards: 4, withCode: 2, planned: 2, standalone: 1, unassigned: 0, areas: 1, bad: 'x', __proto__x: 1, extra: 9 }, graphify: { available: true, sourceRevision: 'abc123', big: true } } });
   assert.equal(plan.state, 'ok');
-  assert.deepEqual(plan.stats, { cards: 4 });
+  assert.deepEqual(plan.stats, { areas: 1, cards: 4, withCode: 2, planned: 2, standalone: 1, unassigned: 0, confirmed: 5 }, 'whitelisted, plus the cards a human closed');
+  assert.deepEqual(plan.graphify, { available: true, sourceRevision: 'abc123' });
   assert.ok(plan.view?.graph);
 });
 

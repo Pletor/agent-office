@@ -1,13 +1,13 @@
 // The Lens section of the process wall's card inspector: the card's PR Lens (the change), its area
 // map, and its area's plan Lens, as Opora keeps them (GET /api/opora-lens), one at a time behind
-// small tabs, and a link that opens the card's Lens in Opora. A spec is data agents wrote: it is
-// drawn as text in elements of our own, never as HTML or SVG markup.
+// small tabs, each drawn as a diagram (diagram.ts), and a link that opens the card's Lens in Opora.
+// A spec is data agents wrote: it goes into elements of our own as text, never as HTML or SVG markup.
 
 import { h } from '../../ui/dom';
-import { oporaLensUrl, type LensDelta, type LensGraph, type LensView, type OporaLensReply } from '../../../shared/opora-lens';
+import { oporaLensUrl, type LensView, type OporaLensReply, type PlanLens } from '../../../shared/opora-lens';
+import { LensDiagram } from './diagram';
 import './ui.css';
 
-const DELTA: Record<LensDelta, [string, string]> = { added: ['+', 'přidáno'], modified: ['~', 'změněno'], removed: ['−', 'odebráno'], unchanged: ['=', 'beze změny'] };
 const ABSENT: Record<string, string> = {
   none: 'Opora k ní zatím nic nemá.',
   missing: 'Tahle Opora ji ještě neumí vydat (404).',
@@ -15,36 +15,7 @@ const ABSENT: Record<string, string> = {
 };
 
 type ViewId = 'pr' | 'area' | 'plan';
-interface Shown { id: ViewId; label: string; view?: LensView; meta: string[]; absent?: string }
-
-const badge = (d: LensDelta) => h('span', { class: `lens-d ${d}`, title: DELTA[d][1] }, DELTA[d][0]);
-
-/** One graph: its title and summary, the lanes with their cards, the edges and the flows. */
-export function graphEl(g: LensGraph): HTMLElement {
-  const root = h('div.lens-graph', {}, h('div.lens-title', {}, g.title));
-  if (g.summary) root.append(h('p.lens-sum', {}, g.summary));
-  const lanes = h('div.lens-lanes');
-  for (const lane of g.lanes) {
-    const cards = h('div.lens-cards');
-    for (const n of lane.nodes) {
-      cards.append(h('div', { class: `lens-card ${n.delta}`, title: n.summary ?? '' },
-        h('div.lens-ch', {}, badge(n.delta), h('b', {}, n.label), h('span.kd', {}, n.kind)),
-        ...n.files.map((f) => h('code.lens-file', { title: f.path }, f.path, f.lines ? `:${f.lines}` : '')),
-        n.badges.length ? h('div.lens-badges', {}, ...n.badges.map((b) => h('span', {}, b))) : null));
-    }
-    lanes.append(h('div.lens-lane', {}, h('div.lens-lh', {}, lane.delta ? badge(lane.delta) : null, lane.label), lane.nodes.length ? cards : h('span.pw-note', {}, 'bez karet')));
-  }
-  root.append(lanes);
-  if (g.edges.length) {
-    root.append(h('div.lens-k', {}, `Vazby · ${g.edges.length}`), h('ul.lens-edges', {}, ...g.edges.map((e) =>
-      h('li', { class: e.hero ? 'hero' : '' }, badge(e.delta), h('span', {}, `${e.from} → ${e.to}`), h('span.kd', {}, e.kind), e.label ? h('span.lbl', {}, e.label) : null))));
-  }
-  for (const f of g.flows) {
-    root.append(h('div.lens-k', {}, `Tok · ${f.title}`), h('ol.lens-flow', {}, ...f.steps.map((s) => h('li', {}, s))));
-  }
-  if (g.truncated) root.append(h('p.pw-note', {}, 'Zkráceno — celý diagram je v Opoře.'));
-  return root;
-}
+interface Shown { id: ViewId; label: string; view?: LensView; meta: string[]; absent?: string; plan?: PlanLens }
 
 function shown(r: OporaLensReply): Shown[] {
   const out: Shown[] = [];
@@ -56,7 +27,7 @@ function shown(r: OporaLensReply): Shown[] {
     meta: area ? [area.acceptedRevision !== undefined ? `plán rev. ${area.acceptedRevision}` : '', area.by ? `kreslil ${area.by}` : ''].filter(Boolean) : [] });
   const plan = r.plan;
   out.push({ id: 'plan', label: 'Plán oblasti', view: plan.view, absent: plan.view ? undefined : ABSENT[plan.state === 'ok' ? 'none' : plan.state],
-    meta: [plan.area ? `oblast ${plan.area}` : '', ...Object.entries(plan.stats ?? {}).map(([k, v]) => `${k} ${v}`), plan.digest ? `otisk ${plan.digest.slice(0, 12)}` : ''].filter(Boolean) });
+    plan, meta: [plan.area ? `oblast ${plan.area}` : '', plan.digest ? `otisk ${plan.digest.slice(0, 12)}` : '', plan.graphify?.sourceRevision ? `Graphify ${plan.graphify.sourceRevision.slice(0, 12)}` : ''].filter(Boolean) });
   return out;
 }
 
@@ -70,6 +41,8 @@ export class LensSection {
   private pick?: ViewId;
   private at = 0;
   private loading?: AbortController;
+  /** One diagram per tab, kept while its graph is the same, so playback and switches survive a refresh. */
+  private diagrams = new Map<ViewId, { key: string; d: LensDiagram }>();
 
   constructor(private floor: string, private card: string, private area: () => string | undefined, private base: () => string | undefined) {
     this.root.append(h('div.lens-top', {}, h('span.k', {}, 'Lens'), this.tabs, this.link), this.body);
@@ -90,7 +63,21 @@ export class LensSection {
       .finally(() => { if (this.loading === ctl) this.loading = undefined; });
   }
 
-  destroy() { this.loading?.abort(); }
+  destroy() {
+    this.loading?.abort();
+    for (const { d } of this.diagrams.values()) d.destroy();
+    this.diagrams.clear();
+  }
+
+  private diagram(v: Shown, g: NonNullable<LensView['graph']>): LensDiagram {
+    const key = JSON.stringify([g, v.plan?.stats ?? null, v.plan?.graphify ?? null, v.plan?.area ?? null]);
+    const had = this.diagrams.get(v.id);
+    if (had?.key === key) return had.d;
+    had?.d.destroy();
+    const d = new LensDiagram(g, v.id === 'plan' ? 'plan' : 'pr', v.plan);
+    this.diagrams.set(v.id, { key, d });
+    return d;
+  }
 
   private setLink(base?: string) {
     const href = oporaLensUrl(base, this.card);
@@ -116,7 +103,13 @@ export class LensSection {
     const body: Node[] = [];
     if (v.meta.length) body.push(h('div.lens-meta', {}, v.meta.join(' · ')));
     if (!v.view) body.push(h('span.pw-note', {}, v.absent ?? ABSENT.none));
-    else if (v.view.graph) body.push(graphEl(v.view.graph));
+    else if (v.view.graph) {
+      const g = v.view.graph;
+      body.push(h('div.lens-title', {}, g.title));
+      if (g.summary) body.push(h('p.lens-sum', {}, g.summary));
+      body.push(this.diagram(v, g).root);
+      if (g.truncated) body.push(h('p.pw-note', {}, 'Zkráceno — celý diagram je v Opoře.'));
+    }
     else body.push(h('span.pw-note', {}, v.view.note ?? 'Diagram nejde zobrazit.'));
     this.body.replaceChildren(...body);
   }
