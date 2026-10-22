@@ -1,17 +1,26 @@
-# Opora process wall
+# Opora live process wall
 
-The 3D office has a wide, illuminated **OPORA · Řízení práce** display above the north-wall Issues, Task queue and Pull Requests boards. Aim at it and press **E** or click to open its readable detail window. The wall occupies the upper wall above the existing board labels; it does not replace the task boards or obstruct the floor.
+The 3D office has a wide, illuminated **OPORA · ŽIVÝ PROCES** display above the north-wall Issues, Task queue and Pull Requests boards. Aim at it and press **E** or click to open its window. The wall sits above the board labels; it does not replace the task boards or obstruct the floor.
 
-## Views and controls
+## The wall
 
-- **Celý proces** joins queue tasks, workers and PRs using worker identities, PR numbers and branch names. Three prioritized rows fit the physical screen; **Další strana na stěně** cycles additional rows.
-- **Pracovníci** filters to rows with an observed worker. **Blokace** shows requests for input, lost worktrees, failed tasks, failed GitHub checks and requested review changes. Selecting these views also changes the physical wall, locally for that viewer.
-- The window shows each row's branch, observed phase, head SHA when supplied, checks, review and a GitHub link to inspect the PR evidence. Its phase marker is a projection, not a completed-step checklist.
-- **Historie pozorování** keeps the latest 80 changed row observations in browser memory. It clears on a fresh welcome/floor snapshot and page reload. It is not a durable or complete server audit.
-- **OpenViking · živě** reads the real memory status and role registry through Opora. Choose a role and a query to recall existing memories, with source URI, origin and retrieval score. An optional project field takes an exact Opora project ID; an office branch/repository name is never silently treated as that identity.
-- The top-right **✕** and **Esc** close the window using the office's normal modal/focus lifecycle.
+- **Top bar:** how many cards (lanes) there are, how many workers report `working`, how many blockers wait on someone (**čeká na vás**) and how many are failures (**selhalo**); a **ŽIVĚ / ODPOJENO** pill and the age of the last event.
+- **Seven phases** (Zadání, Plán, Práce, Kontroly, Revize, Sloučení, Paměť) with how many lanes stand in each.
+- **Up to five lanes**, blockers first, then the most recently active. A lane is an Opora card when its events carry one, else the queue task its worker runs, else the worker and its branch, else the PR (a guard on `main` has a lane of its own). Lanes the office already knows about (Opora runs, queued and running tasks, present workers) show before they report anything, with a dashed marker.
+- **The marker** (the worker's initials) stands in the phase of the lane's latest event that isn't just information; a memory recall never moves it. Behind it the **trail** shows each phase's last state: confirmed (green), failed (red diamond), waiting (yellow ring), in progress (blue), or passed without an event (dashed).
+- **The blocker band:** a worker asking a human, tests or a build that keep failing, failed CI, requested review changes, a red post-merge guard, a refused Opora claim or a failing lease heartbeat. The store's current state wins over an older event (a worker that answered, CI that went green again).
 
-The small animated spider on each row stays at the observed phase. Its legs move only when the worker reports `working`, the socket is connected and the current snapshot is ready. Reduced-motion preferences suppress that motion. There is no invented automatic advancement when the office is idle, and the wall never launches work or changes a PR.
+The wall is redrawn only when an event or the office's state arrives, while a marker moves, and when its once-a-second age label reads differently. A marker slides only on a phase change (450 ms), a tool call pulses once, a failure shakes; reduced-motion preferences turn all of that off. **ODPOJENO** means the office socket is down, or workers say they are working while no event has come for five minutes; the lanes then show greyed as the last known state.
+
+## The window
+
+- **Proces:** the blockers as chips (click one to select its lane), the flow map with every lane (rows slide to their new order, held still while the pointer is over the list), and the **card inspector**: who is on turn (a human, when a worker asks), the phase, Opora run, branch and PR link, the checks the events reported (a test call is "spuštěno · výsledek nepotvrzen", not a pass) and the lane's latest events.
+- **Události:** the floor's journal, newest first, filterable by card or worker. **Pozastavit čtení** holds the list still while events keep arriving; the button counts the waiting ones and **Pokračovat ve čtení** shows them.
+- **Paměť:** memory-phase events from the journal, and the live **OpenViking** read through Opora. Choose a role and a query to recall existing memories, with source URI, origin and retrieval score. An optional project field takes an exact Opora project ID; an office branch/repository name is never silently treated as that identity.
+- **Source health** in the header: Kancelář (socket and the age of its last event), Opora (linked, connected, age), GitHub (snapshot age, or its error) and OpenViking (what the Paměť tab last saw).
+- The top-right **✕** and **Esc** close the window through the office's normal modal lifecycle, straight back into mouse-look.
+
+There is no invented advancement when the office is idle, and the wall never launches work or changes a PR.
 
 ## Live data and limits
 
@@ -34,7 +43,7 @@ Where events come from (`src/server/process/`):
 
 Events never carry tokens, lease tokens, passwords, prompt text or paths into the office's data; the floor's checkout folds to `.` and the home folder to `~`.
 
-Each new event goes at once to the browsers on its floor (`process.event`, droppable for a slow link); arriving on a floor brings the latest 300 with it (`FloorView.process`), and `process.since {seq}` catches up (`process.snapshot`). The page keeps the last 300 in the `process` slice, and the wall's history tab shows them. Others read them over HTTP: `GET /api/process/events?floor=<id>&after=<seq>&limit=<n>` (signed in, oldest first).
+Each new event goes at once to the browsers on its floor (`process.event`, droppable for a slow link); arriving on a floor brings the latest 300 with it (`FloorView.process`), and `process.since {seq}` catches up (`process.snapshot`). The page keeps the last 300 in the `process` slice, and the wall and its window are built from them. Others read them over HTTP: `GET /api/process/events?floor=<id>&after=<seq>&limit=<n>` (signed in, oldest first).
 
 ### Push to Opora
 
@@ -54,6 +63,6 @@ OpenViking must be running independently (the local setup uses Docker and Ollama
 
 ## Implementation and validation
 
-`src/client/features/process-wall/` owns the pure projection/history model, canvas texture, fixture, modal and subscription lifecycle. The feature joins the main install list and office fixture registry. The server journal is `src/server/process/` with its protocol domain `process`, WS handler and `process` client slice; `tests/process-journal.test.ts` covers the ring and seq, redaction, hook/board/queue/canvas mappings and the Opora push. It is available on the office map, not on alternate castle/station maps or `/lite`.
+`src/client/features/process-wall/` owns the feature: `lanes.ts` (the pure mapping of journal + store into lanes, blockers and counts), `live.ts` (live/disconnected and source health), `motion.ts` (the wall's event-driven motion), `texture.ts` and `paint.ts` (the 2048×512 canvas), and the window (`ui.ts`, `flow.ts`, `inspector.ts`, `stream.ts`, `memtab.ts`, `memory.ts`, `ui.css`, `flow.css`). The feature joins the main install list and office fixture registry. The server journal is `src/server/process/` with its protocol domain `process`, WS handler and `process` client slice; `tests/process-journal.test.ts` covers the ring and seq, redaction, hook/board/queue/canvas mappings and the Opora push. It is available on the office map, not on alternate castle/station maps or `/lite`.
 
-Run `npm run typecheck`, `npm test`, and `npm run build`. `tests/process-wall.test.ts` verifies association, blockers, status/evidence distinctions, stale connection labels and bounded history. Visual verification should cover the real 3D fixture, live projection with controlled worker messages, view switching, mouse-look restoration, disconnect and mobile detail. Synthetic test messages are browser fixtures, not claims of real agent execution.
+Run `npm run typecheck`, `npm test`, and `npm run build`. `tests/process-wall.test.ts` verifies lane keys, phase and trail rules (info events and recalls don't move a marker), store-only lanes, every blocker kind and the store overruling stale events, ordering, liveness, source health and the motion rules. Visual verification should run a separate built office with a temporary home, feed events through the server journal (`processHub.emit`), and screenshot the wall texture, the window's tabs, a narrow viewport, Esc/✕ back to pointer lock, and a disconnect.

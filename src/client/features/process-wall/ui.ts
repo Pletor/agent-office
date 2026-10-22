@@ -1,88 +1,90 @@
-import { h, openModal, type Modal } from '../../ui/dom';
-import { connectionLabel, PHASES, visibleRows, type WallSnapshot, type WallView, type WallHistory } from './model';
-import './ui.css';
-import { MemoryPane } from './memory';
+// The wall's window (E): "Živý proces · patro …", tabs Proces / Události / Paměť, the health of each
+// source, and the ✕ that openModal puts at the end of the header. Closing it (✕ or Esc) goes through
+// openModal, which hands the player straight back to mouse-look.
 
-type Tab = WallView | 'history' | 'memory';
+import { h, openModal, type Modal } from '../../ui/dom';
+import { FlowTab } from './flow';
+import type { LaneResolver } from './lanes';
+import type { SourceHealth } from './live';
+import { MemoryTab } from './memtab';
+import { StreamTab } from './stream';
+import type { PanelData, Tab } from './view';
+import './ui.css';
+import './flow.css';
+
+type TabId = 'flow' | 'stream' | 'memory';
+const TABS: [TabId, string][] = [['flow', 'Proces'], ['stream', 'Události'], ['memory', 'Paměť']];
+
 export class ProcessWallPanel {
   private modal?: Modal;
-  private tab: Tab = 'overview';
-  private body = h('div.process-wall-body');
-  private status = h('p.process-wall-status');
-  private buttons = new Map<Tab, HTMLButtonElement>();
-  private snapshot?: WallSnapshot;
-  private rendered = '';
-  private memory?: MemoryPane;
-  constructor(private history: WallHistory, private changeView: (view: WallView) => void, private nextPage: () => void, private reportMemory: (label: string) => void) {}
-  open(s: WallSnapshot) {
+  private tabId: TabId = 'flow';
+  private tab?: Tab;
+  private title = h('h2');
+  private sources = h('div.pw-srcs', { 'aria-label': 'Zdraví zdrojů' });
+  private body = h('div.pw-body');
+  private buttons = new Map<TabId, HTMLButtonElement>();
+  private data?: PanelData;
+
+  constructor(private resolver: () => LaneResolver, private reportMemory: (label: string, ok: boolean) => void) {}
+
+  get open() { return !!this.modal; }
+
+  show(data: PanelData, tab: TabId = 'flow') {
     if (this.modal) return;
-    this.tab = 'overview'; this.changeView('overview');
-    this.rendered = '';
-    const tabs = h('nav.process-wall-tabs', { 'aria-label': 'Pohled na proces' });
+    this.data = data;
+    const tabs = h('nav.pw-tabs', { role: 'tablist', 'aria-label': 'Pohled na proces' });
     this.buttons.clear();
-    for (const [id, label] of [['overview', 'Celý proces'], ['workers', 'Pracovníci'], ['blockers', 'Blokace'], ['history', 'Historie pozorování'], ['memory', 'OpenViking · živě']] as const) {
-      const button = h('button', { type: 'button', onclick: () => {
-        this.tab = id;
-        if (id === 'overview' || id === 'workers' || id === 'blockers') this.changeView(id);
-        this.render();
-      } }, label);
-      this.buttons.set(id, button); tabs.append(button);
+    for (const [id, label] of TABS) {
+      const b = h('button.pw-tab', { type: 'button', role: 'tab', onclick: () => this.switch(id) }, label);
+      this.buttons.set(id, b);
+      tabs.append(b);
     }
-    const panel = h('section.process-wall-modal', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Opora – řízení práce' },
-      h('header', {}, h('div', {}, h('span.process-wall-eyebrow', {}, 'CELÝ PROCES POD JEDNOU STŘECHOU'), h('h2', {}, 'OPORA · Řízení práce'))),
-      this.status, tabs,
-      h('div.process-wall-controls', {}, h('span', {}, 'Zvolený živý pohled se promítá také na stěnu.'), h('button', { type: 'button', onclick: () => this.nextPage() }, 'Další strana na stěně →')),
-      this.body);
-    this.modal = openModal(panel, { doing: 'sleduje proces práce', onClose: () => { this.memory?.destroy(); this.memory = undefined; this.body.replaceChildren(); this.modal = undefined; } });
-    this.update(s); this.buttons.get('overview')!.focus();
+    const panel = h('section.pw-modal', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Živý proces' },
+      h('header.pw-head', {}, this.title, tabs, this.sources), this.body);
+    this.modal = openModal(panel, { doing: 'sleduje živý proces', onClose: () => {
+      this.tab?.destroy?.();
+      this.tab = undefined;
+      this.body.replaceChildren();
+      this.modal = undefined;
+    } });
+    this.switch(tab);
+    this.buttons.get(tab)?.focus();
   }
-  update(s: WallSnapshot) { this.snapshot = s; if (this.modal) this.render(); }
-  private render() {
-    const s = this.snapshot;
-    if (!s || !this.modal) return;
-    const age = s.at ? Math.max(0, Math.floor((Date.now() - s.at) / 1000)) : null;
-    this.status.textContent = `${connectionLabel(s)} · ${s.floor} · poslední změna ${age === null ? 'zatím nepřijata' : `před ${age} s`}`;
-    for (const [id, button] of this.buttons) { button.classList.toggle('active', id === this.tab); button.setAttribute('aria-pressed', String(id === this.tab)); }
-    const githubStale = !!s.githubAt && Date.now() - s.githubAt > 180000;
-    const signature = JSON.stringify([this.tab, s, githubStale, this.tab === 'history' ? this.history.entries : null]);
-    if (signature === this.rendered) return;
-    this.rendered = signature;
-    if (this.tab === 'memory') {
-      if (!this.memory) { this.memory = new MemoryPane(this.reportMemory); this.body.replaceChildren(this.memory.root); }
-      return;
+
+  close() { this.modal?.close(); }
+
+  /** New data: an event, the store or the connection changed. */
+  update(data: PanelData) {
+    this.data = data;
+    if (!this.modal) return;
+    this.title.textContent = `Živý proces · patro ${data.floor}`;
+    this.health(data.health);
+    this.tab?.update(data);
+  }
+
+  /** The once-a-second clock: only the ages in the source chips. */
+  tick(health: SourceHealth[]) {
+    if (this.modal) this.health(health);
+  }
+
+  private switch(id: TabId) {
+    if (!this.modal || !this.data) return;
+    if (this.tab && id === this.tabId) return;
+    this.tab?.destroy?.();
+    this.tabId = id;
+    this.tab = id === 'flow' ? new FlowTab() : id === 'stream' ? new StreamTab(this.resolver) : new MemoryTab(this.reportMemory, this.resolver);
+    this.body.replaceChildren(this.tab.root);
+    for (const [k, b] of this.buttons) {
+      b.classList.toggle('on', k === id);
+      b.setAttribute('aria-selected', String(k === id));
     }
-    this.memory?.destroy(); this.memory = undefined;
-    this.body.replaceChildren();
-    if (this.tab === 'history') {
-      this.body.append(h('p.process-wall-notice', {}, 'Posledních 80 událostí procesu na tomto patře ze žurnálu kanceláře (do jeho příchodu místní pozorování tohoto okna). Žurnál drží posledních 1000 událostí patra; nejde o úplný audit.'));
-      if (!this.history.entries.length) this.body.append(h('p', {}, 'Čekáme na první pozorování.'));
-      for (const entry of this.history.entries) this.body.append(h('p.process-wall-event', {}, h('time', {}, new Date(entry.at).toLocaleTimeString('cs-CZ')), entry.text));
-      return;
-    }
-    const summary = h('div.process-wall-metrics');
-    for (const [label, value] of [['Pracovníci', s.workers], ['Pracuje', s.running], ['Ve frontě', s.queued], ['Blokace', s.blocked]]) summary.append(h('div', {}, h('strong', {}, value), h('span', {}, label)));
-    this.body.append(summary);
-    const ghAge = s.githubAt ? Math.max(0, Math.floor((Date.now() - s.githubAt) / 1000)) : null;
-    this.body.append(h('p.process-wall-notice', {}, s.githubError ? `GitHub: ${s.githubError} · zobrazen poslední známý stav`
-      : `GitHub: ${s.githubLoading ? 'obnovuje se · ' : ''}${ghAge === null ? 'data zatím nepřijata' : `snapshot ${new Date(s.githubAt).toLocaleTimeString('cs-CZ')}${githubStale ? ' · může být zastaralý' : ''}`}. Dokončený tah agenta neznamená úspěšné testy nebo merge.`));
-    const rows = visibleRows(s, this.tab);
-    if (!rows.length) this.body.append(h('p.process-wall-empty', {}, this.tab === 'blockers' ? 'V přijatých datech není doložená blokace.' : 'Zatím žádná práce. Nové úkoly a pracovníci se objeví automaticky.'));
-    for (const row of rows) {
-      const phases = h('div.process-wall-phases', { 'aria-label': `Pozorovaná fáze: ${PHASES[row.phase]}` });
-      PHASES.forEach((phase, i) => phases.append(h('span', { class: i === row.phase ? 'current' : '' }, i === row.phase ? '◉ ' + phase : phase)));
-      const article = h('article.process-wall-card', { class: row.blocked ? 'blocked' : '' },
-        h('div.process-wall-card-title', {}, h('h3', {}, row.title), h('span', {}, row.owner)), phases,
-        h('p', {}, row.detail), h('code', {}, row.branch));
-      if (row.pr) {
-        article.append(h('p', {}, `PR #${row.pr.number} · ${row.pr.headRefOid?.slice(0, 10) || 'SHA nepřijato'} · CI: ${row.pr.checks} · review: ${row.pr.reviewDecision || 'neuvedeno'}`));
-        try {
-          const url = new URL(row.pr.url);
-          if (url.protocol === 'https:' && url.hostname === 'github.com' && !url.username && !url.password) article.append(h('a', { href: url.href, target: '_blank', rel: 'noopener noreferrer' }, 'Otevřít PR a důkazy ↗'));
-        } catch { /* Invalid service URL stays plain text. */ }
-      }
-      this.body.append(article);
-    }
-    this.body.append(h('div.process-wall-boundary', {}, h('strong', {}, 'Další části procesu'),
-      h('p', {}, 'OpenViking: živý stav a čtení paměti najdete na kartě OpenViking · živě. Externí plán Opory a nasazení zde zatím nemají živé události.')));
+    this.update(this.data);
+  }
+
+  private health(list: SourceHealth[]) {
+    const sig = JSON.stringify(list);
+    if (this.sources.dataset.sig === sig) return;
+    this.sources.dataset.sig = sig;
+    this.sources.replaceChildren(...list.map((s) => h('span', { class: `pw-pill ${s.tone}` }, h('b', {}, s.name), h('span.age', {}, s.text))));
   }
 }

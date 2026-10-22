@@ -4,8 +4,8 @@ import type { MemoryStatus, MemoryRecall } from '../../../shared/process-memory'
 const LABELS: Record<MemoryStatus['status'], string> = { configured: 'Připojeno', disabled: 'V Opoře vypnuto', unavailable: 'Nedostupné', needs_provisioning: 'Chybí klíče rolí', not_configured: 'Nenastaveno' };
 /** Only mounted while the user inspects memory; poll status without disturbing form or results. */
 export class MemoryPane {
-  readonly root = h('section.process-memory');
-  private status = h('div.process-wall-notice', {}, 'Ověřuji Oporu a OpenViking…');
+  readonly root = h('div.process-memory');
+  private status = h('div.pw-notice', {}, 'Ověřuji Oporu a OpenViking…');
   private role = h('select', { 'aria-label': 'Role paměti' });
   private query = h('input', { 'aria-label': 'Dotaz do paměti', placeholder: 'Např. obnova spojení, chyby a ověřené opravy', maxlength: 2000, required: true });
   private project = h('input', { 'aria-label': 'ID projektu Opory', placeholder: 'ID projektu Opory (volitelné)', maxlength: 128 });
@@ -17,18 +17,18 @@ export class MemoryPane {
   private roleSignature = '';
   private searching = false;
   private configured = false;
-  constructor(private report: (label: string) => void) {
+  constructor(private report: (label: string, ok: boolean) => void) {
     const form = h('form.process-memory-form', { onsubmit: e => { e.preventDefault(); void this.recall(); } },
       h('label', {}, 'Role agenta', this.role), h('label', {}, 'Hledaný kontext', this.query),
       h('label', {}, 'Projekt · přesné ID, nikoli název repozitáře', this.project), this.submit);
-    this.root.append(h('h3', {}, 'OpenViking · živá paměť přes Oporu'), this.status,
+    this.root.append(this.status,
       h('p', {}, 'agent-office → Opora Control Center → OpenViking → zdrojové vzpomínky'),
-      h('p.process-wall-notice', {}, 'Čtení paměti rolí. Klíče zůstávají v Opoře. Vyhledání není zápis, trénování modelu ani důkaz zlepšení agenta.'), form, this.results,
+      h('p.pw-notice', {}, 'Čtení paměti rolí. Klíče zůstávají v Opoře. Vyhledání není zápis, trénování modelu ani důkaz zlepšení agenta.'), form, this.results,
       h('a', { href: 'https://github.com/volcengine/OpenViking', target: '_blank', rel: 'noopener noreferrer' }, 'Repozitář OpenViking ↗'));
     this.submit.disabled = true;
     void this.refresh();
   }
-  destroy() { this.stopped = true; clearTimeout(this.timer); this.request.abort(); this.report('stav ověřen v detailu'); }
+  destroy() { this.stopped = true; clearTimeout(this.timer); this.request.abort(); }
   private async refresh() {
     try {
       const response = await fetch('/api/process-memory', { signal: this.request.signal, cache: 'no-store' });
@@ -37,7 +37,7 @@ export class MemoryPane {
       if (this.stopped) return;
       this.configured = s.status === 'configured';
       this.status.textContent = `${LABELS[s.status]} · ${s.reason} · ověřeno ${new Date(s.checkedAt).toLocaleTimeString('cs-CZ')}${s.missingRoles.length ? ' · chybí: ' + s.missingRoles.join(', ') : ''}`;
-      this.report(LABELS[s.status]);
+      this.report(LABELS[s.status], this.configured);
       const signature = JSON.stringify(s.roles);
       if (signature !== this.roleSignature) {
         const selected = this.role.value;
@@ -47,7 +47,7 @@ export class MemoryPane {
       }
     } catch (error) {
       if (this.stopped) return;
-      this.configured = false; this.status.textContent = error instanceof Error ? error.message : 'Paměť není dostupná.'; this.report('nedostupné');
+      this.configured = false; this.status.textContent = error instanceof Error ? error.message : 'Paměť není dostupná.'; this.report('nedostupné', false);
     } finally {
       if (!this.stopped) { this.submit.disabled = !this.configured || this.searching; this.timer = setTimeout(() => void this.refresh(), 15000); }
     }
@@ -65,7 +65,7 @@ export class MemoryPane {
       this.results.replaceChildren(h('p', {}, `Dotaz: ${query} · role: ${role} · ${project || 'paměť role napříč projekty'}`));
       if (result.status !== 'configured') { this.results.append(h('p', {}, result.reason || 'Paměť není dostupná.')); return; }
       this.results.append(h('p', {}, `${result.items.length} skutečných výsledků${result.truncated ? ' · výpis zkrácen' : ''}. Před použitím ověřte jejich relevanci.`));
-      for (const item of result.items) this.results.append(h('article.process-wall-card', {}, h('code', {}, item.uri), h('p', {}, `Původ: ${item.origin} · skóre vyhledání: ${item.score.toFixed(3)}`), h('p.process-memory-text', {}, item.text)));
+      for (const item of result.items) this.results.append(h('article.pw-memit', {}, h('code', {}, item.uri), h('p', {}, `Původ: ${item.origin} · skóre vyhledání: ${item.score.toFixed(3)}`), h('p.process-memory-text', {}, item.text)));
     } catch (error) { if (!this.stopped) this.results.replaceChildren(h('p', {}, error instanceof Error ? error.message : 'Paměť není dostupná.')); }
     finally { this.searching = false; this.submit.disabled = !this.configured; }
   }

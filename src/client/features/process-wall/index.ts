@@ -2,9 +2,12 @@ import type * as THREE from 'three';
 import type { Ctx } from '../../core/context';
 import { hintTitle, key, onE } from '../../core/hint';
 import { store } from '../../state';
-import { projectWall, WallHistory, type WallView } from './model';
+import { buildBoard, LaneResolver, type Board, type BoardInput } from './lanes';
+import { lastEventLabel, liveness, sourceHealth, type Liveness } from './live';
+import { WallMotion } from './motion';
 import { ProcessTexture } from './texture';
 import { ProcessWallPanel } from './ui';
+import type { PanelData } from './view';
 
 declare module '../../world/types' {
   interface InteractKinds {
@@ -12,37 +15,70 @@ declare module '../../world/types' {
   }
 }
 
+/**
+ * The live process wall and its window. Everything is computed from the floor's process journal
+ * and the store, again only when one of them (or the connection) changes; the wall is redrawn then,
+ * while a marker still moves, and when the once-a-second age label reads differently.
+ */
 export function installProcessWall(ctx: Ctx) {
-  const texture = new ProcessTexture(), history = new WallHistory();
+  const texture = new ProcessTexture(), motion = new WallMotion();
   const mat = ctx.office.processWall.screen.material as THREE.MeshBasicMaterial;
   mat.map = texture.texture; mat.needsUpdate = true;
-  let view: WallView = 'overview', page = 0, ready = false, at = 0, lastDraw = 0, lastPanel = 0;
-  const snapshot = () => projectWall({
-    floor: store.currentFloor()?.name || 'Čeká na patro', workers: [...store.workers.values()], tasks: store.queue.tasks,
-    pulls: store.pulls, connected: ctx.net.up, ready, at,
+  let memory: { label: string; ok: boolean; at: number } | undefined;
+  const input = (): BoardInput => ({
+    events: store.process.events, workers: [...store.workers.values()], tasks: store.queue.tasks,
+    pulls: store.pulls.items, runs: store.opora.runs, cards: store.opora.cards,
   });
-  let current = snapshot();
-  let memoryLabel = 'ověřit v detailu';
-  const panel = new ProcessWallPanel(history, next => { view = next; page = 0; lastDraw = 0; }, () => { page++; lastDraw = 0; }, label => { memoryLabel = label; lastDraw = 0; });
-  const refresh = () => { current = snapshot(); panel.update(current); lastDraw = 0; };
+  const panel = new ProcessWallPanel(() => new LaneResolver(input()), (label, ok) => { memory = { label, ok, at: Date.now() }; panel.tick(health()); });
+  let board: Board = buildBoard(input());
+  let live: Liveness = liveOf(Date.now());
+  let age = '';
+  let dirty = true;
+
+  function liveOf(now: number) {
+    return liveness({ up: ctx.net.up, synced: store.process.connected, lastAt: board.lastAt, anyWorking: board.counts.working > 0, now });
+  }
+  function health() {
+    const o = store.opora;
+    return sourceHealth({ up: ctx.net.up, events: store.process.events, opora: { connected: o.connected, linked: !!o.project }, github: store.pulls, memory, now: Date.now() });
+  }
+  const data = (): PanelData => ({ board, events: store.process.events, health: health(), floor: store.currentFloor()?.name ?? '—', reduced: ctx.reduceMotion.matches });
+  function refresh() {
+    board = buildBoard(input());
+    live = liveOf(Date.now());
+    motion.observe(board.lanes, performance.now(), ctx.reduceMotion.matches);
+    dirty = true;
+    panel.update(data());
+  }
+
   ctx.interactions.define('processwall', {
     reach: 18,
-    hint: () => ({ k: 'process-wall', parts: [hintTitle('OPORA · Řízení práce'), key('E', 'Sledovat proces')] }),
-    use: onE(() => panel.open(current)),
+    hint: () => ({ k: 'process-wall', parts: [hintTitle('OPORA · Živý proces'), key('E', 'Sledovat proces')] }),
+    use: onE(() => panel.show(data())),
   });
-  ctx.net.onStatus(() => { ready = false; refresh(); });
-  store.on('process', () => { if (store.process.connected) history.useJournal(store.process.events); panel.update(current); });
-  ctx.messages.onAny(message => {
-    if (message.t === 'welcome' || message.t === 'floor.enter') { ready = true; history.clear(); if (store.process.connected) history.useJournal(store.process.events); page = 0; }
-    if (!['welcome', 'floor.enter', 'worker.update', 'worker.remove', 'worker.worktree', 'queue', 'gh.pulls'].includes(message.t)) return;
-    at = Date.now(); refresh(); history.observe(current); panel.update(current);
+  for (const topic of ['process', 'workers', 'queue', 'pulls', 'opora'] as const) store.on(topic, refresh);
+  ctx.net.onStatus(refresh);
+  ctx.messages.onAny((m) => {
+    if (m.t === 'welcome' || m.t === 'floor.enter') { motion.reset(); refresh(); }
   });
-  ctx.ticks.add('world', frame => {
+
+  let lastSecond = 0, settling = false;
+  ctx.ticks.add('world', (frame) => {
     if (document.hidden) return;
-    if (frame.now - lastPanel > 1000) { current = snapshot(); panel.update(current); lastPanel = frame.now; }
+    if (frame.now - lastSecond >= 1000) {
+      lastSecond = frame.now;
+      const now = Date.now(), nextLive = liveOf(now), nextAge = lastEventLabel(board.lastAt, now);
+      if (nextAge !== age || nextLive.state !== live.state || nextLive.reason !== live.reason) { age = nextAge; live = nextLive; dirty = true; }
+      panel.tick(health());
+    }
+    // One more frame after the motion ends, so markers settle exactly on their phase.
+    const moving = motion.active(performance.now());
+    if (!dirty && !moving && !settling) return;
     if (!ctx.inOffice() || ctx.upTop()) return;
-    if (frame.now - lastDraw < (current.running && current.connected && ready && !ctx.reduceMotion.matches ? 100 : 1000)) return;
-    texture.draw(current, view, page, frame.t, ctx.reduceMotion.matches, memoryLabel); lastDraw = frame.now;
+    settling = moving;
+    age = lastEventLabel(board.lastAt, Date.now());
+    texture.draw({ board, live, age, reduced: ctx.reduceMotion.matches, now: performance.now() }, motion);
+    dirty = false;
   });
-  texture.draw(current, view, page, 0, true);
+  refresh();
 }

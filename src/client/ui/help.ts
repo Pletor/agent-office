@@ -6,7 +6,7 @@ import { IS_MAC } from './termkeys';
 export const HELP_ROWS: readonly (readonly [string, string])[] = [
   ['📚 Harness', 'F8 anywhere, or E at the shelf opposite Docs: resources and Global → Repository → Task assignments; inspect the resolved handoff before dispatch'],
   ['Pro tebe', 'In Boss Office upstairs, E at the board inside the north glass opens decisions and questions, with exact Opora card links and worker terminals. System repairs are separate; nothing is automatically approved.'],
-  ['OPORA', 'The process wall above the north-wall boards: aim and press E for live work, blockers and local observation history. Switch its view in the window; it shows only real office, GitHub and Opora data.'],
+  ['OPORA', 'The live process wall above the north-wall boards: every card in its phase, blockers first. Aim and press E for the flow map with a card inspector, the live event stream (filter, pause reading) and OpenViking memory; it shows only real office, GitHub and Opora events.'],
   ['W A S D', 'Walk (hold Shift to run)'],
   ['Space', 'Jump'],
   ['☕', 'Press E at the coffee machine in the kitchen for a minute of quicker walking and higher jumps. Three cups in a row gives you the jitters'],
