@@ -31,8 +31,9 @@ export function installProcessWall(ctx: Ctx) {
     use: onE(() => panel.open(current)),
   });
   ctx.net.onStatus(() => { ready = false; refresh(); });
+  store.on('process', () => { if (store.process.connected) history.useJournal(store.process.events); panel.update(current); });
   ctx.messages.onAny(message => {
-    if (message.t === 'welcome' || message.t === 'floor.enter') { ready = true; history.clear(); page = 0; }
+    if (message.t === 'welcome' || message.t === 'floor.enter') { ready = true; history.clear(); if (store.process.connected) history.useJournal(store.process.events); page = 0; }
     if (!['welcome', 'floor.enter', 'worker.update', 'worker.remove', 'worker.worktree', 'queue', 'gh.pulls'].includes(message.t)) return;
     at = Date.now(); refresh(); history.observe(current); panel.update(current);
   });

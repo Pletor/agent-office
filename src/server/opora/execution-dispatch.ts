@@ -8,6 +8,8 @@ import { validateBudgetFiles } from './execution-budget-files.js';
 import { contextVersionFromEnvironment } from './execution-context.js';
 import { PullRequestHandoff, type HandoffTools } from './pull-request-handoff.js';
 import type { SelfCheckReporter } from './self-checks.js';
+import { emitProcess, processHub } from '../process/hub.js';
+import { claimEvent, handoffEvent, releaseEvent } from '../process/opora-events.js';
 
 export interface ExecutionHeld { workerId?: string; execution?: ExecutionLease; deadlineUnixMs?: number; leaseUntil?: string; state?: string }
 
@@ -67,7 +69,7 @@ export class ExecutionDispatch {
   async dispatch(scope: ExecutionScope, prepare: () => Promise<string>, seat: (prompt: string) => WorkerInfo | string, decorate: (prompt: string) => string = value => value) {
     return this.controller.guarded(scope, async () => {
       const context = this.contextVersion === 2 ? '' : await prepare();
-      const grant = await this.controller.claim(scope, this.contextVersion);
+      const grant = await this.controller.claim(scope, this.contextVersion).catch((e: Error) => { emitProcess(this.agent, claimEvent(scope, { error: e.message })); throw e; });
       let seatedId: string | undefined;
       try {
         const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context);
@@ -80,6 +82,7 @@ export class ExecutionDispatch {
         if (worker.status === 'exited') throw new Error('Worker failed to start; Canvas reservation released');
         this.controller.watch(worker.id, grant.lease, grant.deadline);
         if (!this.controller.allowed(worker.id)) throw new Error('Execution expired while starting worker');
+        processHub.noteExecution(worker.id, grant.lease.executionId); emitProcess(this.agent, claimEvent(scope, { executionId: grant.lease.executionId, workerId: worker.id, workerName: worker.name }));
         return { worker, execution: grant.lease, deadlineUnixMs: Date.now() + Math.max(0, grant.deadline - performance.now()) };
       } catch (error) {
         if (seatedId) { this.controller.forget(seatedId); this.stop(seatedId, 'Worker failed to start; worktree kept'); }
@@ -96,7 +99,7 @@ export class ExecutionDispatch {
     const lease = run.execution, dir = path.join(floorDir, wt.path);
     const handoff = this.pullRequests.handOff({ lease, cardName: run.cardName, dir, baseCommit: wt.base, baseBranch: wt.from }, notify);
     // The evidence runs after the pull request is out, without holding the lease for it.
-    void handoff?.then(out => { if (out.state === 'opened' || out.state === 'reused') return this.selfChecks?.report({
+    void handoff?.then(out => { emitProcess(this.agent, handoffEvent(lease, out)); if (out.state === 'opened' || out.state === 'reused') return this.selfChecks?.report({
       project: lease.project, workspace: lease.workspace, executionId: lease.executionId, headSha: out.headSha, dir }); }).catch(() => {});
     return handoff;
   }
@@ -104,6 +107,8 @@ export class ExecutionDispatch {
     await this.pullRequests.settled(run.execution?.executionId);
     if (run.workerId) this.worktrees.delete(run.workerId);
     if (run.workerId) this.controller.forget(run.workerId);
+    if (run.execution) emitProcess(this.agent, releaseEvent(run.execution, run.workerId));
+    processHub.noteExecution(run.workerId, undefined);
     if (run.execution) await this.client.release(run.execution).catch(() => {});
   }
 }

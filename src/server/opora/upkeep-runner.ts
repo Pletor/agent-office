@@ -7,6 +7,7 @@ import { claudeResolver } from './conflict-resolver.js';
 import { MergeGuard, type GuardOutcome } from './merge-guard.js';
 import { PrUpkeep, type UpkeepOutcome } from './pr-upkeep.js';
 import { upkeepConfig, type UpkeepConfig } from './upkeep-config.js';
+import type { upkeepTap } from '../process/taps.js';
 import { UpkeepLedger, checkRunner, ghRunner, gitRunner, type Say, type UpkeepTools } from './upkeep-tools.js';
 
 /**
@@ -25,6 +26,8 @@ export class OporaUpkeep {
   private timer?: NodeJS.Timeout;
   private stopped = false;
   private lastSkip = '';
+  /** Each pass's outcome, for the floor's process journal (see process/taps.ts). */
+  observe?: ReturnType<typeof upkeepTap>;
 
   constructor(private config: UpkeepConfig, private repo: string, private root: string, private tools: UpkeepTools,
     private say: Say, ledger = new UpkeepLedger(path.join(root, 'state.json')), now: () => number = Date.now) {
@@ -66,6 +69,7 @@ export class OporaUpkeep {
     if (this.config.guard) {
       try { result.guard = await this.guard.pass(repository, this.repo, trees); } catch (e) { this.say(`🛡️ Post-merge guard pass failed: ${(e as Error).message}`, 'warn'); }
     }
+    try { this.observe?.(result); } catch { /* the journal never fails a pass */ }
     return result;
   }
 

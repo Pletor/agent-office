@@ -1,4 +1,4 @@
-import type { GhPull, GhState, QueueTask, WorkerInfo } from '../../../shared/protocol';
+import type { GhPull, GhState, ProcessEvent, QueueTask, WorkerInfo } from '../../../shared/protocol';
 
 export const PHASES = ['Fronta', 'Práce', 'Kontroly', 'Review / PR', 'Výstup', 'Sloučeno'] as const;
 export type WallView = 'overview' | 'workers' | 'blockers';
@@ -95,8 +95,15 @@ export function connectionLabel(s: WallSnapshot): string {
 export class WallHistory {
   entries: { at: number; text: string }[] = [];
   private previous = new Map<string, string>();
-  clear() { this.entries = []; this.previous.clear(); }
+  /** The server's process journal is in: it replaces the local observations. */
+  private journal = false;
+  clear() { this.entries = []; this.previous.clear(); this.journal = false; }
+  useJournal(events: ProcessEvent[]) {
+    this.journal = true;
+    this.entries = events.slice(-80).reverse().map(e => ({ at: Date.parse(e.at) || Date.now(), text: e.detail ? `${e.title} · ${e.detail}` : e.title }));
+  }
   observe(s: WallSnapshot) {
+    if (this.journal) return;
     const next = new Map<string, string>();
     for (const row of s.rows) {
       const signature = JSON.stringify([row.title, row.detail, row.branch, row.phase, row.pr?.headRefOid]); next.set(row.id, signature);

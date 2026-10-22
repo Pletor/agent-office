@@ -147,6 +147,11 @@ export class OporaClient {
     await this.post('/api/desktop-v3/lease', { project, workspace, nodeId, op: 'release', token });
   }
 
+  /** The office's live process events, for Opora's Hub (see server/process/push.ts); a 404 on an Opora without it. */
+  async processEvents(events: unknown[]): Promise<void> {
+    await this.post('/api/oporahub/process-events', { events });
+  }
+
   private get<T>(path: string, query: Record<string, string> = {}): Promise<T> {
     const url = new URL(path, this.base);
     for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);

@@ -54,7 +54,7 @@ export class ProcessWallPanel {
     this.memory?.destroy(); this.memory = undefined;
     this.body.replaceChildren();
     if (this.tab === 'history') {
-      this.body.append(h('p.process-wall-notice', {}, 'Posledních 80 změn pozorovaných v tomto okně a na tomto patře. Obnovení stránky historii smaže; nejde o úplný serverový audit.'));
+      this.body.append(h('p.process-wall-notice', {}, 'Posledních 80 událostí procesu na tomto patře ze žurnálu kanceláře (do jeho příchodu místní pozorování tohoto okna). Žurnál drží posledních 1000 událostí patra; nejde o úplný audit.'));
       if (!this.history.entries.length) this.body.append(h('p', {}, 'Čekáme na první pozorování.'));
       for (const entry of this.history.entries) this.body.append(h('p.process-wall-event', {}, h('time', {}, new Date(entry.at).toLocaleTimeString('cs-CZ')), entry.text));
       return;

@@ -11,6 +11,7 @@ import { githubRoutes } from './github.js';
 import { jukeboxRoutes } from './jukebox.js';
 import { pageRoutes } from './pages.js';
 import { processMemoryRoutes } from './process-memory.js';
+import { processRoutes } from './process.js';
 import { searchRoutes } from './search.js';
 import { serviceRoutes } from './services.js';
 import { isolatedExecutorRoutes } from '../../opora/isolated-service.js';
@@ -52,5 +53,6 @@ export const routes: readonly Route[] = [
   pageRoutes.office,
   pageRoutes.lite,
   ...processMemoryRoutes,
+  processRoutes.events,
   pageRoutes.bundle,
 ];

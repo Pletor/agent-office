@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { executionOf } from './upkeep-tools.js';
+import { emitProcess } from '../process/hub.js';
+import { selfCheckEvent } from '../process/opora-events.js';
 
 /**
  * Self-check evidence (Canvas's docs/oporahub-review-jobs.md, "Důkaz vlastních kontrol"): before a
@@ -175,6 +177,7 @@ export class SelfCheckReporter {
     const outcome = await postSelfChecks(this.base, this.agent, this.transport, { project: s.project, workspace: s.workspace, executionId: s.executionId, selfChecks });
     const failed = selfChecks.checks.filter((c) => c.status !== 'passed').map((c) => c.name);
     const what = failed.length ? `${failed.join(', ')} failed` : 'all passed';
+    emitProcess(this.agent, selfCheckEvent(s, failed, outcome));
     this.log(outcome === 'recorded' ? `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)}: ${what}; Canvas recorded them`
       : `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)} (${what}) were not recorded by Canvas (${outcome})`, outcome === 'recorded' && !failed.length ? 'info' : 'warn');
     if (outcome !== 'failed') this.remember(key, outcome);

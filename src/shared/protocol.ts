@@ -12,6 +12,7 @@ import type { MeetingClientMsg, MeetingServerMsg } from './protocol/meetings.js'
 import type { OporaClientMsg, OporaServerMsg } from './protocol/opora.js';
 import type { PlanningClientMsg, PlanningServerMsg } from './protocol/planning.js';
 import type { PresenceClientMsg, PresenceServerMsg } from './protocol/presence.js';
+import type { ProcessClientMsg, ProcessServerMsg } from './protocol/process.js';
 import type { QueueClientMsg, QueueServerMsg } from './protocol/queue.js';
 import type { ReaClientMsg, ReaServerMsg } from './protocol/rea.js';
 import type { StatusClientMsg, StatusServerMsg } from './protocol/status.js';
@@ -30,6 +31,7 @@ export * from './protocol/meetings.js';
 export * from './protocol/opora.js';
 export * from './protocol/planning.js';
 export * from './protocol/presence.js';
+export * from './protocol/process.js';
 export * from './protocol/queue.js';
 export * from './protocol/rea.js';
 export * from './protocol/status.js';
@@ -64,7 +66,8 @@ export type ClientMsg =
   | WhiteboardClientMsg
   | BallClientMsg
   | CarClientMsg
-  | DogClientMsg;
+  | DogClientMsg
+  | ProcessClientMsg;
 
 export type ServerMsg =
   | PresenceServerMsg
@@ -82,4 +85,5 @@ export type ServerMsg =
   | ReaServerMsg
   | StatusServerMsg
   | UsageServerMsg
-  | ToysServerMsg;
+  | ToysServerMsg
+  | ProcessServerMsg;
