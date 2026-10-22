@@ -398,7 +398,7 @@ export class OporaBridge {
   private async handOut() {
     for (const [id, who] of [...this.handed]) {
       const card = this.state.cards.find((c) => c.id === id);
-      if (!card || card.status !== 'frontier' || this.runs.some((r) => r.cardId === id && r.state !== 'gone')) {
+      if (!card || card.status !== 'frontier' || this.runs.some((r) => r.cardId === id && r.state !== 'gone') || this.reportedBefore(id)) {
         if (!card || card.status === 'claimed' || card.status === 'closed') this.handed.delete(id);
         continue;
       }
@@ -422,7 +422,7 @@ export class OporaBridge {
   private async autopilot() {
     if (this.focusLost()) return;
     const busy = () => this.runs.filter((r) => r.state !== 'gone').length;
-    const free = this.state.cards.filter((c) => c.status === 'frontier' && c.profile && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone'));
+    const free = this.state.cards.filter((c) => c.status === 'frontier' && c.profile && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone') && !this.reportedBefore(c.id));
     for (const card of free) {
       if (busy() >= this.state.maxRuns) return;
       const err = await this.take(card.id, this.autopilotBy || 'Autopilot', this.autopilotOwner);
@@ -431,6 +431,15 @@ export class OporaBridge {
         return;
       }
     }
+  }
+
+  /**
+   * Whether a run of this floor already reported a result for the card. Canvas frees a card once its
+   * result is in, while its pull request still waits for review and merge, so the autopilot and the
+   * hand-out would otherwise take it again and do the same work twice. A person can still ▶ Take it.
+   */
+  private reportedBefore(cardId: string): boolean {
+    return this.runs.some((r) => r.cardId === cardId && !!r.execution && !!this.executions.pullRequests.reported(r.execution.executionId));
   }
 
   /** Pushes the work of a run whose worker reported its result and opens its pull request (pull-request-handoff.ts). */

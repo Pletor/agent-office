@@ -141,8 +141,18 @@ export interface SelfCheckSubject extends SelfCheckScope { executionId: string; 
 export class SelfCheckReporter {
   private queue: Promise<unknown> = Promise.resolve();
   private running = new Map<string, Promise<SelfCheckOutcome>>();
+  /** Heads whose evidence Canvas refused for now and that are posted again on a timer. */
+  private pending = new Set<string>();
+  private timers = new Set<NodeJS.Timeout>();
   constructor(private base: string, private agent: string, private commands: SelfCheckCommand[], private ledgerFile: string,
-    private exec: ExecCheck, private transport: typeof fetch = fetch, private log: (message: string, level: 'info' | 'warn') => void = () => {}) {}
+    private exec: ExecCheck, private transport: typeof fetch = fetch, private log: (message: string, level: 'info' | 'warn') => void = () => {},
+    private retry: { everyMs: number; attempts: number } = SELF_CHECK_RETRY) {}
+
+  /** Stops the re-posts still waiting (the office is shutting down). */
+  shutdown() {
+    for (const timer of this.timers) clearTimeout(timer);
+    this.timers.clear();
+  }
 
   private ledger(): Record<string, SelfCheckOutcome> {
     try { return JSON.parse(readFileSync(this.ledgerFile, 'utf8')) as Record<string, SelfCheckOutcome>; } catch { return {}; }
@@ -160,7 +170,7 @@ export class SelfCheckReporter {
   report(subject: SelfCheckSubject): Promise<SelfCheckOutcome> {
     const key = `${subject.executionId}@${subject.headSha}`;
     const prior = this.ledger()[key];
-    if (prior === 'recorded' || prior === 'conflict') return Promise.resolve('skipped');
+    if (prior === 'recorded' || prior === 'conflict' || this.pending.has(key)) return Promise.resolve('skipped');
     const busy = this.running.get(key);
     if (busy) return busy;
     const job = this.queue.catch(() => undefined).then(() => this.once(key, subject));
@@ -177,10 +187,32 @@ export class SelfCheckReporter {
     const what = failed.length ? `${failed.join(', ')} failed` : 'all passed';
     this.log(outcome === 'recorded' ? `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)}: ${what}; Canvas recorded them`
       : `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)} (${what}) were not recorded by Canvas (${outcome})`, outcome === 'recorded' && !failed.length ? 'info' : 'warn');
-    if (outcome !== 'failed') this.remember(key, outcome);
+    // 409 right after PR upkeep pushed is usually "not the PR's current head" yet: Canvas learns a new
+    // head from its next reconciliation read (every few minutes), so the same evidence is posted again
+    // for a while before the refusal counts. A different record for this head stays refused anyway.
+    if (outcome === 'conflict' && this.retry.attempts > 0) this.postLater(key, s, selfChecks, 1);
+    else if (outcome !== 'failed') this.remember(key, outcome);
     return outcome;
   }
+
+  private postLater(key: string, s: SelfCheckSubject, selfChecks: SelfChecks, attempt: number) {
+    this.pending.add(key);
+    const timer = setTimeout(() => {
+      this.timers.delete(timer);
+      void postSelfChecks(this.base, this.agent, this.transport, { project: s.project, workspace: s.workspace, executionId: s.executionId, selfChecks }).then((outcome) => {
+        if ((outcome === 'conflict' || outcome === 'failed') && attempt < this.retry.attempts) return this.postLater(key, s, selfChecks, attempt + 1);
+        this.pending.delete(key);
+        if (outcome === 'recorded') this.log(`🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)}: Canvas recorded them once it saw that head`, 'info');
+        if (outcome !== 'failed') this.remember(key, outcome);
+      });
+    }, this.retry.everyMs);
+    timer.unref?.();
+    this.timers.add(timer);
+  }
 }
+
+/** Re-posts of evidence Canvas refused (409): every 30 s for 10 minutes, past Canvas's 5-minute reconciliation of a PR's head. */
+export const SELF_CHECK_RETRY = { everyMs: 30_000, attempts: 20 };
 
 export function createSelfCheckReporter(base: string, agent: string, dataDir: string, log: (message: string, level: 'info' | 'warn') => void,
   env: NodeJS.ProcessEnv = process.env): SelfCheckReporter | undefined {

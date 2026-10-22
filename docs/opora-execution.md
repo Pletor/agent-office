@@ -68,8 +68,10 @@ result, on each 20-second poll and before the lease is released:
    branch `opora/<first 12 characters of the card id>/<executionId>` on `origin`.
 2. It reuses the pull request already open (or closed) for that branch, or opens one
    with `gh pr create`, titled `Opora: <card title>`, against the branch the worktree
-   was cut from. The body has the result's summary, the tests and checks from its
-   `evidence`/`checks`/`tests`, its `risk` and `revert` (or defaults), and ends with
+   was cut from. The body has the result's summary and the sections Canvas's PR template
+   rule asks for by name: `## Testing` (the tests and checks from its
+   `evidence`/`checks`/`tests`), `## Risk` and `## Revert plan` (its `risk` and `revert`,
+   or defaults), and ends with
    the trailers `Opora-Execution: <executionId>`, `Opora-Revision: <acceptedRevision>`
    and `Opora-Card: <cardId>`.
 3. It links the pull request with POST `/api/oporahub/executions/{executionId}/pull-request`
@@ -78,6 +80,11 @@ result, on each 20-second poll and before the lease is released:
    execution and head commit, so a retry is the same request. 404 (Canvas without
    the endpoint) is logged and the trailers let Canvas discover the PR later; 409 is
    logged as a conflict and not retried.
+
+Once a run of the floor has reported a result for a card, the 🤖 autopilot and the
+orchestrator's hand-out leave that card alone: Canvas shows it free again while its pull
+request waits for review and merge, and taking it again would do the same work twice. A
+person can still take it with **▶ Take** (after accepting a changed plan, say).
 
 What became of each head commit is kept in `<executionId>-pull-request.json`, so the
 same commit is never pushed or linked twice; a later commit updates the same PR and

@@ -68,12 +68,18 @@ test('the body has summary, checks, risk and revert plan, and ends with the exac
   const { title, body } = draftPullRequest({ executionId: 'execution-1', acceptedRevision: 'a'.repeat(40), cardId: 'card-1', cardName: 'Cart page',
     result: { summary: 'Did it', checks: { unit: ['npm test'], e2e: [{ command: 'npx playwright test', passed: false }] }, risk: 'Low' }, base: 'main' });
   assert.equal(title, 'Opora: Cart page');
-  for (const heading of ['## Summary', '## Tests and checks', '## Risk', '## Revert plan']) assert.ok(body.includes(heading), heading);
+  for (const heading of ['## Summary', '## Testing', '## Risk', '## Revert plan']) assert.ok(body.includes(heading), heading);
   assert.match(body, /- npm test\n- `npx playwright test`: failed/);
   assert.match(body, /## Risk\n\nLow/);
   assert.ok(body.endsWith(`Opora-Execution: execution-1\nOpora-Revision: ${'a'.repeat(40)}\nOpora-Card: card-1`));
   assert.deepEqual(evidenceLines({ summary: 'x' }), []);
   assert.match(draftPullRequest({ executionId: 'e', acceptedRevision: 'a'.repeat(40), cardId: 'c', result: { summary: 's' } }).body, /None reported by the worker/);
+});
+
+test('the body fills every section the Canvas PR template rule asks for (Testing, Risk, Revert plan)', () => {
+  // Canvas (opora_review_template.py) counts a section only as a heading with that exact name and text under it.
+  const { body } = draftPullRequest({ executionId: 'e', acceptedRevision: 'a'.repeat(40), cardId: 'c', result: { summary: 's' } });
+  for (const section of ['Testing', 'Risk', 'Revert plan']) assert.match(body, new RegExp(`^## ${section}\\n\\n\\S`, 'm'), section);
 });
 
 test('a reported execution is pushed, gets a PR and is linked on Canvas with its own credentials; a second run is a no-op', async t => {

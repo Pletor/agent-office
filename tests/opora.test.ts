@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { OporaBridge, type BridgeFloor, type BridgeEvents } from '../src/server/opora/bridge.js';
@@ -251,6 +251,29 @@ test('the autopilot takes routed cards by itself, up to its limit', async (t) =>
   await new Promise((r) => setTimeout(r, 50));
   await f.bridge.poll();
   assert.equal(f.workers.length, 2);
+});
+
+test('the autopilot does not take a card again once the office reported its result', async (t) => {
+  const f = await fixture(t);
+  f.bridge.setAutopilot(true, 1, 'Ana');
+  await new Promise((r) => setTimeout(r, 50));
+  await f.bridge.poll();
+  assert.equal(f.workers.length, 1);
+  const first = [...f.op.leases.keys()][0];
+  // The worker reported its result (the receipt is stored), went home and the lease was let go:
+  // Canvas shows the card as free again while its pull request waits for review.
+  mkdirSync(path.join(f.dir, 'opora-executions'), { recursive: true });
+  writeFileSync(path.join(f.dir, 'opora-executions', `ex-${first}-reported.json`), JSON.stringify({ result: { summary: 'done' } }));
+  f.workers[0].status = 'exited';
+  f.workers.splice(0, 1);
+  for (let i = 0; i < 50 && f.op.leases.has(first); i++) {
+    await f.bridge.poll();
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.equal(f.op.leases.has(first), false);
+  await f.bridge.poll();
+  const claims = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').map((c) => c.body?.nodeId);
+  assert.deepEqual(claims, [first, first === 'c1' ? 'c2' : 'c1']);
 });
 
 test('with Opora down the bridge says so instead of failing', async (t) => {
