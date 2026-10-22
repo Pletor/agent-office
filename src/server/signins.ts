@@ -444,7 +444,7 @@ export class SignIns {
     this.stop(id, 'github');
     const l = this.get(id);
     const env = { ...this.githubEnv(id), BROWSER: 'true', GH_BROWSER: 'true' };
-    // Over pipes, gh prints the one-time code and the page, then waits for GitHub to say yes.
+    // Over pipes, gh prints the one-time code and the page, then waits for Enter before it polls GitHub.
     const p = spawn(this.gh, ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--insecure-storage', '--skip-ssh-key'], { cwd: this.home(id), env, stdio: ['pipe', 'pipe', 'pipe'] });
     let out = '';
     const flow: Flow = { stop: () => p.kill() };
@@ -457,9 +457,9 @@ export class SignIns {
       const url = /https:\/\/github\.com\/login\/device\S*/.exec(out)?.[0] ?? 'https://github.com/login/device';
       l.github = { status: 'busy', pending: { url, code } };
       this.onChange(id);
+      p.stdin.write('\n');
     };
-    p.stdout.on('data', onData);
-    p.stderr.on('data', onData);
+    for (const s of [p.stdout, p.stderr]) s.on('data', onData);
     p.on('error', (err) => {
       if (l.flows.github !== flow) return;
       delete l.flows.github;
