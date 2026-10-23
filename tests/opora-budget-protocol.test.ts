@@ -38,7 +38,7 @@ test('v2 rejection never retries v1 and unsupported advertisement cannot claim',
     });
     const controller = new ExecutionController(client, () => {}, () => {});
     await assert.rejects(controller.claim(budgetScope), error => error instanceof ExecutionError && error.terminal && !error.message.includes('PRIVATE'));
-    assert.equal(requests.filter(value => value.endsWith('/claim')).length, version === 2 ? 1 : 0);
+    assert.equal(requests.filter(value => new URL(value).pathname.endsWith('/claim')).length, version === 2 ? 1 : 0);
   }
 });
 

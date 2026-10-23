@@ -70,6 +70,13 @@ test('frontierCards keeps the cards in the group they are listed in, and leaves 
 });
 
 /** A small stand-in for Opora's API: a project planning `dir` with a sector of two cards, another project elsewhere with one card, and leases. */
+/** `?assignment=omit` (Opora M2): the lease without its assignment, with the assignment's context pin. */
+function lean(lease: Record<string, unknown>, url: URL) {
+  if (url.searchParams.get('assignment') !== 'omit') return lease;
+  const { assignment, ...rest } = lease;
+  return { ...rest, contextVersion: (assignment as Record<string, unknown>).contextVersion };
+}
+
 function fakeOpora(dir: string) {
   const calls: { method: string; path: string; body?: Record<string, unknown>; headers: http.IncomingHttpHeaders }[] = [];
   const leases = new Map<string, string>();
@@ -106,14 +113,19 @@ function fakeOpora(dir: string) {
           assignment: { acceptedRevision: 'a'.repeat(40), contextVersion: 'ctx', documents: { [node]: 'Accepted task' }, specification: {} },
           serverNow: Date.now() / 1000, expiresAt: Date.now() / 1000 + 900, state: 'running' };
         leases.set(node, String(lease.token)); executions.set(lease.executionId, lease);
-        return send(200, lease);
+        return send(200, lean(lease, url));
       }
       if (url.pathname.startsWith('/api/oporahub/executions/ex-')) {
         const id = url.pathname.split('/')[4];
         const lease = executions.get(id);
+        if (lease && req.method === 'GET' && url.pathname.endsWith('/assignment')) {
+          if (req.headers['x-opora-execution-token'] !== lease.token) return send(409, {});
+          const { token: _token, serverNow: _now, expiresAt: _expires, state: _state, ...read } = lease;
+          return send(200, { ...read, progress: { total: 0, done: 0, current: null, steps: [] } });
+        }
         if (!lease || body?.token !== lease.token || body?.epoch !== lease.epoch) return send(409, {});
         if (url.pathname.endsWith('/release')) { leases.delete(String(lease.nodeId)); return send(200, { state: 'released' }); }
-        return send(200, { ...lease, serverNow: Date.now() / 1000, expiresAt: Date.now() / 1000 + 900 });
+        return send(200, lean({ ...lease, serverNow: Date.now() / 1000, expiresAt: Date.now() / 1000 + 900 }, url));
       }
       // The other project's canvas: one sector with one card.
       if (url.searchParams.get('project') === 'other') {
@@ -479,6 +491,11 @@ test('a picked workspace is the one the floor reads and claims cards in', async 
   assert.equal(await f.bridge.take('c5', 'Ana'), undefined);
   const claim = f.op.calls.find((c) => c.path === '/api/oporahub/executions/claim')!;
   assert.deepEqual({ project: claim.body!.project, workspace: claim.body!.workspace, nodeId: claim.body!.nodeId }, { project: 'p1', workspace: 'work1', nodeId: 'c5' });
+  // Lean claim: the assignment is read once, with the token in its header and never in the query.
+  const reads = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/ex-c5/assignment');
+  assert.equal(reads.length, 1);
+  assert.equal(reads[0].method, 'GET');
+  assert.equal(reads[0].headers['x-opora-execution-token'], 'tok-c5');
   assert.match(f.workers[0].prompt!, /work1/);
   // Back to the default.
   assert.equal(f.bridge.useWorkspace(null), undefined);

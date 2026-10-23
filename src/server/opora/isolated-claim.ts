@@ -1,9 +1,13 @@
-import { ExecutionClient, validateExecution, type ExecutionClaim, type ExecutionLease } from './execution-client.js';
+import { ExecutionClient, validateClaimedAuthority, type ExecutionClaim, type ExecutionLease } from './execution-client.js';
 import type { ContextVersion } from './execution-context.js';
 import { EXECUTION_TTL } from './execution-controller.js';
 import type { IsolatedRun, IsolatedStore } from './isolated-storage.js';
 
-/** Persist the exact request before the claim; capture valid received authority before validation can reject it. */
+/**
+ * Persist the exact request before the claim; capture valid received authority before validation can reject it.
+ * The claim is lean (`?assignment=omit`), so what is captured here is the lease with only its context pin; it is
+ * kept to give the claim back, and replaced by the full lease once the assignment has been read and checked.
+ */
 export async function isolatedClaim(store: IsolatedStore, key: string, version: ContextVersion,
   agent: string, transport: typeof fetch, active: () => void) {
   let received: ExecutionLease | undefined;
@@ -15,7 +19,7 @@ export async function isolatedClaim(store: IsolatedStore, key: string, version: 
     if (new URL(String(url)).pathname.endsWith('/claim') && response.ok) {
       const copy = response.clone(), text = await copy.text();
       if (Buffer.byteLength(text) > 4 * 1024 * 1024) throw new Error('Canvas authority too large');
-      try { received = validateExecution(JSON.parse(text), scope); }
+      try { received = validateClaimedAuthority(JSON.parse(text), scope); }
       catch { throw new Error('Canvas authority invalid'); }
       run = store.read(key)!; store.save({ ...run, lease: received });
     }
