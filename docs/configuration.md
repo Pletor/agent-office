@@ -63,6 +63,16 @@ agent-office tunnel [office@address | url] [--port <n>] [--office-port <n>] [--n
   See docs/tunnel.md.
 ```
 
+## Worktree setup
+
+A fresh worktree has the project's files but none of its dependencies: no `node_modules`, no `.venv`. To have the office install them before a worker starts, put `.agent-office/worktree-setup.json` in the floor's checkout:
+
+```json
+{ "command": "npm ci && uv sync --frozen", "timeoutMin": 15 }
+```
+
+`command` runs in the platform shell (`cmd.exe` on Windows, `/bin/sh` elsewhere) in each worktree the office cuts for a worker (in a workspace across repositories, in the floor's own project's worktree), before the worker starts; `timeoutMin` bounds it (default 15, at most 120). The tail of its output goes to the office's log under `[worktree-setup]`. The worker starts either way, and the last line of its first prompt says how it went: that the dependencies are installed, and with which command, or that the setup failed, with its exit code and last line of output, and that the worker should fix the environment before running checks. Before the office runs [self-checks](opora-review-evidence.md#self-check-evidence) in a worktree where this setup hasn't passed yet (a PR upkeep's throwaway worktree, a worktree from before the file existed), it runs the setup there first. Whether it passed is remembered in the worktree's own git directory (`agent-office-setup.json`), never among its files. The file is read for each new worktree, so an edit applies from the next hire. Without it, or with one that isn't valid JSON with a non-empty `command`, there's no setup (the log says so once) and worktrees start as they always have. Meetings' shared worktrees and workers in the main checkout get no setup.
+
 ## Opora Canvas
 
 **Execution compatibility:** Taking cards now requires Canvas OporaHub execution endpoints and an accepted plan matching the relevant live context. See [execution authority and restart recovery](opora-execution.md). Old lease-only Canvas versions cannot run new card workers.
