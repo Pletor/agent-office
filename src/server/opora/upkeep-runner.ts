@@ -96,7 +96,7 @@ export function createOporaUpkeep(repo: string, dataDir: string, toast: Say, env
   };
   const claude = config.upkeep && config.resolve ? resolveCommand('claude') : null;
   if (config.upkeep && config.resolve && !claude) say('🛰️ The claude CLI is not installed: PR upkeep leaves textual conflicts to a human', 'warn');
-  if (config.upkeep && !config.checkCommand) say('🛰️ AGENT_OFFICE_OPORA_CHECK_COMMAND is not set: PR upkeep pushes nothing until it is', 'warn');
+  if (config.upkeep && !config.checkCommand) say("🛰️ No check command (AGENT_OFFICE_OPORA_CHECK_COMMAND, or checkCommand in the floor's .agent-office/opora-checks.json): PR upkeep pushes nothing until there is one", 'warn');
   const upkeep = new OporaUpkeep({ ...config, resolve: config.resolve && !!claude }, repo, root, {
     git: gitRunner(),
     gh: ghRunner,

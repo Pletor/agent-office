@@ -15,6 +15,7 @@ import { prepareDesignBrief } from './design-brief.js';
 import { createReviewRunner, type ReviewJobRunner } from './review-runner.js';
 import { createOporaUpkeep, type OporaUpkeep } from './upkeep-runner.js';
 import { createSelfCheckReporter, upkeepSelfChecks } from './self-checks.js';
+import { floorCheckEnv } from './floor-checks.js';
 import { upkeepTap } from '../process/taps.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
@@ -110,8 +111,10 @@ export class OporaBridge {
     this.state = { ...EMPTY_OPORA, url, canStart: oporaProcess.canStart() };
     this.statePath = path.join(dataDir, 'opora.json');
     const log = (message: string, level: 'info' | 'warn') => (level === 'info' ? console.log : console.warn)(`[opora] ${message}`);
+    // The floor's own checks (`.agent-office/opora-checks.json`) win over the env vars (floor-checks.ts).
+    const env = floorCheckEnv(dataDir, log);
     // Self-check evidence for every head the office hands off or upkeep pushes, while AGENT_OFFICE_OPORA_SELF_CHECKS names checks (self-checks.ts).
-    const selfChecks = createSelfCheckReporter(url, `office-${floor.id}`, dataDir, log);
+    const selfChecks = createSelfCheckReporter(url, `office-${floor.id}`, dataDir, log, env);
     this.executions = new ExecutionDispatch(url, `office-${floor.id}`, dataDir, () => this.runs,
       () => this.changed(), (id, reason) => {
         const run = this.runs.find(run => run.workerId === id);
@@ -121,7 +124,7 @@ export class OporaBridge {
           () => this.changed(), message => this.events.toast(message, 'warn'));
       }, undefined, selfChecks);
     this.reviews = createReviewRunner(url, `office-${floor.id}`, floor.dir, dataDir, log);
-    this.upkeep = createOporaUpkeep(floor.dir, dataDir, (message, level) => this.events.toast(message, level), process.env,
+    this.upkeep = createOporaUpkeep(floor.dir, dataDir, (message, level) => this.events.toast(message, level), env,
       selfChecks && upkeepSelfChecks(selfChecks, dataDir, () => this.state.project && this.state.workspace ? { project: this.state.project.id, workspace: this.state.workspace } : undefined));
     if (this.upkeep) this.upkeep.observe = upkeepTap(floor.id);
     this.restore();
