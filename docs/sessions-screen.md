@@ -27,7 +27,7 @@ Click a session for its **detail**: *Potřebuje tě* (what it asks, with **Odpov
 Every few seconds the server reads what each worker's Claude Code transcript added (`server/sessions/`): the transcript is the one its hooks name (`transcript_path`), or found by its session id under `CLAUDE_CONFIG_DIR/projects` and `~/.claude/projects`; a transcript met for the first time is read from its last 8 MB. From it:
 
 - the **checklist**: `TodoWrite` (the whole list), or `TaskCreate` / `TaskUpdate` (items added and ticked);
-- **sub-sessions**: each `Agent` (or `Task`) call, its report from the tool result or, for one run in the background, from its later `<task-notification>`; its latest tool call from its own transcript in `<session>/subagents/` (matched by the `.meta.json`'s `toolUseId`);
+- **sub-sessions**: each `Agent` (or `Task`) call, its report from the tool result or, for one run in the background, from its later `<task-notification>`; its latest tool call from its own transcript in `<session>/subagents/` (matched by the `.meta.json`'s `toolUseId`); background reports are read from the `<agent-message>` hand-back, matched by the agent id from the launch, and a `SendMessage` resume runs it again;
 - **/btw** questions, as their own nodes;
 - **context**: the tokens in the last turn's input over the model's window (an estimate: 1M for long-context models, else 200k);
 - **Potřebuje tě**: what its `Notification` / `PermissionRequest` hook said, the tool call it holds, or its last question;
