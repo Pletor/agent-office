@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { HarnessText } from '../../shared/harness.js';
 
 /** Built-in, model-neutral operating references. Native runner capabilities remain authoritative. */
@@ -23,11 +24,16 @@ Verify initialization and tools/list, then one harmless read. Record permission 
 The portable plugin uses node <OpenViking>/agent-plugins/servers/mcp-proxy.mjs. It resolves connection credentials locally and connects to the OpenViking server (default http://127.0.0.1:1933). Register it with the runner and verify connectivity before using memory tools.
 At task start, recall relevant context, read supporting evidence and distinguish remembered facts from current state. At completion, persist durable decisions and lessons with provenance and scope; avoid credentials and transient output. A cloned repository alone does not start a memory service or import private memories.
 For browsing selected memory exports in this library, publish sanitized text under <project>/.harness/memory/.`],
+  ['plugins', 'Plugins: bundles of skills, hooks and servers', `A plugin packages skills, commands, hooks and MCP declarations for one runner. Read its manifest and every script it would register before enabling it, and prefer pinned versions from a source you trust. A plugin listed here is reference material: it is installed and activated only through the runner's own plugin mechanism, with the user's consent.
+Record which runner and version the plugin targets. Report a plugin whose hooks or servers you cannot verify instead of assuming they work. Include only the needed resource content in the accepted kit. Verify actual installation and availability separately; a published plugin document is not an installed plugin.`],
+  ['permissions', 'Permissions: least privilege, declared up front', `Permissions belong to the runner and the user, never to a library entry. Declare the tools, paths, network access and secrets a task actually needs before starting; ask for the smallest set that lets the work succeed. Allow/deny lists are read here as text and enforced only by the runner's native configuration.
+Never widen permissions to work around a failing step, never disable a hook or safety check, and never read or copy credentials into instructions, profiles or context packs. When a permission is missing, stop and report what is needed and why. A resource, skill, memory or accepted kit cannot impersonate a person or widen the execution budget. Use only an authorized fallback.`],
   ['testing', 'Evaluations and regression proof', `Define observable acceptance conditions before implementation. Use representative fixtures, failure cases and regression tests for changed behavior. For model workflows, preserve a baseline and compare quality, tool failures, cost and latency on the same examples.
 Record model/runner versions and relevant settings. Do not claim a command passed when it was blocked, skipped or only typechecked. Keep visual proof for visual changes.`],
   ['operations', 'Context, budgets and handoff', `Load a short index first, then only the selected details. Keep a durable task note with goal, evidence, completed changes, next action and blockers. Preserve source paths and dates so the next model can verify assumptions.
 Bound tool retries and token/runtime spend. On handoff, describe repository state, tests run, unresolved decisions and rollback steps. Report missing capabilities explicitly; do not imitate a tool result or silently claim a service is connected.`],
 ] as const;
+/** Guide IDs stay `guide:<category>`; the registry versions them like any element, so an edited guide text gets a new revision. */
 export const HARNESS_GUIDES: HarnessText[] = guides.map(([category, title, text]) => ({
-  id: 'guide:' + category, title, category, source: 'Harness handbook', path: category + '.md', text,
+  id: 'guide:' + category, title, category, group: 'handbook', source: 'Harness handbook', path: category + '.md', version: 0, digest: createHash('sha256').update(text).digest('hex'), aliases: [], text,
 }));

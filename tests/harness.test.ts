@@ -49,8 +49,7 @@ test('skips credentials, binaries, oversized files and directory links outside a
   const lib = new HarnessLibrary([{ name: 'Published', dir: path.join(dir, 'published') }]);
   const catalog = await lib.list();
   const paths = catalog.entries.filter((e) => e.source === 'Published').map((e) => e.path);
-  assert.deepEqual(paths, ['binary.md', 'good.md']);
-  assert.equal(await lib.read(catalog.entries.find((e) => e.path === 'binary.md')!.id), undefined);
+  assert.deepEqual(paths, ['good.md'], 'binary content is rejected during digesting, before it can be selected');
   // Replacing a listed directory with a link between listing and reading stays within root.
   await put('published/sub/entry.md', 'before');
   const second = await lib.list();
