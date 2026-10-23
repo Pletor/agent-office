@@ -1,5 +1,5 @@
-// The wall's window (E): "Živý proces · patro …", tabs Proces / Události / Paměť, the health of each
-// source, and the ✕ that openModal puts at the end of the header. Closing it (✕ or Esc) goes through
+// The wall's window (E): "Živý proces · patro …", tabs Proces / Události / Paměť (and the ones other
+// features add with addWindowTab, like Lens plánu), the health of each source, and the ✕ that openModal puts at the end of the header. Closing it (✕ or Esc) goes through
 // openModal, which hands the player straight back to mouse-look.
 
 import { h, openModal, type Modal } from '../../ui/dom';
@@ -12,8 +12,16 @@ import type { PanelData, Tab } from './view';
 import './ui.css';
 import './flow.css';
 
-type TabId = 'flow' | 'stream' | 'memory';
+type TabId = string;
 const TABS: [TabId, string][] = [['flow', 'Proces'], ['stream', 'Události'], ['memory', 'Paměť']];
+
+/** A tab another feature adds after Paměť (features/opora-plan): its id, its label and how it opens. */
+export interface WindowTab { id: string; label: string; open(resolver: () => LaneResolver): Tab }
+const added: WindowTab[] = [];
+export function addWindowTab(tab: WindowTab): () => void {
+  added.push(tab);
+  return () => { const i = added.indexOf(tab); if (i >= 0) added.splice(i, 1); };
+}
 
 export class ProcessWallPanel {
   private modal?: Modal;
@@ -34,7 +42,7 @@ export class ProcessWallPanel {
     this.data = data;
     const tabs = h('nav.pw-tabs', { role: 'tablist', 'aria-label': 'Pohled na proces' });
     this.buttons.clear();
-    for (const [id, label] of TABS) {
+    for (const [id, label] of [...TABS, ...added.map((t): [TabId, string] => [t.id, t.label])]) {
       const b = h('button.pw-tab', { type: 'button', role: 'tab', onclick: () => this.switch(id) }, label);
       this.buttons.set(id, b);
       tabs.append(b);
@@ -72,7 +80,8 @@ export class ProcessWallPanel {
     if (this.tab && id === this.tabId) return;
     this.tab?.destroy?.();
     this.tabId = id;
-    this.tab = id === 'flow' ? new FlowTab() : id === 'stream' ? new StreamTab(this.resolver) : new MemoryTab(this.reportMemory, this.resolver);
+    const other = added.find((t) => t.id === id);
+    this.tab = other ? other.open(this.resolver) : id === 'flow' ? new FlowTab() : id === 'stream' ? new StreamTab(this.resolver) : new MemoryTab(this.reportMemory, this.resolver);
     this.body.replaceChildren(this.tab.root);
     for (const [k, b] of this.buttons) {
       b.classList.toggle('on', k === id);
