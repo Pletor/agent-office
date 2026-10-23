@@ -10,6 +10,7 @@ import { officePrompt } from '../prompts.js';
 import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, type WorktreeCleanup, type WorktreeRef, type WorktreeState } from '../worktrees.js';
 import { midTurn } from './lifecycle.js';
 import type { RepoSource, Worker, WorkerContext, Worktree } from './types.js';
+import { WorktreeSetup } from './worktree-setup.js';
 
 /**
  * The folder each checkout gets in a workspace: its folder's name, made safe, with -2, -3… when two
@@ -66,7 +67,11 @@ export function lostMessage(info: WorkerInfo): string {
 
 /** The worktrees of one floor's workers (see WorkerContext). */
 export class WorkerTrees {
-  constructor(private ctx: WorkerContext) {}
+  /** The floor's dependency setup for fresh worktrees (worktree-setup.ts). */
+  readonly setup: WorktreeSetup;
+  constructor(private ctx: WorkerContext) {
+    this.setup = new WorktreeSetup(ctx.dir);
+  }
 
   /**
    * The workspace of a worker across repositories: `.agent-office/worktrees/<slug>`, with a worktree of
