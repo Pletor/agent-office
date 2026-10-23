@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Read-only access to the same library from any model's local shell.
 import { HarnessLibrary, harnessSources } from '../dist/server/server/harness/catalog.js';
+import { HarnessRegistry } from '../dist/server/server/harness/registry.js';
 import { harnessBundle } from '../dist/server/shared/harness.js';
 import { remoteHarness } from './harness-remote.js';
 import { buildHarnessKit } from '../dist/server/server/harness/kit.js';
@@ -18,10 +19,13 @@ if (process.env.AGENT_OFFICE_HOOK_URL) {
   await remoteHarness(args);
 } else {
 let project = process.cwd();
-if (args[0] === '--project') {
-  args.shift();
-  project = args.shift();
-  if (!project) throw new Error('--project requires a folder');
+let dataDir = process.env.AGENT_OFFICE_DATA_DIR;
+while (args[0] === '--project' || args[0] === '--data-dir') {
+  const option = args.shift();
+  const value = args.shift();
+  if (!value || value.startsWith('--')) throw new Error(option + ' requires a folder');
+  if (option === '--project') project = value;
+  else dataDir = value;
 }
 const action = args.shift();
 if (action === '--probe') console.log(JSON.stringify(await probeRunner(probeArgs(args)), null, 2));
@@ -29,7 +33,7 @@ else if (['--docs-resolve', '--docs'].includes(action)) {
   console.log(JSON.stringify(await context7(docsQuery(action, args), { apiKey: process.env.CONTEXT7_API_KEY }), null, 2));
 } else {
 if (action && !['--read', '--bundle', '--kit', '--recommend', '--search'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--search "words" [--category CATEGORY] | --read id | --bundle id ... | --kit PROBLEM id ... | --recommend PROBLEM [--capability ID]...]');
-const library = new HarnessLibrary(harnessSources(project, true));
+const library = new HarnessLibrary(harnessSources(project, true), dataDir ? new HarnessRegistry(dataDir) : undefined);
 if (action === '--search') console.log(JSON.stringify(searchCatalog(await library.list(), args), null, 2));
 else if (action === '--recommend') {
   const input = recommendationArgs(args);

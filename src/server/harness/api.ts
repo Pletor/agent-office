@@ -3,7 +3,8 @@ import type { Ctx } from '../office/context.js';
 import type { Floor } from '../floor.js';
 import { readBody, send } from '../http/util.js';
 import { HarnessProfiles, HarnessError, parseHarnessLayer } from './profiles.js';
-import { harnessHandoff } from './handoff.js';
+import { harnessHandoff, assertBindable } from './handoff.js';
+import { HarnessRegistry } from './registry.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { oporaHarnessTask } from '../../shared/harness-cascade.js';
 import { buildHarnessKit } from './kit.js';
@@ -31,9 +32,9 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
       const layer = parseHarnessLayer(body.layer);
       const ids = Object.values(layer).flatMap((b) => b && 'resource' in b ? [b.resource] : []);
       if (ids.length) {
-        const lib = new HarnessLibrary(harnessSources(floor.dir, local));
-        const catalog = await lib.list();
-        for (const id of ids) if (!catalog.entries.some((entry) => entry.id === id)) throw new HarnessError('Unknown or inaccessible resource: ' + id);
+        const lib = new HarnessLibrary(harnessSources(floor.dir, local), new HarnessRegistry(ctx.cfg.dataDir));
+        await lib.list();
+        for (const id of ids) assertBindable(lib, body.scope, id);
       }
       await store.save(floor.dir, task, body.scope, layer, body.revision);
     } else if (req.method !== 'GET') return send(res, 405, { error: 'Use GET or POST' });
@@ -71,7 +72,7 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   if (url.searchParams.has('hierarchy')) return harnessHierarchyRequest(ctx, floor, req, res, url,
     { local: admin, writable: admin, globalWrite: false, actor: 'worker:' + id });
   if (req.method === 'GET' && url.searchParams.has('catalog')) {
-    return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin)).list());
+    return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin), new HarnessRegistry(ctx.cfg.dataDir)).list());
   }
   if (req.method === 'GET' && url.searchParams.has('kit')) {
     try { return send(res, 200, await buildHarnessKit(new HarnessLibrary(harnessSources(floor.dir, admin)),

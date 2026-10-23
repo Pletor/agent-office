@@ -94,6 +94,8 @@ Open **Pracovní výbava** for the seven-level checkbox editor. Choose a project
 
 See [Seven-level Harness inheritance](harness-hierarchy.md) for the exact Canvas mapping, binding rules, migration/backup requirements, agent commands and verification. Global defaults are shared across floors of this office instance. Independent offices do not share a global store. Repository identity is the absolute checkout path; node keys include project, workspace and card IDs.
 
+Canonical resource IDs survive checkout moves; exact content is identified by SHA-256. Legacy absolute-path IDs remain aliases at their existing paths. See [registry migration and shared publication](harness-identity.md).
+
 ## Orchestrator handoff
 
 Use `office-harness --hierarchy` to inspect the real hierarchy and its profile/binding revisions, `--bind PROJECT WORKSPACE REVISION` to connect the open project, and `--configure LEVEL assignments.json --task KEY` to save a node layer. The file contains `revision`, `pathDigest` and the complete replacement `layer`. Only the active administrator-owned planner/router may edit; global writes belong to the administrator UI. Ordinary workers can read project resources. Browser mutations require same-origin administrator sessions.

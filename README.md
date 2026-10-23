@@ -65,6 +65,8 @@ The autonomous learning loop, evidence metrics and H01–H24 integration work ar
 
 Agents can prepare a versioned kit with `office-harness --kit PROBLEM resource-id ...` and attach it as `fields.harness` in an Opora specification proposal. The kit pins accessible resource content and SHA-256; Opora must support `harness.kit/1`. See [Harness kits](docs/harness.md#accepted-tool-kits).
 
+Resource IDs now survive checkout moves, with content digests, persisted version history and legacy aliases. Publish reviewed resources for all workers through `AGENT_OFFICE_SHARED_HARNESS_DIR`. Registry setup and migration: [Harness identity](docs/harness-identity.md).
+
 ## Requirements
 
 **Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP, memory, plugins, permissions, testing and operations references. Press **F8** anywhere (or **E** at the shelf). Choose the project and check resources at **Global → Repository → Page → Layer → Area → Sector → Card**, with visible inheritance and explicit saves. Bind the floor to its open Opora project to use the real canvas hierarchy. The active administrator-owned orchestrator can inspect and configure it with `office-harness --hierarchy` / `--configure`. Context v1 handoffs resolve these assignments; context v2 keeps its immutable accepted assignment and receives no live additions. Assignments do not install tools or activate servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md) and [hierarchy](docs/harness-hierarchy.md).
