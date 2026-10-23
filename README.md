@@ -90,6 +90,8 @@ MCP/permission verification. See [runner probes](docs/harness-probes.md).
 
 Workers on context protocol 2 can use `office-harness --accepted-kit` to read their current execution's exact accepted kit through the authenticated hook server. This does not install or execute tools; see [accepted kit runtime](docs/harness-accepted-runtime.md).
 
+For explicit measured use of an accepted script, workers can call `office-harness --invoke-node RESOURCE -- ARGS`. It requires the accepted-kit endpoint and supports trusted read-only Node scripts, with bounded execution and worker-observed receipts. See [Harness invocation](docs/harness-invocation.md).
+
 On the machine that runs the office:
 
 - **Node.js 20+**
