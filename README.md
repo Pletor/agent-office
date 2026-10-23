@@ -67,6 +67,8 @@ Agents can prepare a versioned kit with `office-harness --kit PROBLEM resource-i
 
 Resource IDs now survive checkout moves, with content digests, persisted version history and legacy aliases. Publish reviewed resources for all workers through `AGENT_OFFICE_SHARED_HARNESS_DIR`. Registry setup and migration: [Harness identity](docs/harness-identity.md).
 
+Authenticated workers can inspect submitted tool measurements with `office-harness --invocations`, optionally filtered by the namespaced task or resource. Results show version-specific pass/fail counts, duration, sample coverage and explicit worker-reported evidence; they do not grant verified status or promote tools. Requires the native Canvas invocation endpoint; older peers return unavailable. See [Harness measurements](docs/harness-measurements.md).
+
 ## Requirements
 
 **Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP, memory, plugins, permissions, testing and operations references. Press **F8** anywhere (or **E** at the shelf). Choose the project and check resources at **Global → Repository → Page → Layer → Area → Sector → Card**, with visible inheritance and explicit saves. Bind the floor to its open Opora project to use the real canvas hierarchy. The active administrator-owned orchestrator can inspect and configure it with `office-harness --hierarchy` / `--configure`. Context v1 handoffs resolve these assignments; context v2 keeps its immutable accepted assignment and receives no live additions. Assignments do not install tools or activate servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md) and [hierarchy](docs/harness-hierarchy.md).

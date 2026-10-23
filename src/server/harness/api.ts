@@ -19,6 +19,8 @@ import { documentationRequest } from './documentation-api.js';
 import { runnerProbeRequest } from './runner-probe-api.js';
 import { acceptedKitRequest } from './accepted-kit.js';
 
+import { measurementsRequest } from './measurements-api.js';
+
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean) {
   try {
     const store = new HarnessProfiles(ctx.cfg.dataDir);
@@ -61,6 +63,9 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
 
   if (url.searchParams.has('capabilities')) return runnerProbeRequest(req, res, url, me.provider ?? floor.workers.defaultProvider, floor.id + ':' + me.id);
   if (url.searchParams.has('accepted-kit')) return acceptedKitRequest(floor.opora.executions.controller, id, req, res, url);
+
+  if (url.searchParams.has('invocations')) return measurementsRequest(floor, req, res, url,
+    () => ctx.workerFloor(id) === floor && !!floor.workers.authenticate(id, (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')));
   const plan = floor.planning.state().current;
   // Workers without an identified administrator owner may read only project-published resources.
   const active = plan?.workerId === id && (plan.mode === 'opora' || plan.mode === 'router');
