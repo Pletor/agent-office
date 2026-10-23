@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { FileLockError, withFileLock, type Lease, type LockOptions } from './lock.js';
 import { DamagedRevision, publishRevision, readCommitted, RevisionConflict } from './commit.js';
 import { emptyLayers, harnessLevel, pathNode, resolveHarness, HARNESS_LEVELS, type HarnessLayer, type HarnessLevel, type HarnessPath, type HarnessProfile } from '../../shared/harness-cascade.js';
+import { advanceLifecycle, lifecycleScopeKey, parseLifecycle, type LifecycleCheck, type LifecycleScope, type LifecycleState } from './lifecycle.js';
 
 export class HarnessError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -60,7 +61,7 @@ const AUDIT_KEEP = 200;
  */
 const LOCK_WAIT_MS = 6000, LOCK_STALE_MS = 10_000;
 const CHANGED = 'Profiles changed elsewhere. Reload before saving.';
-interface Stored { version?: number; revision: number; layers: Record<string, HarnessLayer>; audit?: HarnessAudit[]; legacyTasks?: string[] }
+interface Stored { version?: number; revision: number; layers: Record<string, HarnessLayer>; audit?: HarnessAudit[]; legacyTasks?: string[]; toolStates?: Record<string, LifecycleState> }
 
 /** What a view or a save addresses: a task id (the 3-level form), or the way down to a node (shared/harness-hierarchy.ts). */
 export type HarnessTarget = string | HarnessPath;
@@ -95,6 +96,13 @@ export class HarnessProfiles {
       if (!Number.isSafeInteger(data.revision) || data.revision < 0 || !object(data.layers)) throw new Error('invalid schema');
       if (data.version !== undefined && (!Number.isSafeInteger(data.version) || data.version < 1 || data.version > HARNESS_STORE_VERSION)) throw new Error('unknown store version');
       for (const layer of Object.values(data.layers)) parseHarnessLayer(layer);
+      if (data.toolStates !== undefined) {
+        if (!object(data.toolStates)) throw new Error('invalid tool states');
+        for (const [key, state] of Object.entries(data.toolStates)) {
+          const parsed = parseLifecycle(state);
+          if (!/^[a-f0-9]{64}:[a-f0-9]{64}$/.test(key) || key.split(':')[1] !== lifecycleScopeKey(parsed.scope)) throw new Error('invalid tool scope');
+        }
+      }
       if (data.audit !== undefined && !Array.isArray(data.audit)) throw new Error('invalid audit');
       if (data.audit) data.audit = data.audit.filter((a): a is HarnessAudit => object(a) && typeof a.at === 'string' && Number.isSafeInteger(a.revision) && typeof a.level === 'string' && typeof a.node === 'string' && typeof a.by === 'string' && Array.isArray(a.slots) && a.slots.every((s) => typeof s === 'string') && (a.repo === undefined || typeof a.repo === 'string'));
       if (data.legacyTasks !== undefined && !(Array.isArray(data.legacyTasks) && data.legacyTasks.every((k) => typeof k === 'string'))) throw new Error('invalid legacyTasks');
@@ -138,6 +146,37 @@ export class HarnessProfiles {
     const path = asPath(target);
     for (const level of HARNESS_LEVELS) this.key(repo, path, level);
     return this.assemble(this.read(), repo, path);
+  }
+  lifecycle(repo: string, scope: LifecycleScope): { revision: number; state?: LifecycleState } {
+    const data = this.read(), key = this.repoKey(repo) + ':' + lifecycleScopeKey(scope);
+    return { revision: data.revision, state: data.toolStates?.[key] ? structuredClone(data.toolStates[key]) : undefined };
+  }
+  /** Internal server seam. Never expose readEvidence as worker-supplied observations. */
+  async advanceTool(repo: string, scope: LifecycleScope, revision: number, operation: 'promote' | 'reconcile',
+    readEvidence: (current: LifecycleState | undefined) => Promise<LifecycleCheck>): Promise<{ revision: number; state: LifecycleState }> {
+    const key = this.repoKey(repo) + ':' + lifecycleScopeKey(scope);
+    return this.locked(async lease => {
+      const { data, base } = this.committed();
+      if (revision !== data.revision) throw new HarnessError(CHANGED, 409);
+      const before = data.toolStates?.[key];
+      const checks = await readEvidence(before ? structuredClone(before) : undefined);
+      const state = advanceLifecycle(scope, before, checks, operation);
+      if ((data.version ?? 1) === 1) data.legacyTasks = Object.keys(data.layers).filter(k => k.startsWith('task:'));
+      data.version = HARNESS_STORE_VERSION;
+      // Keep optional v2 fields: earlier v2 writers preserve unknown properties when saving layers.
+      data.toolStates = { ...data.toolStates, [key]: state }; data.revision++;
+      const text = JSON.stringify(data, null, 2);
+      if (Buffer.byteLength(text) > 2 * 1024 * 1024) throw new HarnessError('Harness profile storage is full.');
+      const revisionOf = (raw: string) => { try { return this.parse(raw).revision; } catch { return undefined; } };
+      try { await publishRevision(this.file, data.revision, base, text,
+        { fence: () => { lease.verify(); this.lockOptions.hooks?.verified?.(); }, revisionOf }); }
+      catch (err) {
+        if (err instanceof RevisionConflict) throw new HarnessError(CHANGED, 409);
+        if (err instanceof DamagedRevision) throw new HarnessError(err.message, 503);
+        throw err;
+      }
+      return { revision: data.revision, state: structuredClone(state) };
+    });
   }
   /**
    * The latest saves, newest first, that a reader of `repo` may see: the repository's own saves below

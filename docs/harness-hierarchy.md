@@ -38,6 +38,31 @@ The path digest checks scope/node ancestry before a save and again after acquiri
 
 **Context v1:** bound Opora task preparation resolves all seven levels against the current canvas and embeds resource contents with a snapshot digest. An unavailable or changed binding blocks preparation. Already seated workers retain their snapshot. **Context v2:** dispatch continues to use Canvas's immutable accepted assignment; live Harness profiles are not appended. This PR does not add a v2 kit producer, measured outcomes, automatic promotion, Context7 calls or OpenViking writes. Selecting a script/MCP/skill is context configuration, not execution or proof of runner capability.
 
+## Recommendation lifecycle storage
+
+The existing profile revision store can retain scoped tool recommendation state through
+its internal `advanceTool` server method. State is isolated by repository, native server
+origin, project, workspace and problem. Promotion records an exact content version and
+requirements; replacing an incumbent must name its exact baseline and cannot expand
+capabilities or change category. Reconciliation can suspend a failing/inconclusive
+version or roll back to the retained previous version only after fresh positive evidence
+for that exact compatible version. It does not modify manual layers or accepted kits.
+
+Evidence is fetched by a trusted server callback under the existing renewable lock.
+The existing revision publication rejects concurrent profile/lifecycle writes. An
+authority or transport error publishes nothing; a caller must treat the operation as
+unavailable, never use the older stored `stable` label as fresh authorization. The
+worker transport and automatic recommendation-selection integration are still pending.
+There is no public endpoint accepting caller-supplied eligibility and no autonomous
+promotion merely from installing this storage seam. Stable here means a scoped
+recommendation policy passed, not demonstrated causal benefit or production permission.
+
+`toolStates` is an optional v2 field. Existing v2 layer writers preserve unknown fields;
+v1 migration retains the same legacy task markers. Use the existing whole-store backup
+procedure for older writers. State and its bounded transition audit are written with
+the manual layers in the same atomic revision, not a second ledger. Restoration must
+preserve the matching revision files as described above.
+
 ## Verification
 
 Run `npm run typecheck`, `npm test`, `npm run build`. Focused tests cover geometry boundaries, seven-level inheritance, legacy migration, concurrent publication, HTTP authorization, project isolation, stale-path conflicts and actual worker handoff. With Vite on 5192, run `node tests/harness-hierarchy.browser.mjs`; `HARNESS_LAB_URL` and `HARNESS_SHOTS` override the lab and screenshot directory. It checks desktop/mobile selectors, inherited checkboxes, persistence, conflict retention, reload, versioned rates, unsaved-draft retention, stale-response fencing, missing-endpoint behavior and modal close. The fixture writes no live settings and launches no paid agents.
