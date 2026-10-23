@@ -25,3 +25,6 @@
 .opora-card-name { font-weight: 800; }
 .opora-sector { margin: 6px 0; }
 .opora-sector summary { font-weight: 800; cursor: pointer; }
+.opora-human-wait { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; background: #fff8e1; border: 2px solid var(--ink); border-left: 6px solid #f59f00; border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
+.opora-human-wait p { margin: 0; flex: 1 1 100%; font-size: 14px; }
+.opora-human-wait .btn { margin-left: auto; }

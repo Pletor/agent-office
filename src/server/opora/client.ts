@@ -2,6 +2,7 @@
 // writes only from its own origin, which a server can say it is and a page from the office can't).
 
 import type { CanvasNode } from '../../shared/opora-scope.js';
+import { digestAgentState, type AgentStateDigest } from './agent-state.js';
 
 /** What Opora said when a call didn't go through: its HTTP status (0 when it didn't answer) and its words. */
 export class OporaError extends Error {
@@ -121,13 +122,12 @@ export class OporaClient {
   }
 
   /**
-   * The cards Canvas's agent-state offers a ready `claim` for (accepted plan steps, budget, no
-   * unfinished predecessor). Throws on a Canvas without agent-state.
+   * One read of Canvas's agent-state: the cards it offers a ready `claim` for (accepted plan steps,
+   * budget, no unfinished predecessor), and what waits on a person (agent-state.ts). Throws on a
+   * Canvas without agent-state.
    */
-  async claimReady(project: string, workspace: string): Promise<Set<string>> {
-    const doc = await this.get<{ actions?: unknown }>('/api/oporahub/agent-state', { project, workspace });
-    const actions = Array.isArray(doc.actions) ? (doc.actions as Record<string, unknown>[]) : [];
-    return new Set(actions.filter((a) => a && a.verb === 'claim' && a.status === 'ready' && typeof a.targetId === 'string').map((a) => a.targetId as string));
+  async agentState(project: string, workspace: string): Promise<AgentStateDigest> {
+    return digestAgentState(await this.get<unknown>('/api/oporahub/agent-state', { project, workspace }));
   }
 
   /** One drawing layer's Excalidraw scene: a card's or sector's own (its id), or a storyboard moment's (`sb/<card>/<moment>`). */

@@ -83,6 +83,8 @@ function fakeOpora(dir: string) {
   const executions = new Map<string, Record<string, unknown>>();
   // Plan-step cards (accepted `spec.steps`, no routed pipeline) that Canvas's agent-state offers a ready claim for.
   const stepCards: { id: string; name: string }[] = [];
+  // More of agent-state (stages, decisions, cards), as a test sets it: a Canvas waiting on a person.
+  const agentState: Record<string, unknown> = {};
   // Opora's page refuses to be framed, as it does until its embed_origins lists someone.
   const page: { headers: Record<string, string> } = { headers: { 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'" } };
   // Shop's workspaces; a test adds `main` and a work one (`work1`, with a card of its own).
@@ -147,7 +149,7 @@ function fakeOpora(dir: string) {
         case '/api/view':
           return send(200, { graph: { nodes: [{ id: 'a1', kind: 'area', name: 'Frontend' }, { id: 's1', kind: 'sector', name: 'Checkout', parentId: null }, { id: 'c1', kind: 'node', name: 'Cart page', parentId: 's1' }, { id: 'c2', kind: 'node', name: 'Pay API', parentId: 's1' }, ...stepCards.map((c) => ({ ...c, kind: 'node', parentId: 's1' }))] } });
         case '/api/oporahub/agent-state':
-          return send(200, { actions: stepCards.map((c) => ({ verb: 'claim', status: leases.has(c.id) ? 'blocked' : 'ready', targetId: c.id })) });
+          return send(200, { actions: stepCards.map((c) => ({ verb: 'claim', status: leases.has(c.id) ? 'blocked' : 'ready', targetId: c.id })), ...agentState });
         case '/api/desktop-v3/frontier':
           if (url.searchParams.get('nodeId') !== 's1') return send(200, { frontier: [{ id: 's1', name: 'Checkout' }] });
           return send(200, {
@@ -177,7 +179,7 @@ function fakeOpora(dir: string) {
       send(404, { detail: 'nope' });
     });
   });
-  return { server, calls, leases, projects, page, workspaces, stepCards };
+  return { server, calls, leases, projects, page, workspaces, stepCards, agentState };
 }
 
 async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeEvents['prepareTask']) {
@@ -560,4 +562,32 @@ test('the picked workspace is kept across a restart, and linking another project
   assert.equal(state!.workspaceBy, 'choice');
   assert.equal(again.link('other'), undefined);
   assert.doesNotMatch(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'), /"workspace"/);
+});
+
+test('while Opora waits on a person to accept the baseline, nothing is claimed and the autopilot says why once', async (t) => {
+  const f = await fixture(t);
+  assert.equal(f.state().humanWait, undefined, 'nothing waits on a person: no notice');
+  Object.assign(f.op.agentState, {
+    stages: [{ id: 'plan', count: 184, health: 'blocking', reason: 'no_accepted_baseline' }, { id: 'claim', count: 0, health: 'ok', reason: 'nothing_ready' }],
+    decisions: [{ id: 'd1', kind: 'accept_baseline', title: 'Přijmout výchozí zadání', actionId: 'a1' }],
+    actions: [{ id: 'a1', verb: 'accept_baseline', status: 'blocked', blockReason: 'human_only' }],
+    cards: [{ nodeId: 'c1', health: 'blocking', reason: 'no_accepted_baseline' }, { nodeId: 'c2', health: 'blocking', reason: 'no_accepted_baseline' }],
+  });
+  await f.bridge.poll();
+  const w = f.state().humanWait!;
+  assert.deepEqual(w.decisions, [{ kind: 'accept_baseline', title: 'Přijmout výchozí zadání' }]);
+  assert.equal(w.cards, 2);
+  assert.equal(w.claimsBlocked, true);
+  assert.match((await f.bridge.take('c1', 'Ana'))!, /waits on a person: “Přijmout výchozí zadání”/);
+  f.bridge.setAutopilot(true, 2, 'Ana');
+  await f.bridge.poll();
+  await f.bridge.poll();
+  assert.equal(f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').length, 0, 'no claim tried');
+  assert.equal(f.toasts.filter((x) => /autopilot holds off/.test(x)).length, 1, 'said once, not per card or per poll');
+  assert.equal(f.toasts.filter((x) => /couldn't take/.test(x)).length, 0);
+  // Accepted in Opora: the notice goes and the autopilot takes cards again.
+  for (const k of Object.keys(f.op.agentState)) delete f.op.agentState[k];
+  await f.bridge.poll();
+  assert.equal(f.state().humanWait, undefined);
+  assert.ok(f.op.calls.some((c) => c.path === '/api/oporahub/executions/claim'));
 });
