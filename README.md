@@ -71,6 +71,8 @@ Agents can prepare a versioned kit with `office-harness --kit PROBLEM resource-i
 
 **Prepare an agent's tools.** `office-harness --recommend PROBLEM` assembles a versioned kit from published project/shared toolboxes, inherited choices and native outcomes. Use `--search "words"`, `--read ID` or `--bundle ID...` to find and inspect accessible resources with the same worker credentials. Recommendations preserve disabled resources, report missing requirements and limit unmeasured additions. [Recommendation, evidence and sharing](docs/harness-recommend.md).
 
+The Harness editor can also show versioned experience by problem: separate reported/human-closed results, sample counts, unknowns and confidence intervals. This optional read-only lookup preserves unsaved checkbox edits; see [hierarchy and experience](docs/harness-hierarchy.md).
+
 On the machine that runs the office:
 
 - **Node.js 20+**

@@ -10,6 +10,11 @@
 .harness-resource-check input[type=checkbox] { width: 20px; height: 20px; flex: none; accent-color: #32a89a; }
 .harness-resource-check span { display: grid; gap: 4px; overflow-wrap: anywhere; }
 .harness-resource-check small { color: var(--muted); }
+.harness-experience { margin: 12px 0; padding: 12px; border: 1px solid #8884; border-radius: 8px; }
+.harness-experience-badge { display: grid; gap: 4px; }
+.harness-experience-note { font-weight: normal; }
+.harness-experience .harness-toolbar { align-items: end; }
+.harness-experience .harness-toolbar label { flex: 1; min-width: 0; }
 .harness-resource-check .btn { flex: none; }
 @media (max-width: 1000px) { .harness-levels { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 500px) { .harness-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
