@@ -19,12 +19,12 @@ test('recommendation uses the authenticated floor peer and refuses stale scope/p
   const native = http.createServer(async (req, res) => {
     calls++;
     const url = new URL(req.url!, 'http://local');
-    assert.ok(['/api/oporahub/harness-learning', '/api/oporahub/harness-paired-evaluations'].includes(url.pathname));
+    assert.ok(['/api/oporahub/harness-learning', '/api/oporahub/harness-paired-evaluations', '/api/oporahub/harness-verifier/requests'].includes(url.pathname));
     assert.equal(req.headers.authorization, undefined, 'worker credentials never reach the native peer');
     assert.equal(url.searchParams.get('project'), 'p'); assert.equal(url.searchParams.get('workspace'), 'w');
     if (mutate) { mutate = false; await profiles.save(dir, '', 'repository', { language: { value: 'cs' } }, 0); }
     res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify(url.pathname.endsWith('harness-learning')
+    res.end(JSON.stringify(url.pathname.endsWith('/requests') ? { requests: [] } : url.pathname.endsWith('harness-learning')
       ? { schema: 'harness.learning/1', authority: 'native-outbox-projection', scope: { project: 'p', workspace: 'w', nodeId: null }, limited: false, cohorts: [] }
       : { schema: 'harness.paired-evaluations/1', authority: 'native-result-receipts', scope: { project: 'p', workspace: 'w', nodeId: null },
         evidence: 'worker-reported', serverObserved: false, independentlyVerified: false, causalContribution: false,
@@ -50,6 +50,7 @@ test('recommendation uses the authenticated floor peer and refuses stale scope/p
   assert.equal(response.status, 200); let result = await response.json();
   assert.equal(result.history.status, 'available'); assert.equal(result.context.project, 'p'); assert.equal(result.kit.schema, 'harness.kit/1');
   assert.equal(result.pairedHistory.status, 'available');
+  assert.equal(result.fixtureHistory.status, 'available');
   assert.equal(profiles.view(dir).revision, 0, 'preparation never edits assignments');
   const hook = '/office/harness?worker=ordinary&recommend=1&problem=ts.references';
   assert.equal((await fetch(base + hook)).status, 401);

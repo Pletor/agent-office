@@ -200,3 +200,31 @@ test('explicit shared publication is visible across floors while machine resourc
   assert.equal(second.entries.find(other => other.path === 'a.mjs')!.id, entry.id);
   assert.ok(!first.entries.some(entry => entry.path.includes('.env') || entry.source.includes('machine')));
 });
+
+
+test('independent fixture regressions restrain exact candidates without rewriting acceptance or explicit assignments', async t => {
+  const f = await fixture(t), id = f.id('a'), content = (await f.library.read(id))!.text;
+  const evidence = { verificationId: 'native-check', executionId: 'exec-1', problem: 'ts.references',
+    candidate: { id, digest: sha(content) }, baseline: { id: 'script:base', digest: 'a'.repeat(64) },
+    plan: { id: 'testing:plan', digest: 'b'.repeat(64) }, cases: 2, improvements: 0, regressions: 1 };
+  const fixtures = { status: 'available' as const, limited: false, unknown: 0, evaluations: [evidence] };
+  const accepted = history([cohort(id, content)]);
+  const result = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, accepted, undefined, fixtures);
+  assert.ok(!result.selected.includes(id));
+  const candidate = result.candidates.find(c => c.id === id)!;
+  assert.equal(candidate.state, 'regression-review-needed'); assert.equal(candidate.verified!.percent, 100);
+  assert.equal(candidate.fixtureEvidence[0].verificationId, 'native-check');
+  const explicit = await recommendHarness(f.library, 'ts.references', ['command:node'], profile({ work: { resource: id } }), accepted, undefined, fixtures);
+  assert.ok(explicit.selected.includes(id));
+  assert.ok(explicit.warnings.some(w => w.resource === id && w.reason === 'verified-fixture-regression-needs-review'));
+  for (const changed of [{ problem: 'other' }, { candidate: { id, digest: 'c'.repeat(64) } }, { candidate: { id: 'other', digest: sha(content) } }]) {
+    const scoped = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, accepted, undefined,
+      { ...fixtures, evaluations: [{ ...evidence, ...changed }] });
+    assert.ok(scoped.selected.includes(id)); assert.deepEqual(scoped.candidates.find(c => c.id === id)!.fixtureEvidence, []);
+  }
+  const positive = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, undefined, undefined,
+    { ...fixtures, evaluations: [{ ...evidence, regressions: 0, improvements: 2 }] });
+  const unproven = positive.candidates.find(c => c.id === id)!;
+  assert.equal(unproven.verified, null); assert.equal(unproven.tasks, 0); assert.equal(unproven.observed, false);
+  assert.equal(positive.promotionAllowed, false);
+});
