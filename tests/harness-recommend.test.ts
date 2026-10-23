@@ -252,6 +252,10 @@ test('persisted quarantine outlives recent fixture history and incomplete covera
   const incomplete = await invoke({ ...fixtureHistory, quarantine: { complete: false, unboundFailures: 1, cohorts: [] } });
   assert.ok(!incomplete.selected.includes(id));
   assert.equal(incomplete.candidates.find(c => c.id === id)!.state, 'fixture-history-incomplete');
+  const legacyWindow = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, accepted, undefined,
+    { ...fixtureHistory, limited: true, quarantine: undefined });
+  assert.ok(!legacyWindow.selected.includes(id), 'a legacy truncated window cannot certify absence of old failures');
+  assert.equal(legacyWindow.candidates.find(c => c.id === id)!.state, 'fixture-history-incomplete');
   for (const change of [{ problem: 'other' }, { candidate: { id, digest: 'a'.repeat(64) } }]) {
     const unrelated = await invoke({ ...fixtureHistory, quarantine: { ...fixtureHistory.quarantine,
       cohorts: [{ ...fixtureHistory.quarantine.cohorts[0], ...change }] } });
