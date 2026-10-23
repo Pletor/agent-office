@@ -31,8 +31,8 @@ export async function acceptedReceipt(base: string, worker: string, token: strin
   const value = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Receipt;
   const e = value?.execution;
   if (!e || !['executionId', 'project', 'workspace', 'nodeId'].every(k => typeof e[k as keyof Execution] === 'string' && ID.test(e[k as keyof Execution] as string))
-    || !Number.isSafeInteger(e.epoch) || e.epoch < 1 || !/^[a-f0-9]{40}$/.test(e.acceptedRevision)
-    || !/^[a-f0-9]{64}$/.test(e.assignmentDigest) || value.kit?.schema !== 'harness.kit/1'
+    || !Number.isSafeInteger(e.epoch) || e.epoch < 1 || typeof e.acceptedRevision !== 'string' || !/^[a-f0-9]{40}(?![\s\S])/.test(e.acceptedRevision)
+    || typeof e.assignmentDigest !== 'string' || !/^[a-f0-9]{64}(?![\s\S])/.test(e.assignmentDigest) || value.kit?.schema !== 'harness.kit/1'
     || !Array.isArray(value.kit.resources) || value.kit.resources.length > 24) throw invalid();
   return { execution: { executionId: e.executionId, epoch: e.epoch, project: e.project, workspace: e.workspace,
     nodeId: e.nodeId, acceptedRevision: e.acceptedRevision, assignmentDigest: e.assignmentDigest }, kit: value.kit };

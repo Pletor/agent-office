@@ -58,9 +58,9 @@ test('reports nonzero exit, enforces output and timeout limits, and blocks child
   assert.equal(timeout.reason, 'timeout');
   assert.equal(timeout.outcome, 'fail');
 
-  const denied = await invokeNode(async () => receipt("import {spawnSync} from 'node:child_process'; import {writeFileSync} from 'node:fs'; let child='allowed', file='allowed'; try { spawnSync(process.execPath,['-e','']); } catch(e) { child=e.code; } try { writeFileSync(process.env.TMP+'/blocked','x'); } catch(e) { file=e.code; } console.log(JSON.stringify({child,file}))"), 'el:project:runner', [], process.cwd());
+  const denied = await invokeNode(async () => receipt("import {spawnSync} from 'node:child_process'; import {writeFileSync} from 'node:fs'; import {Worker} from 'node:worker_threads'; let child='allowed', file='allowed', worker='allowed'; try { spawnSync(process.execPath,['-e','']); } catch(e) { child=e.code; } try { writeFileSync(process.env.TMP+'/blocked','x'); } catch(e) { file=e.code; } try { new Worker('process.exit(0)',{eval:true}); } catch(e) { worker=e.code; } console.log(JSON.stringify({child,file,worker}))"), 'el:project:runner', [], process.cwd());
   assert.equal(denied.exitCode, 0);
-  assert.deepEqual(JSON.parse(denied.stdout), { child: 'ERR_ACCESS_DENIED', file: 'ERR_ACCESS_DENIED' });
+  assert.deepEqual(JSON.parse(denied.stdout), { child: 'ERR_ACCESS_DENIED', file: 'ERR_ACCESS_DENIED', worker: 'ERR_ACCESS_DENIED' });
 });
 
 test('checks lease identity before spawn and while the child is running; cleans scratch files', async (t) => {
