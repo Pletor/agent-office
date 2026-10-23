@@ -24,6 +24,7 @@ import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
 import { PlanningRoom } from './planning.js';
 import { OporaBridge } from './opora/bridge.js';
+import { OrchestratorFocusKeeper } from './orchestrator/focus.js';
 import { IsolatedOfficeService } from './opora/isolated-service.js';
 import { harnessPlannerBrief } from './harness/handoff.js';
 import { PLANNER_SEAT } from '../shared/planning.js';
@@ -135,6 +136,8 @@ export class Floor {
   readonly planning: PlanningRoom;
   /** The Opora Control Center's link to Opora Canvas, which carries the canvas's cards out (see opora/bridge.ts). */
   readonly opora: OporaBridge;
+  /** The card picked for the orchestrator at the right board, and the overview its planner gets (see orchestrator/). */
+  readonly orchestrator: OrchestratorFocusKeeper;
   readonly isolatedExecutions: IsolatedOfficeService;
   /** How the planning room's plan stood at its last update, to see the orchestrator end a turn. */
   private planStatus?: string;
@@ -319,6 +322,7 @@ export class Floor {
           const o = this.opora.view();
           return { base: o.url, project: o.project?.id, name: o.project?.name, workspace: o.workspace ?? undefined, focus: this.opora.focusLine() };
         },
+        brief: () => this.orchestrator?.brief(),
       },
     );
 
@@ -347,6 +351,9 @@ export class Floor {
         prompt: (id) => ctx.prompts.text(id),
       },
     );
+
+    // The card picked at the right board for the orchestrator, whose overview the planner gets.
+    this.orchestrator = new OrchestratorFocusKeeper({ opora: () => this.opora.view(), agent: `office-${def.id}`, dataDir, update: (state) => ctx.emit(this, { t: 'orchestrator', state }) });
 
     // What each worker changed, for the Changes window at its desk (see changes.ts).
     this.changes = new Changes(
@@ -493,6 +500,7 @@ export class Floor {
     this.meetings.shutdown();
     this.planning.shutdown();
     this.opora.shutdown();
+    this.orchestrator.shutdown();
     this.isolatedExecutions.shutdown();
     this.changes.stop();
     this.whiteboard.flush();

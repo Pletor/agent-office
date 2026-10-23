@@ -13,6 +13,7 @@ import type { GhIssue, GhPull, GhState } from './github.js';
 import type { ProcessSnapshot } from './process.js';
 import type { MeetingState } from './meetings.js';
 import type { OporaState } from './opora.js';
+import type { OrchestratorState } from './orchestrator.js';
 import type { PlanningState } from './planning.js';
 import type { PeerInfo } from './presence.js';
 import type { QueueState } from './queue.js';
@@ -125,6 +126,8 @@ export interface FloorView {
   planning: PlanningState;
   /** The Opora Control Center's link to Opora Canvas: the canvas's cards, and the ones the office is on. */
   opora: OporaState;
+  /** The card picked for the orchestrator at the Opora Control Center's right board, and the overview its planner gets. */
+  orchestrator: OrchestratorState;
   /** The basketball by the hoop: who has it, or how it was last thrown. */
   ball: BallState;
   /** The cars in the garage (see CARS in shared/garage.ts): where each one is, and who's in it. */
