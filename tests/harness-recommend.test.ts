@@ -10,6 +10,7 @@ import { buildHarnessKit } from '../src/server/harness/kit.js';
 import { nativeHistory, parseNativeHistory } from '../src/server/harness/native-outcomes.js';
 import { parseToolbox } from '../src/server/harness/toolbox.js';
 import { resolveHarness, type HarnessProfile } from '../src/shared/harness-cascade.js';
+import type { PairedHistory } from '../src/server/harness/native-paired.js';
 
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
 test('configuration identity matches the independent Canvas Python canonical JSON fixture', () => {
@@ -37,6 +38,48 @@ function cohort(resource: string, content: string, pass = 5, fail = 0, tier = 'v
 function profile(global = {}, repository = {}, task = {}): HarnessProfile {
   const layers = { global, repository, task }; return { revision: 3, layers, effective: resolveHarness(layers) };
 }
+
+function paired(resource: string, content: string, regressions: number, problem = 'ts.references'): PairedHistory {
+  return { status: 'available', limited: false, invalidReceipts: 0, conflictingEvaluations: 0, evaluations: [{
+    executionId: 'exec-1', evaluationId: '12345678-1234-4234-8234-123456789abc', sourceReceipt: 'receipt-1', problem,
+    baseline: { id: 'script:baseline', digest: 'a'.repeat(64) }, candidate: { id: resource, digest: sha(content) },
+    plan: { id: 'testing:plan', digest: 'b'.repeat(64) }, improvements: 2, regressions, unknownPairs: 0, status: 'complete' }] };
+}
+
+test('paired fixture regression restrains exact-version automatic selection but preserves explicit choice with warning', async t => {
+  const f = await fixture(t), id = f.id('a'), content = (await f.library.read(id))!.text;
+  const verified = history([cohort(id, content)]), experiment = paired(id, content, 1);
+  const result = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, verified, experiment);
+  assert.equal(result.selected.includes(id), false);
+  const candidate = result.candidates.find(c => c.id === id)!;
+  assert.equal(candidate.state, 'regression-review-needed'); assert.equal(candidate.observed, false);
+  assert.equal(candidate.verified!.percent, 100, 'the negative signal never rewrites verified acceptance counts');
+  assert.equal(candidate.pairedEvidence[0].sourceReceipt, 'receipt-1');
+  const explicit = await recommendHarness(f.library, 'ts.references', ['command:node'], profile({ work: { resource: id } }), verified, experiment);
+  assert.ok(explicit.selected.includes(id));
+  assert.ok(explicit.warnings.some(w => w.resource === id && w.reason === 'paired-fixture-regression-needs-review' && w.preserved === 'explicit'));
+  assert.equal(explicit.promotionAllowed, false);
+  experiment.evaluations[0].status = 'incomplete';
+  const interrupted = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, verified, experiment);
+  assert.ok(interrupted.selected.includes(id), 'lost authority or incomplete cleanup is not a completed candidate comparison');
+  assert.equal(interrupted.candidates.find(c => c.id === id)!.pairedRegression, false);
+  assert.equal(interrupted.candidates.find(c => c.id === id)!.pairedEvidence.length, 1, 'incomplete evidence stays visible');
+});
+
+test('paired improvements remain exploratory and old versions or other problems do not penalize a candidate', async t => {
+  const f = await fixture(t), id = f.id('a'), content = (await f.library.read(id))!.text;
+  const improved = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, undefined, paired(id, content, 0));
+  const candidate = improved.candidates.find(c => c.id === id)!;
+  assert.equal(candidate.state, 'candidate'); assert.equal(candidate.observed, false); assert.equal(candidate.verified, null);
+  assert.equal(improved.selected.filter(s => !s.startsWith('guide:')).length, 1);
+  for (const wrong of [paired(id, 'old-content', 1), paired(id, content, 1, 'different.problem')]) {
+    const result = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, undefined, wrong);
+    assert.ok(result.selected.includes(id)); assert.deepEqual(result.candidates.find(c => c.id === id)!.pairedEvidence, []);
+  }
+  f.resources[0].requires = ['command:npm']; f.saveManifest();
+  const differentAdapter = await recommendHarness(f.library, 'ts.references', ['command:npm'], undefined, undefined, paired(id, content, 1));
+  assert.deepEqual(differentAdapter.candidates.find(c => c.id === id)!.pairedEvidence, []);
+});
 
 test('catalog aliases preserve explicit and disabled choices and cannot duplicate a kit resource', async t => {
   const f = await fixture(t), canonical = f.id('a'), alias = 'legacy-resource';
