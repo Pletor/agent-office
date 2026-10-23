@@ -218,7 +218,7 @@ export class WorkerManager {
   /**
    * Hires a worker at a desk. `meeting` seats one at the meeting room's table instead, for that meeting
    * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares. `repos` are
-   * other floors' repositories a worker in its own worktree works in too (see makeWorkspace).
+   * other floors' repositories a worker in its own worktree works in too (see WorkerTrees.makeWorkspace).
    */
   spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = [], via?: WorkerInfo['via']): WorkerInfo | string {
     // Nobody picked (a board agent, say): the office's default worker, model and effort included.
@@ -256,7 +256,7 @@ export class WorkerManager {
     let others: WorkerRepo[] | undefined;
     if (worktree) {
       const slug = `${name.toLowerCase()}-${id.slice(0, 4)}`;
-      const made = repos.length ? this.makeWorkspace(slug, repos) : this.trees.create(slug);
+      const made = repos.length ? this.worktrees.makeWorkspace(slug, repos) : this.trees.create(slug);
       if (typeof made === 'string') return made;
       if ('repos' in made) {
         ({ worktree: wt, repos: others } = made);
@@ -295,15 +295,15 @@ export class WorkerManager {
     w.owner = owner;
     this.workers.set(id, w);
     if (info.prompt) this.tasks.notePrompt(w, info.prompt);
-    // A board agent is told what it's there for ahead of its first request (which is what shows).
-    this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt, undefined);
+    // A board agent is told what it's there for ahead of its first request (which is what shows). A fresh
+    // worktree first gets the floor's dependencies (worktree-setup.ts), and the first prompt says how that went.
+    const first = seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt;
+    const setup = worktree && wt ? this.worktrees.setup.prepare(path.join(this.dir, wt.path), first) : undefined;
+    if (setup) void setup.then((p) => this.workers.get(id) === w && !w.pty && !w.dsh && this.launch(w, p, undefined)); else this.launch(w, first, undefined);
     this.persist();
     return info;
   }
 
-  private makeWorkspace(slug: string, repos: RepoSource[]) {
-    return this.worktrees.makeWorkspace(slug, repos);
-  }
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
   resume(id: string, prompt?: string): string | undefined {
     const w = this.workers.get(id);
