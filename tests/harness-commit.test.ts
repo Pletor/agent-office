@@ -133,7 +133,7 @@ test('a save whose base has no published successor but is behind the main file (
   assert.equal((await store.save('/repo', '', 'global', { mine: { value: 1 } }, 2)).revision, 3);
 });
 
-test('a main file that can\'t be replaced for more saves than are kept loses none of them, and a damaged published file is named, not a 409 forever', async (t) => {
+test('Windows read-only main stays recoverable beyond the revision retention window', { skip: process.platform !== 'win32' ? 'POSIX allows replacing a read-only file in a writable directory' : false }, async (t) => {
   const { dir, file } = fixture(t);
   const store = new HarnessProfiles(dir);
   await store.save('/repo', '', 'global', { n: { value: 0 } }, 0);
@@ -147,8 +147,13 @@ test('a main file that can\'t be replaced for more saves than are kept loses non
   await store.save('/repo', '', 'global', { n: { value: 'back' } }, KEEP_REVISIONS + 3);
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).revision, KEEP_REVISIONS + 4, 'the next save that can replace it completes the main file');
   assert.ok(readdirSync(dir).filter((f) => f.includes('.rev.')).length <= KEEP_REVISIONS, 'and pruning catches up');
-  // A power loss left the next revision's file empty: the save says which file to remove instead of a 409 that never ends.
+});
+
+test('a damaged published file is identified instead of causing a permanent revision conflict', async t => {
+  const { dir, file } = fixture(t), store = new HarnessProfiles(dir);
+  await store.save('/repo', '', 'global', {}, 0);
+  // A power loss left the next revision's file empty: the save says which file to remove.
   const latest = readFileSync(file, 'utf8');
-  writeFileSync(revisionFile(file, KEEP_REVISIONS + 5, latest), '');
-  await assert.rejects(store.save('/repo', '', 'global', {}, KEEP_REVISIONS + 4), (err: Error & { status: number }) => err.status === 503 && /is damaged: remove that file/.test(err.message));
+  writeFileSync(revisionFile(file, 2, latest), '');
+  await assert.rejects(store.save('/repo', '', 'global', {}, 1), (err: Error & { status: number }) => err.status === 503 && /is damaged: remove that file/.test(err.message));
 });
