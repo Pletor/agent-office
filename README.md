@@ -78,6 +78,8 @@ The Harness editor can also show versioned experience by problem: separate repor
 Native incident/revert guardrails suppress automatic reuse of affected versions; explicit
 assignments remain visible with warnings. These associations do not establish tool causation.
 
+Versioned experience also shows optional incident/revert warnings without changing assignments.
+
 On the machine that runs the office:
 
 - **Node.js 20+**

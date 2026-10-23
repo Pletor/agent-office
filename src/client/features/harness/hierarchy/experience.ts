@@ -2,9 +2,15 @@ import { h } from '../../../ui/dom';
 import type { HarnessHierarchyView } from '../../../../shared/harness-navigation';
 
 interface Rate { pass: number; fail: number; unknown: number; interval95: [number, number] | null }
-interface Experience { id: string; digest: string; verified: Rate | null; reported: Rate | null; tasks: number; missing: string[] }
+interface Guardrails { affectedExecutions: number; incidentReportExecutions: number; revertedExecutions: number }
+interface Experience { id: string; digest: string; verified: Rate | null; reported: Rate | null; tasks: number; missing: string[]; guardrails?: Guardrails | null }
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value);
 const count = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+function guardrails(value: unknown) {
+  return value == null || object(value) && value.source === 'native-review-eval-cases'
+    && value.productionExposure === 'unknown' && value.causalAttribution === false
+    && [value.affectedExecutions, value.incidentReportExecutions, value.revertedExecutions].every(count);
+}
 function rate(value: unknown): value is Rate | null {
   return value === null || object(value) && [value.pass, value.fail, value.unknown].every(count)
     && (value.interval95 === null || Array.isArray(value.interval95) && value.interval95.length === 2
@@ -45,7 +51,7 @@ export function experiencePanel(floor: string, view: () => HarnessHierarchyView 
       const next = new Map<string, Experience>();
       for (const item of data.candidates) {
         if (!object(item) || typeof item.id !== 'string' || !/^[a-f0-9]{64}$/.test(item.digest) || !rate(item.verified) || !rate(item.reported)
-          || !count(item.tasks) || !Array.isArray(item.missing) || item.missing.some((n: unknown) => typeof n !== 'string')) throw new Error('Neplatné údaje zkušenosti.');
+          || !count(item.tasks) || !guardrails(item.guardrails) || !Array.isArray(item.missing) || item.missing.some((n: unknown) => typeof n !== 'string')) throw new Error('Neplatné údaje zkušenosti.');
         next.set(item.id, item as unknown as Experience);
       }
       if (signal.aborted || seq !== ticket || scope !== key() || requestedProblem !== problem.value.trim()) return;
@@ -66,6 +72,9 @@ export function experiencePanel(floor: string, view: () => HarnessHierarchyView 
     return h('span.harness-experience-badge', {}, h('small', {}, 'Verze ' + item.digest.slice(0, 10)),
       h('small', {}, line('Lidské potvrzení', item.verified) + (item.tasks ? ` · ${item.tasks} různých karet` : '')),
       h('small', {}, line('Hlášení agenta', item.reported)),
+      ...(item.guardrails ? [h('small', {}, item.guardrails.affectedExecutions
+        ? `Regrese k prověření · dotčené běhy: ${item.guardrails.affectedExecutions} · incidenty ${item.guardrails.incidentReportExecutions} · reverty ${item.guardrails.revertedExecutions}. Příčina nástrojem neprokázaná.`
+        : 'Bez evidované vazby na regresi; produkční provoz nezměřen.')] : []),
       ...(item.missing.length ? [h('small', {}, 'Požadavky k ověření: ' + item.missing.join(', '))] : []));
   } };
 }
