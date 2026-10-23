@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { ExecutionLease } from '../src/server/opora/execution-client.js';
 import { PullRequestHandoff, type HandoffTools } from '../src/server/opora/pull-request-handoff.js';
 import { previewFolder } from '../src/server/opora/design-brief.js';
-import { DesignPreviewAttachment, MAX_PNG_BYTES, postPreview, readPreview } from '../src/server/opora/design-preview-upload.js';
+import { DesignPreviewAttachment, MAX_PNG_BYTES, postPreview, previewEvent, readPreview } from '../src/server/opora/design-preview-upload.js';
 
 const HEAD = 'c'.repeat(40);
 const TOKEN = 'f'.repeat(64);
@@ -150,4 +150,14 @@ test('a refusal is logged with Opora\'s reason, a 409 is retried once, and the t
   assert.equal(reply.outcome, 'failed');
   assert.ok(!reply.reason?.includes(TOKEN));
   assert.match(reply.reason ?? '', /\[redacted\]/);
+});
+
+test('the process event built from a refusal never carries the lease token', async () => {
+  const down = fakes({ status: 409, error: `refused, token ${TOKEN}` });
+  const reply = await postPreview('http://127.0.0.1:8740', 'office-1', down.tools.transport, lease(), { prNumber: 42, headSha: HEAD, designMdSha256: null, screenshots: [] });
+  assert.equal(reply.outcome, 'conflict');
+  for (const outcome of ['conflict', 'failed', 'invalid', 'recorded', 'not-deployed'] as const) {
+    const event = previewEvent(lease(), { number: 42, headSha: HEAD }, outcome, `1 screenshots · Opora: ${outcome} (${reply.reason})`);
+    assert.ok(!JSON.stringify(event).includes(TOKEN), outcome);
+  }
 });
