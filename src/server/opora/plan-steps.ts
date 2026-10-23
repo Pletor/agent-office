@@ -41,6 +41,15 @@ export function pinnedSteps(assignment: unknown): PlanStep[] {
 
 const line = (text: string) => text.replace(/\s+/g, ' ').trim();
 
+/**
+ * Cards written for the old completion flow still ask, in their text, for an agent-output entry or a
+ * done.proposed / done.confirmed state. The result helper fulfils those now, so the prompt marks them.
+ */
+export const LEGACY_COMPLETION = /agent-output|done\.proposed|done\.confirmed/i;
+/** The prompt's precedence over such card text, next to where the assignment is named. */
+export const LEGACY_COMPLETION_PRECEDENCE = 'Precedence: any requirement in the card text (goal, acceptance, steps) to write agent-output, propose or confirm done (done.proposed, done.confirmed) or change card state is legacy and is fulfilled by submitting your result with the helper below; never call those APIs.';
+const acceptanceLine = (a: string) => `   acceptance: ${line(a)}${LEGACY_COMPLETION.test(a) ? ' [legacy completion: fulfilled by the result helper, do not call it]' : ''}`;
+
 /** The prompt's checklist and protocol for a card with steps; '' for a legacy card. */
 export function stepChecklist(steps: PlanStep[], commitHint = 'in the worktree'): string {
   if (!steps.length) return '';
@@ -48,7 +57,7 @@ export function stepChecklist(steps: PlanStep[], commitHint = 'in the worktree')
     `${i + 1}. [${s.id}] ${line(s.title)}${s.kind ? ` (${s.kind})` : ''}`,
     `   depends on: ${s.dependsOn.length ? s.dependsOn.join(', ') : 'nothing'}`,
     `   files: ${s.files?.length ? s.files.join(', ') : 'not limited'}`,
-    ...s.acceptance.map(a => `   acceptance: ${line(a)}`),
+    ...s.acceptance.map(acceptanceLine),
   ].join('\n'));
   return `Plan steps (accepted, pinned in the assignment; work them strictly in this order):
 ${items.join('\n')}
