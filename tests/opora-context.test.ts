@@ -47,7 +47,7 @@ test('sparse claim replay preserves opt-in and request while unavailable servers
       previews++; return Response.json({ available: true, unavailableReason: null, acceptedHead: 'a'.repeat(40),
         contextVersion: 'c'.repeat(64), executionProtocolVersion: 1, contextProtocolVersion: 2 });
     }
-    if (String(url).endsWith('/claim')) {
+    if (new URL(String(url)).pathname.endsWith('/claim')) {
       requests.push(JSON.parse(String(options?.body)));
       if (requests.length === 1) throw new Error('uncertain delivery');
     }

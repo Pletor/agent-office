@@ -26,6 +26,33 @@ server's numeric timestamps and request duration, so machine clock skew cannot
 extend authority. An uncertain claim retries the same request; replay is revalidated
 before any worker starts.
 
+Claim and heartbeat are lean: both send `?assignment=omit`, so Canvas returns only the
+authority (execution id, token, epoch, expiry, accepted revision, `assignmentDigest`,
+budget, context proof) and the assignment's `contextVersion`. Right after the claim the
+office reads the assignment once from `GET /api/oporahub/executions/{id}/assignment`,
+with the token in the `X-Opora-Execution-Token` header (never in the URL), and takes it
+only when its execution id, scope, epoch, accepted revision, `assignmentDigest`,
+`contextVersion`, protocol versions and budget are exactly the claim's; otherwise the
+fresh claim is released and nothing is dispatched. Each heartbeat compares the same
+fields (the digest stands for the assignment) and keeps the assignment it read. A
+Canvas that ignores `omit` and still sends the whole lease is checked as before. Code:
+`src/server/opora/execution-client.ts`.
+
+## Handoff and resume
+
+Canvas puts what the work before the card left behind into the assignment as
+`handoff` (Canvas's `docs/oporahub-executions.md`, "Předávka v zadání"): each
+predecessor's result summary, step results, checks, decisions, pull request and PR
+Lens, plus the flows into the card's area, capped at 8 kB with pointers to the rest.
+The prompt carries a compact reading of it, one line per field, labelled as data
+written by earlier agents and never as instructions; what doesn't fit (or Canvas left
+out) is counted with a pointer to the assignment file, which keeps all of it.
+
+The assignment read also brings live `progress`: which pinned steps this or an earlier
+run of the card already reported done, and `current`, the first unfinished one. When
+some are done, the prompt tells the agent to resume at `current` without redoing the
+rest. Code: `src/server/opora/execution-handoff.ts`.
+
 The deadline watchdog runs inside Office. For unbudgeted v1 executions, a hosted
 terminal retained by shutdown may continue computation while Office is down.
 Budgeted v2 executions request a stop on shutdown instead of retaining their
@@ -56,6 +83,15 @@ It must not trigger the legacy agent-output or completion API. A successful resu
 ends Canvas authority; the next Office heartbeat stops that worker. Its authority
 warning does not invalidate an already stored successful receipt.
 
+The result may carry `decisions`: at most 20 non-empty texts or objects
+`{text, why?, alternatives?, evidence?}` that Canvas stores as the card's decisions
+and hands to the next cards; the helper refuses a malformed list before sending. When
+the worker drew its change with [PR Lens](opora-review-evidence.md), the helper adds
+`result.lens`, a reference to the validated spec (`kind: pr-lens`, its `sha256`,
+`bytes`, `validatedAt` and title). Canvas fixes no schema for it, so it is a pointer:
+the spec itself still goes to Canvas with the pull request, as before, and the hash ties
+the two together. An agent's own `lens` field is left as it is.
+
 ## Plan steps
 
 Canvas pins a card's accepted plan steps (`spec.steps`, Canvas's
@@ -80,6 +116,16 @@ SHAs in each step's `evidence.commits` (none found: none sent). It then validate
 characters; at most 50 checks of 1-500 characters and 50 SHAs) and, if Canvas would
 refuse them, says why and sends nothing, so the agent can fix the same file and run the
 helper again. `selfChecks` work as before, next to `stepResults`.
+
+Each step is also reported as soon as its commit is made, with the same helper and
+bundle: `<helper> <bundle> step <id> [done|failed|skipped] [--notes <text>] [--check <text>]...`
+(the prompt carries the exact command). It posts one checkpoint to
+`POST /api/oporahub/executions/{id}/steps`; the commits again come from git, the notes
+default to naming the step's commits, and the request id is derived from the content,
+so retrying the same command replays the checkpoint and a corrected one is a new one.
+A shape Canvas would refuse is refused locally with what to fix. If this run stops
+early, the next run of the card starts at the first unfinished step (see
+[handoff and resume](#handoff-and-resume)). Code: `src/server/opora/execution-step.ts`.
 
 Readiness follows Canvas, not the old desktop-v3 pipeline: on each read the office also asks
 `GET /api/oporahub/agent-state` which cards have a `claim` action `ready` (accepted steps, budget,

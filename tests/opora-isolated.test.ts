@@ -80,7 +80,14 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, version: 1 |
         contextVersion: assignment.contextVersion, executionProtocolVersion: 2, ...(version === 2 ? { contextProtocolVersion: 2 } : {}),
         budget: { enrolled: true, policyHead: budget.policyHead, policy: {}, latestExecutionId: null, blockedReason: null,
           attemptsUsed: 0, repairRoundsUsed: 0, remainingAttempts: 3, remainingRepairRounds: 1 } };
-      else if (url.endsWith('/claim') || url.endsWith('/heartbeat')) result = { ...lease, serverNow: Date.now() / 1000 };
+      else if (/\/(claim|heartbeat)\?assignment=omit$/.test(url)) {
+        // Lean authority (Opora M2): the lease without its assignment; the office reads that once below.
+        const { assignment: pinned, ...lean } = lease; result = { ...lean, contextVersion: pinned.contextVersion, serverNow: Date.now() / 1000 };
+      } else if (url.startsWith(`/api/oporahub/executions/${lease.executionId}/assignment?`) && request.method === 'GET') {
+        assert.equal(request.headers['x-opora-execution-token'], lease.token);
+        const keys = ['executionId', 'project', 'workspace', 'nodeId', 'epoch', 'acceptedRevision', 'assignmentDigest', 'assignment', 'executionProtocolVersion', 'budget', 'contextProtocolVersion'] as const;
+        result = { ...Object.fromEntries(keys.filter(key => key in lease).map(key => [key, (lease as any)[key]])), progress: { total: 0, done: 0, current: null, steps: [] } };
+      }
       else if (url.includes('/results?') && request.method === 'GET') result = { results: [...receipts.values()] };
       else if (url.endsWith('/results')) {
         assert.equal(body.token, lease.token); assert.equal(body.epoch, lease.epoch);
@@ -183,7 +190,7 @@ test('request replay returns the original run and changed body or scope cannot s
   const results = await Promise.all([f.call('start', f.input), f.call('start', f.input)]);
   assert.equal(results[0].status, 200); assert.equal(results[1].status, 200);
   assert.equal(results[0].value.intentId, results[1].value.intentId);
-  assert.equal(f.calls.filter(value => value.url.endsWith('/claim')).length, 1);
+  assert.equal(f.calls.filter(value => value.url.split('?')[0].endsWith('/claim')).length, 1);
   assert.equal(f.calls.filter(value => value.url === '/provider/v1/sessions').length, 1);
   assert.equal((await f.call('start', { ...f.input, cardId: 'different' })).status, 409);
   f.view.workspace = 'other';
@@ -206,7 +213,7 @@ test('provider agent pin failure is rejected before Canvas claim', async t => {
   const f = await fixture(t);
   f.hook(url => url.includes('/agents/') ? Promise.resolve(Response.json({ type: 'agent', archived_at: null, id: 'agent_pinned', version: 8 })) : undefined);
   assert.equal((await f.call('start', f.input)).status, 503);
-  assert.equal(f.calls.filter(value => value.url.endsWith('/claim') || value.url === '/provider/v1/sessions').length, 0);
+  assert.equal(f.calls.filter(value => value.url.split('?')[0].endsWith('/claim') || value.url === '/provider/v1/sessions').length, 0);
 });
 
 test('observer refusal before provider creation is fail closed, with durable exact claim and no automatic restart', async t => {
@@ -217,10 +224,10 @@ test('observer refusal before provider creation is fail closed, with durable exa
   const records = path.join(f.directory, '.agent-office/isolated-executions/requests');
   const record = JSON.parse(readFileSync(path.join(records, readdirSync(records)[0]), 'utf8')).record;
   assert.ok(record.claim.requestId); assert.equal(record.lease.token, 'PRIVATE_LEASE_TOKEN');
-  const count = f.calls.filter(value => value.url.endsWith('/claim')).length;
+  const count = f.calls.filter(value => value.url.split('?')[0].endsWith('/claim')).length;
   await f.reopen();
   assert.equal((await f.call('start', f.input)).status, 200);
-  assert.equal(f.calls.filter(value => value.url.endsWith('/claim')).length, count);
+  assert.equal(f.calls.filter(value => value.url.split('?')[0].endsWith('/claim')).length, count);
   assert.equal(f.calls.filter(value => value.url === '/provider/v1/sessions').length, 0);
 });
 
@@ -244,9 +251,9 @@ test('lease expiry independently stops provider and shutdown leaves a durable im
   assert.equal(f.session.status, 'terminated');
   const current = await f.call('runs'); assert.equal(current.value.items[0].state, 'terminated');
   await f.reopen();
-  const before = f.calls.filter(value => value.url.endsWith('/claim') || value.body?.events?.[0]?.type === 'user.message').length;
+  const before = f.calls.filter(value => value.url.split('?')[0].endsWith('/claim') || value.body?.events?.[0]?.type === 'user.message').length;
   assert.equal((await f.call('reconcile', {})).status, 200);
-  assert.equal(f.calls.filter(value => value.url.endsWith('/claim') || value.body?.events?.[0]?.type === 'user.message').length, before);
+  assert.equal(f.calls.filter(value => value.url.split('?')[0].endsWith('/claim') || value.body?.events?.[0]?.type === 'user.message').length, before);
 });
 
 test('lost observation response retries the persisted exact CAS request without a second accounting record', async t => {
@@ -312,7 +319,7 @@ test('lost native result receipt remains private and exact replay after stop doe
   assert.equal(f.calls.filter(call => call.url.includes('/results?')).length, 1);
   assert.equal(f.receipts.size, 1);
   assert.equal((await f.call('runs')).value.items[0].resultStatus, 'reported');
-  assert.equal(f.calls.filter(value => value.url.endsWith('/claim')).length, 1);
+  assert.equal(f.calls.filter(value => value.url.split('?')[0].endsWith('/claim')).length, 1);
 });
 
 test('idle provider readback remains idle while authority is held, without resuming or terminating a paused session', async t => {

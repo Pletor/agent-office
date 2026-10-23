@@ -7,6 +7,8 @@ import { sameBudget, validateBudget } from './execution-budget.js';
 import { EXECUTION_INSTRUCTIONS_VERSION, validateContextProof, validateContextVersion } from './execution-context.js';
 import { validSelfChecks } from './self-checks.js';
 import { commitsFromLog, pinnedSteps, withStepCommits } from './plan-steps.js';
+import { parseStepArgs, reportStep, StepShapeError } from './execution-step.js';
+import { findLensSpec, prLensEnabled } from './pr-lens.js';
 
 /** A result the helper refuses before sending anything, with what to fix; the same file can then be corrected. */
 export class ResultShapeError extends Error {}
@@ -19,8 +21,31 @@ export function worktreeLog(cwd = process.cwd()): string {
   } catch { return ''; }
 }
 
+/** `result.decisions` as Canvas takes it: at most 20 non-empty texts, or objects with a non-empty `text`; the problem otherwise. */
+export function decisionsProblem(value: unknown): string | undefined {
+  const text = (item: unknown) => (item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>).text : item);
+  if (!Array.isArray(value) || value.length > 20 || !value.every(item => { const t = text(item); return typeof t === 'string' && !!t.trim() && !t.includes('\0'); }))
+    return 'decisions is a list of at most 20 non-empty texts, or objects {"text", "why"?, "alternatives"?, "evidence"?}';
+  return undefined;
+}
+
+/**
+ * A reference to the worker's validated PR Lens spec, for `result.lens` (Opora M1 takes an optional `lens` in the
+ * result; no schema is fixed, so this is a pointer, not the spec). The office still sends the spec itself to Canvas
+ * when it hands the pull request off (pr-lens.ts); the hash ties the two together. Undefined without a spec.
+ */
+export function resultLens(dir: string, env: NodeJS.ProcessEnv = process.env): Record<string, unknown> | undefined {
+  if (!prLensEnabled(env)) return undefined;
+  const spec = findLensSpec(dir);
+  if (!spec) return undefined;
+  const title = typeof spec.doc.title === 'string' ? spec.doc.title.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  return { kind: 'pr-lens', sha256: spec.sha256, bytes: spec.bytes, validatedAt: spec.validatedAt, ...(title ? { title } : {}),
+    delivery: 'sent by the office with the pull request (POST /api/oporahub/review-jobs/lens)' };
+}
+
 /** Capability never leaves this process; stdout contains a small public receipt only. */
-export async function reportExecution(bundlePath: string, resultPath: string, transport: typeof fetch = fetch, log: () => string = worktreeLog) {
+export async function reportExecution(bundlePath: string, resultPath: string, transport: typeof fetch = fetch, log: () => string = worktreeLog,
+  lensDir: string = process.cwd()) {
   const bundle = JSON.parse(readFileSync(bundlePath, 'utf8'));
   const lease = validateExecution(bundle, bundle);
   if (lease.contextProtocolVersion === 2 && bundle.executionInstructionsVersion !== EXECUTION_INSTRUCTIONS_VERSION)
@@ -41,6 +66,14 @@ export async function reportExecution(bundlePath: string, resultPath: string, tr
     if (checked.problem) throw new ResultShapeError(`result.stepResults: ${checked.problem}. Fix the result file and run the helper again.`);
     if (!steps.length) process.stderr.write('result.stepResults was left out: this assignment has no plan steps.\n');
     result = checked.result;
+  }
+  if (result.decisions !== undefined) {
+    const problem = decisionsProblem(result.decisions);
+    if (problem) throw new ResultShapeError(`result.${problem}. Fix the result file and run the helper again.`);
+  }
+  if (result.lens === undefined) {
+    const lens = resultLens(lensDir);
+    if (lens) result = { ...result, lens };
   }
   const response = await transport(new URL(`/api/oporahub/executions/${encodeURIComponent(bundle.executionId)}/results`, bundle.base), {
     method: 'POST', redirect: 'error', signal: AbortSignal.timeout(8000),
@@ -63,7 +96,12 @@ export async function reportExecution(bundlePath: string, resultPath: string, tr
   return { receiptId: receipt.receiptId, executionId: bundle.executionId, state: 'reported', verification: 'agent-reported; not independently verified' };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[3] === 'step') {
+  Promise.resolve().then(() => reportStep(process.argv[2], parseStepArgs(process.argv.slice(4)), fetch, worktreeLog))
+    .then(receipt => process.stdout.write(JSON.stringify(receipt) + '\n'))
+    .catch((error) => { if (error instanceof StepShapeError) { process.stderr.write(error.message + '\n'); process.exitCode = 1; return; }
+      process.stderr.write('Canvas step checkpoint was not confirmed. Retry the identical step command; if it keeps failing, continue and report the step in result.stepResults.\n'); process.exitCode = 1; });
+} else if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   reportExecution(process.argv[2], process.argv[3]).then(receipt => process.stdout.write(JSON.stringify(receipt) + '\n'))
     .catch((error) => { if (error instanceof ResultShapeError) { process.stderr.write(error.message + '\n'); process.exitCode = 1; return; }
       process.stderr.write('Canvas result was not confirmed. Keep the same result file and retry; do not continue work without authority.\n'); process.exitCode = 1; });
