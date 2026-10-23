@@ -67,6 +67,8 @@ There's a lot more (a rooftop bar, an office dog, an arcade, a jukebox that keep
 
 Workers on context protocol 2 can use `office-harness --accepted-kit` to read their current execution's exact accepted kit through the authenticated hook server. This does not install or execute tools; see [accepted kit runtime](docs/harness-accepted-runtime.md).
 
+With native stability assessment and the optional lifecycle store installed, workers can inspect and update scoped recommendation state through [tool lifecycle commands](docs/harness-accepted-runtime.md#tool-recommendation-lifecycle). The server fetches evidence itself; accepted assignments remain unchanged.
+
 On the machine that runs the office:
 
 - **Node.js 20+**

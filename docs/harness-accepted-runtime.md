@@ -70,3 +70,34 @@ capability file and interpolates no resource text into the static guide. Assignm
 bytes and the existing execution protocol remain unchanged. Orchestrators must include
 selected resources in the accepted target specification before seating the worker;
 changing a profile after acceptance does not change a running v2 task.
+
+## Tool recommendation lifecycle
+
+These commands require the optional native stability endpoint and Office lifecycle store
+protocol 1. Missing integrations return unavailable; there is no local fallback.
+
+```sh
+office-harness --tool-status testing:plan
+office-harness --promote-tool testing:plan --revision 12
+office-harness --reconcile-tool testing:plan --revision 13 --fallback-plan testing:previous
+```
+
+Read the revision from status. `PLAN` names a testing resource already in the current
+accepted target kit; the server resolves its exact digest, candidate, baseline and
+problem. A fallback plan must also be accepted in that kit and assess the retained
+previous version in the same problem. No command accepts caller-provided eligibility,
+outcomes, project, task, capabilities or native credentials.
+
+Office fetches the native assessment with the current private grant under the profile
+transaction and checks the lease, exact accepted pins, fixed policy and evidence
+coverage. The existing hook identity and current execution are checked again at
+publication. A stale revision returns a conflict; reload status before retrying.
+Transport errors or changed authority publish nothing and must not be interpreted as
+a usable older stable assessment. The native verifier must be configured by its operator;
+these commands neither configure it nor run an experiment.
+
+The result concerns project recommendation state only. It does not change manual
+checkboxes or the running accepted kit, prove causal task benefit, or grant production
+permission. New work still requires an accepted specification. Automatic consumption
+of reconciled state by the recommendation selector is pending; these commands alone
+do not complete the autonomous selection/use/learning loop.
