@@ -66,13 +66,16 @@ export class ExecutionDispatch {
       }
     },
   };
-  async dispatch(scope: ExecutionScope, prepare: () => Promise<string>, seat: (prompt: string) => WorkerInfo | string, decorate: (prompt: string) => string = value => value) {
+  async dispatch(scope: ExecutionScope, prepare: () => Promise<string>, seat: (prompt: string) => WorkerInfo | string, decorate: (prompt: string) => string = value => value,
+    /** A design card's addendum (design-brief.ts), read before the claim like `prepare`. */
+    design: () => Promise<string> = async () => '') {
     return this.controller.guarded(scope, async () => {
       const context = this.contextVersion === 2 ? '' : await prepare();
+      const brief = await design().catch(() => '');
       const grant = await this.controller.claim(scope, this.contextVersion).catch((e: Error) => { emitProcess(this.agent, claimEvent(scope, { error: e.message })); throw e; });
       let seatedId: string | undefined;
       try {
-        const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context);
+        const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief);
         const prompt = (this.contextVersion === 2 ? immutablePrompt : decorate(immutablePrompt)).trim();
         this.seating = { ...grant, prompt };
         let worker: WorkerInfo | string;

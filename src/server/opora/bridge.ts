@@ -11,6 +11,7 @@ import { ActivityFeed } from './live.js';
 import { oporaProcess } from './process.js';
 import { ExecutionDispatch, type ExecutionHeld } from './execution-dispatch.js';
 import { requestExecutionStop } from './execution-stop.js';
+import { prepareDesignBrief } from './design-brief.js';
 import { createReviewRunner, type ReviewJobRunner } from './review-runner.js';
 import { createOporaUpkeep, type OporaUpkeep } from './upkeep-runner.js';
 import { createSelfCheckReporter, upkeepSelfChecks } from './self-checks.js';
@@ -101,7 +102,7 @@ export class OporaBridge {
 
   constructor(
     private floor: BridgeFloor,
-    dataDir: string,
+    private dataDir: string,
     private events: BridgeEvents,
     url = process.env.AGENT_OFFICE_OPORA_URL || EMPTY_OPORA.url,
   ) {
@@ -249,7 +250,8 @@ export class OporaBridge {
     try {
       dispatched = await this.executions.dispatch({ project: project.id, workspace, nodeId: card.id },
         () => this.events.prepareTask?.(project.id, workspace, card.id, owner) ?? Promise.resolve(''),
-        prompt => seatForOpora(() => this.floor.seat(desk, by, prompt, owner)), prompt => withReaBrief(prompt, this.events.prompt));
+        prompt => seatForOpora(() => this.floor.seat(desk, by, prompt, owner)), prompt => withReaBrief(prompt, this.events.prompt),
+        () => prepareDesignBrief({ client: this.client, prompt: this.events.prompt, card, base: this.state.url, project: project.id, workspace, repoDir: this.floor.dir, dataDir: this.dataDir, log: m => console.warn(`[opora] ${m}`) }));
     } catch (error) { return (error as Error).message; }
     const seated = dispatched.worker;
     this.runs.unshift({

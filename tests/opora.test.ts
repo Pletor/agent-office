@@ -419,9 +419,18 @@ test('design and development workers use accepted assignments without live legac
   for (const worker of f.workers) {
     assert.match(worker.prompt!, /immutable Canvas assignment/);
     assert.match(worker.prompt!, /execution-worker/);
-    assert.doesNotMatch(worker.prompt!, /tok-c|opora_read|POST.*agent-output/);
+    assert.doesNotMatch(worker.prompt!, /tok-c|POST.*agent-output/);
   }
-  assert.ok(!f.op.calls.some(c => c.path === '/api/drawing' || c.path === '/api/storyboard'));
+  // Only the design card's sketches are read, and only its worker gets the design addendum.
+  const [design, dev] = f.workers;
+  assert.match(design.prompt!, /Design references for this card/);
+  assert.match(design.prompt!, /a storyboard \(animation "kod"\) with 2 moments, 1 sketched, 1 waiting on a reply/);
+  assert.match(design.prompt!, /\/api\/storyboard\?project=p1&workspace=draft&nodeId=c1/);
+  assert.match(design.prompt!, /no DESIGN\.md yet[\s\S]*design\/proposals\/c1\/DESIGN\.md/);
+  assert.match(design.prompt!, /at most 8 PNGs/);
+  assert.doesNotMatch(dev.prompt!, /Design references|opora_read|DESIGN\.md/);
+  assert.equal(f.op.calls.filter(c => c.path === '/api/drawing').length, 1);
+  assert.equal(f.op.calls.filter(c => c.path === '/api/storyboard').length, 1);
 });
 
 test('with 🔬 REA on for Opora, a card’s worker gets REA and is told how to use it; with it off, neither', async (t) => {

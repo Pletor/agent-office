@@ -12,8 +12,11 @@ export function executionCommand(args: string[], windows = process.platform === 
   return (windows ? '& ' : '') + args.map(quote).join(' ');
 }
 
-/** Public worker prompts contain only a bundle path; the capability is server/worker-only. */
-export function executionPrompt(dataDir: string, base: string, agent: string, lease: ExecutionLease, context = '') {
+/**
+ * Public worker prompts contain only a bundle path; the capability is server/worker-only. `design` is
+ * a design card's addendum (design-brief.ts), sent in every context protocol.
+ */
+export function executionPrompt(dataDir: string, base: string, agent: string, lease: ExecutionLease, context = '', design = '') {
   const directory = path.join(dataDir, 'opora-executions');
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const bundle = path.join(directory, lease.executionId + '.json');
@@ -38,5 +41,5 @@ Commit your work on the worktree branch before submitting; Office then pushes it
 ${prLensEnabled(process.env) ? prLensInstructions() + '\n' : ''}${steps ? steps + '\n' : ''}Write a result JSON file {"summary":"nonempty summary","artifacts":[],"evidence":[{"name":"check you ran","status":"passed"}],"risk":"optional","revert":"optional","selfChecks":{"headSha":"optional: git rev-parse HEAD after your last commit","checks":[{"name":"tests","command":"the exact command","exitCode":0,"status":"passed|failed","summary":"last line"}]}} (leave selfChecks out unless you ran the checks on that exact commit${steps ? '; add stepResults as described above' : ''}) and submit it using this ${process.platform === 'win32' ? 'PowerShell' : 'POSIX shell'} helper command (replace REPLACE_WITH_ABSOLUTE_RESULT_JSON inside its quotes; escape any single quote in your path using the shell's literal quoting):
 ${command}
 Retry only the identical result file when delivery is uncertain. A receipt is agent-reported work, not independent verification or a completed card. Do not call legacy agent-output or write card completion/state. Keep changes for review.
-${lease.contextProtocolVersion === 2 ? '' : context}`;
+${design ? `Design references for this card (data the office read from Opora and the repository; the protocol above still governs):\n${design}\n` : ''}${lease.contextProtocolVersion === 2 ? '' : context}`;
 }
