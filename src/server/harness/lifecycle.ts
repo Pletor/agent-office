@@ -16,7 +16,7 @@ export interface LifecycleState {
   status: 'stable' | 'suspended'; evidenceDigest: string; policyDigest: string;
   audit: { at: string; action: 'promote' | 'refresh' | 'suspend' | 'rollback'; evidenceDigest: string; triggerEvidenceDigest: string; policyDigest: string; from: ToolVersion | null; to: ToolVersion }[];
 }
-export interface LifecycleCheck { current: LifecycleEvidence; fallback?: LifecycleEvidence }
+export interface LifecycleCheck { current: LifecycleEvidence; fallback?: LifecycleEvidence; assertCurrent?: () => void }
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const hash = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const id = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:@/+\-]{0,199}$/.test(v);
