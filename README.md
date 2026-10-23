@@ -63,7 +63,7 @@ There's a lot more (a rooftop bar, an office dog, an arcade, a jukebox that keep
 
 ## Requirements
 
-**Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP and memory references. Press **F8** anywhere (or **E** at the shelf) to open it across the whole screen, on a phone too. Save **Global → Repository → Task** assignments, inspect inherited values and export context packs. The Opora orchestrator can assign repository/task profiles with `office-harness`; each Opora card handoff includes the resolved, content-bearing snapshot. Assignments do not install tools or activate MCP/memory servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md).
+**Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP, memory, plugins, permissions, testing and operations references. Press **F8** anywhere (or **E** at the shelf). Choose the project and check resources at **Global → Repository → Page → Layer → Area → Sector → Card**, with visible inheritance and explicit saves. Bind the floor to its open Opora project to use the real canvas hierarchy. The active administrator-owned orchestrator can inspect and configure it with `office-harness --hierarchy` / `--configure`. Context v1 handoffs resolve these assignments; context v2 keeps its immutable accepted assignment and receives no live additions. Assignments do not install tools or activate servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md) and [hierarchy](docs/harness-hierarchy.md).
 
 On the machine that runs the office:
 

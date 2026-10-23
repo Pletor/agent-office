@@ -1,0 +1,15 @@
+.harness-levels { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
+.harness-levels label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); min-width: 0; }
+.harness-levels select { min-width: 0; color: var(--ink); }
+.harness-window:has(.harness-cascade[open]) > footer { display: none; }
+.harness-cascade > button[hidden] { display: none; }
+.harness-cascade > .harness-toolbar { position: sticky; bottom: 0; padding: 12px 0; background: var(--paper); border-top: 1px solid #8884; z-index: 1; }
+.harness-resource-checks { display: grid; gap: 8px; margin: 12px 0; }
+.harness-resource-check { display: flex; gap: 12px; align-items: center; border: 1px solid #8884; border-radius: 8px; padding: 10px; }
+.harness-resource-check label { display: flex; gap: 12px; align-items: center; flex: 1; min-width: 0; cursor: pointer; }
+.harness-resource-check input[type=checkbox] { width: 20px; height: 20px; flex: none; accent-color: #32a89a; }
+.harness-resource-check span { display: grid; gap: 4px; overflow-wrap: anywhere; }
+.harness-resource-check small { color: var(--muted); }
+.harness-resource-check .btn { flex: none; }
+@media (max-width: 1000px) { .harness-levels { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 500px) { .harness-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

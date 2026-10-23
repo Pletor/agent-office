@@ -3,6 +3,7 @@
 // then the rest; the last one answers every path left with the client bundle, or a 404.
 import type { Route } from '../router.js';
 import { harnessRoute, harnessProfileRoute } from './harness.js';
+import { harnessHierarchyRoute } from './harness-hierarchy.js';
 import { agentRoutes } from './agents.js';
 import { authRoutes } from './auth.js';
 import { bossAttentionRoutes } from './boss-attention.js';
@@ -48,6 +49,7 @@ export const routes: readonly Route[] = [
   fileRoutes.docs,
   harnessRoute,
   harnessProfileRoute,
+  harnessHierarchyRoute,
   searchRoutes.search,
   serviceRoutes.forwards,
   ...isolatedExecutorRoutes,
