@@ -3,23 +3,36 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Ctx } from '../src/server/office/context.js';
 import { requestHandler } from '../src/server/http/router.js';
-import { harnessHierarchyRoute } from '../src/server/http/routes/harness-hierarchy.js';
 import { officeHarness } from '../src/server/harness/api.js';
 import { harnessHandoff } from '../src/server/harness/handoff.js';
 
-test('composed Harness: inherited choices, recommendation, authenticated CLI and geometry drift', async t => {
+const required = ['http/routes/harness-hierarchy.ts', 'harness/recommend.ts', 'harness/runner-probe-api.ts', 'harness/native-paired.ts', 'harness/native-verifier.ts'];
+const missing = required.filter(file => !existsSync(new URL('../src/server/' + file, import.meta.url)));
+
+test('composed Harness: inherited choices, recommendation, authenticated CLI and geometry drift', {
+  skip: missing.length ? 'Composition modules not installed: ' + missing.join(', ') : false,
+}, async t => {
+  // Dynamic import keeps the test runnable on main before the independent feature PRs land.
+  const hierarchyModule = '../src/server/http/routes/harness-hierarchy.js';
+  const { harnessHierarchyRoute } = await import(hierarchyModule);
   const dir = mkdtempSync(path.join(tmpdir(), 'harness-navigation-'));
   const n = (id: string, kind: string, parentId: string | null) => ({ id, kind, parentId, name: id, x: 0, y: 0 });
   const nodes = [n('domain', 'sector', null), n('page', 'node', 'domain'), n('layer', 'node', 'page'),
     { ...n('area', 'area', 'layer'), size: { w: 800, h: 600 } }, n('sector', 'sector', 'layer'), n('card', 'node', 'sector')];
+  const optionalReads = new Set<string>();
+  const optionalPaths = ['/api/oporahub/harness-paired-evaluations', '/api/oporahub/harness-verifier/requests'];
   const canvas = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://local');
     if (url.pathname === '/api/oporahub/harness-learning') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ schema: 'harness.learning/1', authority: 'native-outbox-projection', scope: { project: 'p', workspace: 'w', nodeId: null }, limited: false, cohorts: [] })); return; }
+    if (optionalPaths.includes(url.pathname)) {
+      optionalReads.add(url.pathname); res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Optional verifier not installed' })); return;
+    }
     assert.equal(url.pathname, '/api/view'); assert.equal(url.searchParams.get('project'), 'p'); assert.equal(url.searchParams.get('workspace'), 'w');
     res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ graph: { nodes } }));
   });
@@ -65,6 +78,11 @@ test('composed Harness: inherited choices, recommendation, authenticated CLI and
   assert.equal(capabilities.runner, 'custom'); assert.equal(capabilities.workerEnvironmentAttested, false);
   assert.deepEqual(capabilities.availableRequirements, []);
   assert.equal(recommendation.history.status, 'available');
+  assert.deepEqual([...optionalReads].sort(), [...optionalPaths].sort());
+  assert.equal(recommendation.pairedHistory.status, 'unavailable');
+  assert.equal(recommendation.fixtureHistory.status, 'unavailable');
+  assert.equal(recommendation.fixtureHistory.budget.status, 'unavailable');
+  assert.equal(recommendation.promotionAllowed, false);
   assert.ok(recommendation.kit.resources.some((resource: { resource: string }) => resource.resource === 'guide:testing'));
   assert.equal(recommendation.context.pathDigest, view.pathDigest);
   const search = JSON.parse(await cli('--search', 'testing', '--category', 'testing'));
