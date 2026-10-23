@@ -146,6 +146,8 @@ export class SelfCheckReporter {
   /** Heads whose evidence Canvas refused for now and that are posted again on a timer. */
   private pending = new Set<string>();
   private timers = new Set<NodeJS.Timeout>();
+  /** Readies a worktree before its checks run (the floor's dependency setup, worktree-setup.ts); a failure doesn't stop them. */
+  prepare?: (dir: string) => Promise<unknown>;
   constructor(private base: string, private agent: string, private commands: SelfCheckCommand[], private ledgerFile: string,
     private exec: ExecCheck, private transport: typeof fetch = fetch, private log: (message: string, level: 'info' | 'warn') => void = () => {},
     private retry: { everyMs: number; attempts: number } = SELF_CHECK_RETRY) {}
@@ -183,6 +185,7 @@ export class SelfCheckReporter {
   }
 
   private async once(key: string, s: SelfCheckSubject): Promise<SelfCheckOutcome> {
+    await this.prepare?.(s.dir).catch(() => undefined);
     const selfChecks = await runSelfChecks(this.commands, s.dir, s.headSha, this.exec);
     const outcome = await postSelfChecks(this.base, this.agent, this.transport, { project: s.project, workspace: s.workspace, executionId: s.executionId, selfChecks });
     const failed = selfChecks.checks.filter((c) => c.status !== 'passed').map((c) => c.name);

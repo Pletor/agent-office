@@ -17,6 +17,7 @@ import { createReviewRunner, type ReviewJobRunner } from './review-runner.js';
 import { createOporaUpkeep, type OporaUpkeep } from './upkeep-runner.js';
 import { createSelfCheckReporter, upkeepSelfChecks } from './self-checks.js';
 import { floorCheckEnv } from './floor-checks.js';
+import { WorktreeSetup } from '../workers/worktree-setup.js';
 import { upkeepTap } from '../process/taps.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
@@ -118,6 +119,8 @@ export class OporaBridge {
     const env = floorCheckEnv(dataDir, log);
     // Self-check evidence for every head the office hands off or upkeep pushes, while AGENT_OFFICE_OPORA_SELF_CHECKS names checks (self-checks.ts).
     const selfChecks = createSelfCheckReporter(url, `office-${floor.id}`, dataDir, log, env);
+    // A worktree its setup never ran in (worktree-setup.ts) gets it first, so the checks don't fail on missing dependencies.
+    if (selfChecks) { const setup = new WorktreeSetup(floor.dir); selfChecks.prepare = dir => setup.ensure(dir); }
     this.executions = new ExecutionDispatch(url, `office-${floor.id}`, dataDir, () => this.runs,
       () => this.changed(), (id, reason) => {
         const run = this.runs.find(run => run.workerId === id);
