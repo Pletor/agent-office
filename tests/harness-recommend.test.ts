@@ -92,6 +92,22 @@ test('a policy changed during preparation is rejected instead of pinning mismatc
   });
   await assert.rejects(recommendHarness(f.library, 'ts.references', ['command:node']), /Toolbox changed/);
 });
+
+test('linked regression reports suppress automatic reuse and warn without erasing explicit choices', async t => {
+  const f = await fixture(t), content = (await f.library.read(f.id('a')))!.text;
+  const guardrails = { source: 'native-review-eval-cases', affectedExecutions: 1, incidentReportExecutions: 1, revertedExecutions: 1, productionExposure: 'unknown', causalAttribution: false };
+  const rows = history([{ ...cohort(f.id('a'), content), guardrails }]);
+  const result = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, rows);
+  assert.equal(result.selected.includes(f.id('a')), false);
+  const candidate = result.candidates.find(entry => entry.id === f.id('a'))!;
+  assert.equal(candidate.state, 'regression-review-needed'); assert.equal(candidate.observed, false);
+  assert.equal(candidate.verified!.percent, 100, 'acceptance rates are never rewritten as causal failure');
+  const explicit = await recommendHarness(f.library, 'ts.references', ['command:node'], profile({ work: { resource: f.id('a') } }), rows);
+  assert.ok(explicit.selected.includes(f.id('a'))); assert.equal(explicit.warnings[0].resource, f.id('a')); assert.ok(explicit.kit);
+  for (const patch of [{ affectedExecutions: 0 }, { affectedExecutions: 6 }, { incidentReportExecutions: -1 }, { causalAttribution: true }, { productionExposure: 'verified' }]) {
+    assert.throws(() => history([{ ...cohort(f.id('a'), content), guardrails: { ...guardrails, ...patch } }]));
+  }
+});
 test('manifests cannot assert verification, escape a source, or duplicate a path', () => {
   const item = { path: 'scripts/a.mjs', problems: ['x'], requires: [], priority: 0 };
   for (const resources of [[{ ...item, verified: true }], [{ ...item, path: '../private.md' }], [item, item]]) assert.throws(() => parseToolbox({ schema: 'harness.toolbox/1', resources }));

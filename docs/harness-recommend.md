@@ -1,5 +1,11 @@
 # Automatic work-kit preparation
 
+When the native peer supplies regression guardrails, an exact-version incident/revert
+association excludes optional resources from automatic preparation. Explicit inherited
+choices remain selected with a warning. Acceptance percentages stay unchanged: incident
+reports do not prove tool causation, and no incident does not establish production
+success. Older peers without this additive field retain unknown guardrail coverage.
+
 An agent can assemble a problem-specific kit with one read-only command:
 
 ```sh

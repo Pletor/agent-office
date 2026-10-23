@@ -6,7 +6,7 @@ import type { LearningRate } from '../../shared/harness-learning.js';
 import { HarnessLibrary } from './catalog.js';
 import { buildHarnessKit, kitBytes } from './kit.js';
 import { HarnessError } from './profiles.js';
-import { noHistory, type NativeHistory } from './native-outcomes.js';
+import { noHistory, type NativeHistory, type NativeGuardrails } from './native-outcomes.js';
 import { toolbox, toolId } from './toolbox.js';
 
 const hash = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -14,6 +14,7 @@ interface Candidate {
   id: string; title: string; category: HarnessEntry['category']; digest: string; versionDigest: string; requires: string[];
   mandatory: boolean; baseline: boolean; disabled: boolean; missing: string[]; metadataMissing: boolean;
   priority: number; observed: boolean; low: boolean; reported: LearningRate | null; verified: LearningRate | null; tasks: number; state: string;
+  guardrails: NativeGuardrails | null;
 }
 /** Same sorted metadata keys as Canvas's version digest; content has its own UTF-8 hash. */
 export function toolVersion(resource: string, category: string, digest: string, requires: string[]) {
@@ -61,24 +62,25 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     const version = toolVersion(id, entry.category, digest, requires);
     const rows = history.cohorts.filter(row => row.resource === id && row.digest === digest && row.versionDigest === version && row.problem === problem);
     const verified = rows.find(row => row.tier === 'verified'), reported = rows.find(row => row.tier === 'reported');
+    const guardrails = verified?.guardrails ?? reported?.guardrails ?? null, flagged = !!guardrails?.affectedExecutions;
     const missing = requires.filter(requirement => !capabilities.includes(requirement));
     const metadataMissing = !descriptor && !id.startsWith('guide:') && ['scripts', 'tools', 'commands', 'hooks', 'mcp', 'plugins'].includes(entry.category);
     const mandatory = explicit.has(id);
-    const observed = !!verified && verified.rate.pass + verified.rate.fail >= 5 && verified.tasks >= 3
+    const observed = !flagged && !!verified && verified.rate.pass + verified.rate.fail >= 5 && verified.tasks >= 3
       && (verified.rate.coverage ?? 0) >= .8 && (verified.rate.interval95?.[0] ?? 0) >= 50;
     const low = !!verified && verified.rate.fail >= 4 && (verified.rate.interval95?.[1] ?? 100) < 50;
     if (mandatory && (missing.length || metadataMissing)) constraints.push({ resource: id, reason: metadataMissing ? 'tool-metadata-needed' : 'missing-declared-capabilities', missing });
     candidates.push({ id, title: entry.title, category: entry.category, digest, versionDigest: version, requires,
       mandatory, baseline: baseline.includes(id), disabled: blocked.has(id), missing, metadataMissing,
-      priority: descriptor?.priority ?? 0, observed, low,
+      priority: descriptor?.priority ?? 0, observed, low, guardrails,
       reported: reported?.rate ?? null, verified: verified?.rate ?? null, tasks: verified?.tasks ?? 0,
-      state: blocked.has(id) ? 'disabled' : missing.length || metadataMissing ? 'needs-capabilities' : low ? 'low-observed-success' : observed ? 'observed-success' : 'candidate' });
+      state: blocked.has(id) ? 'disabled' : flagged ? 'regression-review-needed' : missing.length || metadataMissing ? 'needs-capabilities' : low ? 'low-observed-success' : observed ? 'observed-success' : 'candidate' });
   }
   const selected = candidates.filter(candidate => candidate.mandatory);
   const add = (candidate: typeof candidates[number]) => { if (!selected.some(entry => entry.id === candidate.id) && selected.length < 24) selected.push(candidate); };
   if (auto) {
-    for (const candidate of candidates.filter(entry => entry.baseline && !entry.disabled)) add(candidate);
-    const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && !entry.missing.length && !entry.metadataMissing && !entry.low);
+    for (const candidate of candidates.filter(entry => entry.baseline && !entry.disabled && !entry.guardrails?.affectedExecutions)) add(candidate);
+    const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && !entry.missing.length && !entry.metadataMissing && !entry.low && !entry.guardrails?.affectedExecutions);
     optional.sort((a, b) => (b.verified?.interval95?.[0] ?? 0) - (a.verified?.interval95?.[0] ?? 0) || b.priority - a.priority || (a.id < b.id ? -1 : 1));
     for (const candidate of optional.filter(entry => entry.observed).slice(0, 3)) add(candidate);
     const exploration = optional.find(entry => !entry.observed);
@@ -107,5 +109,5 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     history: { status: history.status, limited: history.limited, reason: history.reason ?? null },
     capabilityEvidence: 'caller-declared; not native attestation or permission grants',
     association: 'selected-kit outcomes; actual invocation and causal contribution unobserved', promotionAllowed: false,
-    constraints, selected: selected.map(entry => entry.id), candidates, kit };
+    constraints, warnings: selected.filter(entry => entry.guardrails?.affectedExecutions).map(entry => ({ resource: entry.id, reason: 'linked-regression-needs-review; explicit choice preserved' })), selected: selected.map(entry => entry.id), candidates, kit };
 }
