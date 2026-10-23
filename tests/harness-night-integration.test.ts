@@ -27,7 +27,7 @@ test('composed Harness: inherited choices, recommendation, authenticated CLI and
   const canvasUrl = 'http://127.0.0.1:' + (canvas.address() as { port: number }).port;
   const linked = { connected: true, url: canvasUrl, project: { id: 'p', name: 'Project' }, workspace: 'w', cards: [] };
   const floor = { id: 'floor', dir, info: () => ({ name: 'Floor' }), opora: { view: () => linked },
-    workers: { authenticate: (id: string, token: string) => token === 'test-token' ? { id } : undefined },
+    workers: { authenticate: (id: string, token: string) => token === 'test-token' ? { id, provider: 'custom' } : undefined },
     planning: { state: () => ({ current: { workerId: 'planner', mode: 'opora', owner: 'admin' } }) } };
   const ctx = { cfg: { dataDir: dir, port: 0 }, floors: new Map([['floor', floor]]), workerFloor: () => floor,
     accounts: { get: () => ({ role: 'admin' }) }, auth: { fromRequest: (req: http.IncomingMessage) => {
@@ -61,6 +61,9 @@ test('composed Harness: inherited choices, recommendation, authenticated CLI and
     cwd: process.cwd(), env: { ...process.env, AGENT_OFFICE_HOOK_URL: base, AGENT_OFFICE_WORKER_ID: 'ordinary', AGENT_OFFICE_HOOK_TOKEN: 'test-token' }, timeout: 30_000,
   })).stdout;
   const recommendation = JSON.parse(await cli('--recommend', 'ts.references', '--task', 'opora:p:w:card'));
+  const capabilities = JSON.parse(await cli('--probe'));
+  assert.equal(capabilities.runner, 'custom'); assert.equal(capabilities.workerEnvironmentAttested, false);
+  assert.deepEqual(capabilities.availableRequirements, []);
   assert.equal(recommendation.history.status, 'available');
   assert.ok(recommendation.kit.resources.some((resource: { resource: string }) => resource.resource === 'guide:testing'));
   assert.equal(recommendation.context.pathDigest, view.pathDigest);
