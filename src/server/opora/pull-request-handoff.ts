@@ -7,6 +7,7 @@ import type { ExecutionLease } from './execution-client.js';
 import { draftPullRequest, handoffBranch, linkRequestId } from './pull-request-body.js';
 import { commitsFromLog, pinnedSteps } from './plan-steps.js';
 import { PrLensAttachment, withLensSection } from './pr-lens.js';
+import { DesignPreviewAttachment } from './design-preview-upload.js';
 
 /**
  * Opora execution → pull request, without an LLM. Once a worker's result helper has stored its Canvas
@@ -61,7 +62,10 @@ export class PullRequestHandoff {
   constructor(private directory: string, private base: string, private agent: string,
     private tools: HandoffTools = defaultHandoffTools()) {
     this.lens = new PrLensAttachment(base, agent, tools);
+    this.preview = new DesignPreviewAttachment(directory, base, agent, tools);
   }
+  /** A design card's screenshots, sent to Opora as `evidence.preview` once the PR is linked (design-preview-upload.ts). */
+  private preview: DesignPreviewAttachment;
   /** The worker's PR Lens diagram, summarised in the pull request as text and sent to Canvas as optional evidence (pr-lens.ts). */
   private lens: PrLensAttachment;
 
@@ -164,6 +168,8 @@ export class PullRequestHandoff {
     // After the link: Canvas takes a PR lens only for the execution's open linked PR at this head (Opora #61, N1).
     if (lens) await this.lens.report(lease, { number: pr.number, headSha }, lens, notify)
       .catch((error) => notify(`🛰️ PR Lens for ${id} failed: ${(error as Error).message}`, 'warn'));
+    await this.preview.report(lease, { number: pr.number, headSha }, dir, notify)
+      .catch((error) => notify(`🛰️ Design preview for ${id} failed: ${(error as Error).message}`, 'warn'));
     const linked = { linked: 'linked to its Canvas execution', 'not-deployed': "Canvas can't link pull requests yet (404); its trailers let Canvas find it later", conflict: 'Canvas refused the link as a conflict (409)', failed: "Canvas didn't confirm the link" }[link];
     notify(`🛰️ ${existed ? 'Reused' : 'Opened'} ${repository}#${pr.number} for Opora execution ${id}: ${linked}`, link === 'linked' || link === 'not-deployed' ? 'info' : 'warn');
     return { state: existed ? 'reused' : 'opened', branch, headSha, repository, number: pr.number, url: pr.url, link };
