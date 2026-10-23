@@ -12,6 +12,7 @@ import { githubRoutes } from './github.js';
 import { jukeboxRoutes } from './jukebox.js';
 import { pageRoutes } from './pages.js';
 import { oporaLensRoutes } from './opora-lens.js';
+import { oporaPreviewRoutes } from './opora-preview.js';
 import { processMemoryRoutes } from './process-memory.js';
 import { processRoutes } from './process.js';
 import { searchRoutes } from './search.js';
@@ -58,5 +59,7 @@ export const routes: readonly Route[] = [
   ...processMemoryRoutes,
   processRoutes.events,
   oporaLensRoutes.read,
+  oporaPreviewRoutes.read,
+  oporaPreviewRoutes.file,
   pageRoutes.bundle,
 ];
