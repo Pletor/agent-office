@@ -485,3 +485,4 @@ Native fixture quarantine uses all retained verification records, so an old fail
 fall out merely because recent history fills up. See [recommendation evidence](docs/harness-recommend.md#independent-fixture-history-and-lasting-quarantine).
 
 Harness recommendations expose native experiment capacity when advertised by Opora; missing capacity is explicit and a snapshot never grants execution permission. See [learning evidence](docs/harness-learning.md).
+A worker can request `office-harness --recover RESOURCE --from EXECUTION` to prepare a historical same-card kit proposal. The [recovery command](docs/harness-accepted-runtime.md#historical-recovery) keeps capabilities private and requires ordinary Canvas acceptance.

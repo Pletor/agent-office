@@ -41,3 +41,14 @@ supply resources. Removing this module/route requires no data migration: it
 writes no registry, assignment, event or memory record.
 
 See [Harness](harness.md) and [code layout](code-layout.md).
+
+
+## Historical recovery
+
+With worker hook credentials, run `office-harness --recover RESOURCE --from EXECUTION`. `EXECUTION` identifies an earlier execution of the current card; `RESOURCE` must already be in the current accepted kit. No `--task`, private bundle path, destination or token can be supplied. This command requires Canvas's optional `/api/oporahub/harness-recovery` endpoint; an older or unreachable peer fails explicitly without local fallback.
+
+Office uses the current controller watch and the existing private execution files under the floor's `.agent-office/opora-executions`. The standard bundle validator checks destination, actor, instruction version and exact assignment. Only the internal helper reads the capability. The configured controller chooses the native destination. Office bounds the response, validates scope and source identities, content/version hashes and unchanged requirements, and requires every other resource to remain byte-for-byte unchanged. It rechecks the current watch before returning; lost authority or echoed credentials are refused with a generic error.
+
+The returned `harness.recovery-proposal/1` is a candidate kit, with current historical evidence and `requiresAcceptance: true`, `promotionAllowed: false`. Submit it through the existing Canvas specification proposal/review flow; a newly accepted assignment and claim are required to use it. The command neither restores working files nor replaces profiles or a running snapshot. It does not certify stability, invoke tools, accept its own proposal or promote a version.
+
+Tests exercise the real authenticated Office HTTP route and CLI, correct private-bundle binding, poisoned peer responses, JSON-escaped capability reflection, oversized replies, authority loss, and unsupported peers. Full production promotion and rollback remain separate Harness acceptance work.
