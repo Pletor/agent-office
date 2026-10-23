@@ -7,6 +7,7 @@ import type { DeskLabel } from '../../shared/floorplan.js';
 import type { OporaCard, OporaRun, OporaState, WorkerInfo } from '../../shared/protocol.js';
 import { forgetForOpora, markForOpora, seatForOpora, withReaBrief } from '../rea/index.js';
 import { OporaClient } from './client.js';
+import { HumanWaitNotice, claimsBlockedReason } from './agent-state.js';
 import { ActivityFeed } from './live.js';
 import { oporaProcess } from './process.js';
 import { ExecutionDispatch, type ExecutionHeld } from './execution-dispatch.js';
@@ -99,6 +100,8 @@ export class OporaBridge {
   /** The read under way, which another call to poll waits for rather than starting a second. */
   private polling?: Promise<void>;
   private stopped = false;
+  /** Says once that the autopilot and the hand-out hold off while claims wait on a person. */
+  private waitNotice = new HumanWaitNotice((text) => this.events.toast(text, 'warn'));
 
   constructor(
     private floor: BridgeFloor,
@@ -238,6 +241,8 @@ export class OporaBridge {
     if (!this.state.connected || !project || !workspace) return this.state.error ?? 'Opora isn’t linked to this floor';
     const card = this.state.cards.find((c) => c.id === cardId);
     if (!card) return 'That card isn’t on the canvas any more';
+    const waits = claimsBlockedReason(this.state.humanWait);
+    if (waits) return waits;
     const lost = this.focusLost();
     if (lost) return lost;
     if (!inFocus(this.state.scope, this.focus, card.id)) return `“${card.name}” is outside what the cell works on: switch it on at the 🎚️ switchboard first`;
@@ -331,7 +336,7 @@ export class OporaBridge {
     try {
       await this.client.health();
     } catch (err) {
-      Object.assign(s, { connected: false, embeddable: false, embedOrigins: undefined, error: (err as Error).message, project: null, linkedBy: undefined, projects: [], workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], scope: [], checkedAt: Date.now() });
+      Object.assign(s, { connected: false, embeddable: false, embedOrigins: undefined, error: (err as Error).message, project: null, linkedBy: undefined, projects: [], workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], humanWait: undefined, scope: [], checkedAt: Date.now() });
       return;
     }
     // Whether Opora lets the office frame it, for O at the boss's chair to open it inside the office.
@@ -351,7 +356,7 @@ export class OporaBridge {
       const lost = this.chosen && !chosen ? `The project this floor was linked to (${this.chosen}) isn't on Opora any more: ${byFolder ? `reading ${byFolder.name}, the one for this floor's folder, instead` : 'pick another'}` : undefined;
       const project = chosen ?? byFolder;
       if (!project) {
-        Object.assign(s, { connected: true, error: lost ?? `No Opora project plans this floor's folder (${this.floor.dir}): pick one in the 🛰️ Opora window, or add the folder in Opora as a local or git project`, project: null, linkedBy: undefined, workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], scope: [], checkedAt: Date.now() });
+        Object.assign(s, { connected: true, error: lost ?? `No Opora project plans this floor's folder (${this.floor.dir}): pick one in the 🛰️ Opora window, or add the folder in Opora as a local or git project`, project: null, linkedBy: undefined, workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], humanWait: undefined, scope: [], checkedAt: Date.now() });
         return;
       }
       // The workspace someone picked while it's still there, else `main`, else the first; a picked one that's gone says so.
@@ -375,8 +380,10 @@ export class OporaBridge {
         }
       }
       // Plan-step cards are ready by Canvas's own rule, routed pipeline or not (docs/opora-execution.md).
-      const ready = await this.client.claimReady(project.id, workspace).catch(() => null);
-      if (ready) for (const c of cards) if (ready.has(c.id)) c.ready = true;
+      // The same read says what waits on a person (agent-state.ts); an older Canvas without it has no notice.
+      const agent = await this.client.agentState(project.id, workspace).catch(() => null);
+      if (agent) for (const c of cards) if (agent.ready.has(c.id)) c.ready = true;
+      s.humanWait = agent?.humanWait;
       this.noteReady(`${project.id}/${workspace}`, cards);
       Object.assign(s, { connected: true, error: [lost, gone, this.focusLost()].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
     } catch (err) {
@@ -403,6 +410,7 @@ export class OporaBridge {
    * there's room under the limit; a card someone else took, or that left the canvas, is let go.
    */
   private async handOut() {
+    if (this.handed.size && this.waitNotice.holds(this.state.humanWait, '🧭 The hand-out')) return;
     for (const [id, who] of [...this.handed]) {
       const card = this.state.cards.find((c) => c.id === id);
       if (!card || card.status !== 'frontier' || this.runs.some((r) => r.cardId === id && r.state !== 'gone') || this.reportedBefore(id)) {
@@ -427,7 +435,7 @@ export class OporaBridge {
 
   /** Takes free cards while there's room under the limit: routed ones, and the ones Canvas says are ready to claim. */
   private async autopilot() {
-    if (this.focusLost()) return;
+    if (this.focusLost() || this.waitNotice.holds(this.state.humanWait, '🛰️ The autopilot')) return;
     const busy = () => this.runs.filter((r) => r.state !== 'gone').length;
     const free = this.state.cards.filter((c) => c.status === 'frontier' && (c.profile || c.ready) && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone') && !this.reportedBefore(c.id));
     for (const card of free) {
