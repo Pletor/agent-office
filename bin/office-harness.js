@@ -15,7 +15,9 @@ import { context7 } from '../dist/server/server/harness/context7.js';
 import { probeRunner } from '../dist/server/server/harness/runner-probe.js';
 import { probeArgs } from './harness-probe.js';
 const args = process.argv.slice(2);
-if (process.env.AGENT_OFFICE_HOOK_URL) {
+if (args[0] === '--evaluate-pair') {
+  await (await import('./harness-paired.js')).pairedHarness(args);
+} else if (process.env.AGENT_OFFICE_HOOK_URL) {
   if (args[0] === '--invoke-node') await (await import('./harness-invoke.js')).invokeHarness(args);
   else await remoteHarness(args);
 } else {
