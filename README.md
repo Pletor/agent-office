@@ -462,3 +462,5 @@ Native fixture quarantine uses all retained verification records, so an old fail
 fall out merely because recent history fills up. See [recommendation evidence](docs/harness-recommend.md#independent-fixture-history-and-lasting-quarantine).
 
 Harness recommendations expose native experiment capacity when advertised by Opora; missing capacity is explicit and a snapshot never grants execution permission. See [learning evidence](docs/harness-learning.md).
+
+Harness recommendations preserve the native [nonproduction exploration allocation](docs/harness-learning.md#native-nonproduction-allocation-in-recommendations), so agents can inspect eligibility before scheduling an experiment.

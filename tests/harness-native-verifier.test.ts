@@ -138,3 +138,28 @@ test('validates scoped experiment capacity without treating it as reservation or
   assert.equal(parse(disabled).budget?.status, 'disabled');
   assert.throws(() => parse({ ...disabled, capacityAvailable: true }));
 });
+
+
+test('native exploration preserves unknown and validates shared counter and five-percent boundary', () => {
+  const budget = { schema: 'harness.experiment-capacity/1', scope: { project: 'project-a', workspace: 'workspace-a' },
+    status: 'available', limit: 10, admitted: 1, remaining: 9, capacityAvailable: true, reservation: false };
+  const exploration = { schema: 'harness.exploration-share/1', status: 'available', maxPercent: 5,
+    baselineCards: 38, admitted: 1, remaining: 1, eligible: true, reservation: false, policyDigest: hash('a') };
+  const parse = (value: unknown) => parseFixtureHistory({ requests: [], budget: { ...budget, exploration: value } }, 'project-a', 'workspace-a').budget?.exploration;
+  assert.equal(parse(exploration)?.remaining, 1);
+  assert.equal(parse({ ...exploration, baselineCards: 37, remaining: 0, eligible: false })?.eligible, false);
+  assert.equal(parse(undefined), undefined);
+  assert.equal(Object.hasOwn(parseFixtureHistory({ requests: [], budget }, 'project-a', 'workspace-a').budget!, 'exploration'), false);
+  const unavailable = { schema: exploration.schema, status: 'unavailable', maxPercent: 5,
+    baselineCards: null, admitted: null, remaining: null, eligible: false, reservation: false };
+  assert.equal(parse(unavailable)?.status, 'unavailable');
+  for (const change of [{ maxPercent: 6 }, { baselineCards: -1 }, { baselineCards: 38.5 },
+    { baselineCards: Number.MAX_SAFE_INTEGER + 1 }, { admitted: 0 }, { remaining: 2 }, { eligible: false },
+    { reservation: true }, { policyDigest: 'a'.repeat(64) + '\n' }, { status: 'ready' }]) {
+    assert.throws(() => parse({ ...exploration, ...change }), /exploration/);
+  }
+  for (const change of [{ baselineCards: 0 }, { admitted: 0 }, { remaining: 0 }, { eligible: true }, { policyDigest: hash('b') }]) {
+    assert.throws(() => parse({ ...unavailable, ...change }), /exploration/);
+  }
+  assert.equal('unexpected' in parse({ ...exploration, unexpected: 'discarded' })!, false);
+});

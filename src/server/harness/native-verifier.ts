@@ -1,3 +1,4 @@
+import { parseExploration, type FixtureExploration } from './native-exploration.js';
 /** Independently observed fixture outputs; never production/task-success rates. */
 export interface FixtureEvidence {
   verificationId: string; executionId: string; problem: string;
@@ -9,6 +10,7 @@ export interface FixtureQuarantine {
   cohorts: { problem: string; candidate: { id: string; digest: string }; verificationId: string }[];
 }
 export interface FixtureBudget {
+  exploration?: FixtureExploration;
   status: 'available' | 'disabled' | 'unavailable' | 'not-configured-for-scope';
   limit: number | null; admitted: number; remaining: number | null; capacityAvailable: boolean; reservation: false;
 }
@@ -36,7 +38,8 @@ function parseBudget(value: unknown, project: string, workspace: string): Fixtur
       || value.capacityAvailable !== (value.remaining > 0)) return fail();
   } else if (value.limit !== null || value.remaining !== null || value.capacityAvailable !== false) return fail();
   return { status: value.status, limit: value.limit, admitted: value.admitted, remaining: value.remaining,
-    capacityAvailable: value.capacityAvailable, reservation: false };
+    capacityAvailable: value.capacityAvailable, reservation: false,
+    ...(value.exploration === undefined ? {} : { exploration: parseExploration(value.exploration, value.admitted) }) };
 }
 
 function parseQuarantine(value: unknown, project: string, workspace: string): FixtureQuarantine | undefined {
