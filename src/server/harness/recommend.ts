@@ -80,7 +80,8 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     const fixtureQuarantines = nodeScript ? (fixtures.quarantine?.cohorts ?? [])
       .filter(row => row.problem === problem && row.candidate.id === id && row.candidate.digest === digest)
       .map(row => row.verificationId) : [];
-    const fixtureHistoryIncomplete = nodeScript && fixtures.quarantine?.complete === false;
+    const fixtureHistoryIncomplete = nodeScript && (fixtures.quarantine?.complete === false
+      || (!fixtures.quarantine && fixtures.limited));
     const fixtureFailure = fixtureEvidence.some(row => row.candidateFailures > 0) || fixtureQuarantines.length > 0;
     const fixtureRegression = fixtureEvidence.some(row => row.regressions > 0);
     const pairedRegression = pairedEvidence.some(row => row.status === 'complete' && row.regressions > 0);

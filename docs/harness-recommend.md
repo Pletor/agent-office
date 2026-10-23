@@ -100,7 +100,8 @@ automatic reuse, even if the baseline also fails. Explicit choices remain with a
 `fixtureQuarantines` contains source verification IDs from the native all-history projection.
 An old failure remains effective after leaving the newest100-request window. A newer pass
 does not erase it; a different content digest or problem is a different cohort. If the native
-projection reports overflow or an unbound failure, automatic Node additions are restrained
+projection reports overflow or an unbound failure, or a legacy peer returns a truncated
+window without the quarantine projection, automatic Node additions are restrained
 with `fixture-history-incomplete`. Missing legacy support or an unavailable peer is exposed
 as unavailable evidence, not a declaration of health. Existing human task outcomes and
 policy choices remain separate. This is version restraint, not global publication or a
