@@ -19,6 +19,8 @@ export interface TranscriptState {
   /** TaskCreate calls waiting for their result, which names the task's id. */
   creating: Record<string, string>;
   kids: SessionKid[];
+  /** A background sub-session's agent id (from its launch) to its tool call: notifications and hand-backs name the agent. */
+  agents: Record<string, string>;
   /** Tokens in context on the last main-session turn, and its model. */
   context?: { used: number; model: string };
   summary?: { text: string; at: number };
@@ -29,7 +31,7 @@ export interface TranscriptState {
   lastAt?: number;
 }
 
-export const newTranscript = (): TranscriptState => ({ todos: [], creating: {}, kids: [] });
+export const newTranscript = (): TranscriptState => ({ todos: [], creating: {}, kids: [], agents: {} });
 
 /** One line of plain text: no control characters, cut to `n`. */
 export function line(v: unknown, n = 160): string {
@@ -69,26 +71,56 @@ function kid(t: TranscriptState, k: SessionKid) {
   t.kids = [...t.kids.filter((x) => x.id !== k.id), k].slice(-MAX_KIDS);
 }
 
+/** A heading that only says "here's the report", not what it is. */
+const BARE_HEADING = /^(?:result|results|summary|report|outcome|výsledek|shrnutí|souhrn|hlášení|report follows)[:.]?$/i;
+
 /** A sub-session's report: the first line that says something, capped. */
 function report(text: string): string {
-  const first = text.split(/\n+/).map((l) => l.replace(/^[#>*\-\s]+/, '').trim()).find((l) => l && !/^(agentId|<)/i.test(l));
+  const first = text.split(/\n+/).map((l) => l.replace(/^[#>*\-\s]+/, '').trim()).find((l) => l && !/^(agentId|<)/i.test(l) && !BARE_HEADING.test(l));
   return line(first ?? '', 120);
 }
+
+/** The sub-session a notification or hand-back is about: by its tool call, else by its agent id. */
+function kidOf(t: TranscriptState, toolUseId: string | undefined, agentId: string | undefined): SessionKid | undefined {
+  const id = toolUseId ?? (agentId ? t.agents[agentId] : undefined);
+  return id ? t.kids.find((x) => x.id === id) : undefined;
+}
+
+/** Said when the report itself came as a hand-back message (`<agent-message>`), not in the notification. */
+const HANDED_BACK = /delivered to you as a message from/i;
 
 /** `<task-notification>` blocks: a background sub-session finished (or failed). */
 function notifications(t: TranscriptState, text: string, at: number) {
   for (const m of text.matchAll(/<task-notification>([\s\S]*?)<\/task-notification>/g)) {
     const body = m[1];
     const tag = (n: string) => new RegExp(`<${n}>([\\s\\S]*?)</${n}>`).exec(body)?.[1]?.trim();
-    const id = tag('tool-use-id');
-    const k = id ? t.kids.find((x) => x.id === id) : undefined;
+    const k = kidOf(t, tag('tool-use-id'), tag('task-id'));
     if (!k) continue;
     const status = tag('status') ?? '';
-    k.state = /fail|error|kill|stop/i.test(status) ? 'fail' : 'done';
-    k.report = report(tag('result') ?? tag('summary') ?? status) || k.report;
+    const failed = /fail|error|kill|stop/i.test(status);
+    const result = tag('result');
+    // A result that only points at the hand-back keeps the report the hand-back gave.
+    const said = result && HANDED_BACK.test(result) ? undefined : (result ?? tag('summary') ?? status);
+    if (said) k.report = report(said) || k.report;
+    k.report = k.report || (failed ? 'Selhalo' : 'Hotovo');
+    k.state = failed ? 'fail' : 'done';
     k.at = at;
   }
 }
+
+/** `<agent-message from="…">` hand-backs: a background sub-session's final report, after "The report follows:". */
+function handBacks(t: TranscriptState, text: string, at: number) {
+  for (const m of text.matchAll(/<agent-message from="([\w-]+)">([\s\S]*?)(?:<\/agent-message>|$)/g)) {
+    const k = kidOf(t, undefined, m[1]);
+    if (!k) continue;
+    k.state = 'done';
+    k.report = report(m[2].split(/The report follows:[ \t]*\n/).pop() ?? '') || k.report || 'Hotovo';
+    k.at = at;
+  }
+}
+
+/** What the harness (not the person) put into the session as a user turn. */
+const NOT_THE_PERSON = /^(?:<(?:command|local-command|task-notification|system-reminder|agent-message)|Another Claude session sent a message|\[SYSTEM NOTIFICATION)/;
 
 /** Takes one transcript line (from the session's own file). */
 export function applyTranscriptLine(t: TranscriptState, l: unknown): void {
@@ -104,7 +136,11 @@ export function applyTranscriptLine(t: TranscriptState, l: unknown): void {
     if (text) t.summary = { text, at: when };
     return;
   }
-  if (o.type === 'queue-operation' && typeof o.content === 'string') return notifications(t, o.content, when);
+  if (o.type === 'queue-operation' && typeof o.content === 'string') {
+    notifications(t, o.content, when);
+    handBacks(t, o.content, when);
+    return;
+  }
 
   const msg = obj(o.message);
   if (!msg) return;
@@ -131,6 +167,10 @@ export function applyTranscriptLine(t: TranscriptState, l: unknown): void {
           else if (STATUSES.has(input.status)) item.status = input.status;
           if (typeof input.subject === 'string') item.text = line(input.subject, 140) || item.text;
         }
+      } else if (name === 'SendMessage' && typeof input.to === 'string') {
+        // Resuming a background sub-session: it's at work again until its next hand-back.
+        const k = kidOf(t, undefined, input.to);
+        if (k) { k.state = 'run'; k.at = when; }
       } else if (name === 'Agent' || name === 'Task') {
         kid(t, { id: block.id, kind: 'sub', name: line(input.description ?? input.subagent_type ?? 'pod-relace', 90), state: 'run', startedAt: when, at: when });
       }
@@ -142,9 +182,10 @@ export function applyTranscriptLine(t: TranscriptState, l: unknown): void {
   const text = textOf(content);
   if (text) {
     notifications(t, text, when);
+    handBacks(t, text, when);
     const btw = /<command-name>\/btw<\/command-name>[\s\S]*?<command-args>([\s\S]*?)<\/command-args>/.exec(text)?.[1] ?? /^\/btw\s+([\s\S]+)/.exec(text.trim())?.[1];
     if (btw) kid(t, { id: typeof o.uuid === 'string' ? o.uuid : `btw-${when}`, kind: 'btw', name: line(btw, 90), state: 'run', startedAt: when, at: when });
-    else if (!/^<(command|local-command|task-notification|system-reminder)/.test(text.trim())) {
+    else if (!NOT_THE_PERSON.test(text.trim()) && obj(o.origin)?.kind !== 'peer') {
       // The person said something: an open /btw question has had its answer by now.
       for (const k of t.kids) if (k.kind === 'btw' && k.state === 'run') { k.state = 'done'; k.report = k.report ?? 'Odpovězeno'; k.at = when; }
     }
@@ -164,7 +205,11 @@ export function applyTranscriptLine(t: TranscriptState, l: unknown): void {
     const k = t.kids.find((x) => x.id === id);
     if (!k) continue;
     k.at = when;
-    if (/async agent launched|running in the background|launched in the background/i.test(result)) continue;
+    if (/async agent launched|running in the background|launched in the background/i.test(result)) {
+      const agentId = obj(o.toolUseResult)?.agentId ?? /agentId: ([\w-]+)/.exec(result)?.[1];
+      if (typeof agentId === 'string') t.agents[agentId] = id;
+      continue;
+    }
     k.state = block.is_error ? 'fail' : 'done';
     k.report = report(result) || (k.state === 'done' ? 'Hotovo' : 'Selhalo');
   }

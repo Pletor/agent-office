@@ -58,6 +58,27 @@ test('sub-sessions become nodes and report up, at once or in a later task notifi
   assert.equal(t.kids.at(-1)?.state, 'fail');
 });
 
+test('a background sub-session as Claude Code writes it now: agent id at launch, report by hand-back, resumed by SendMessage', () => {
+  const t = newTranscript();
+  const notification = (s: number, status: string, result: string, toolUseId = true) => ({ type: 'queue-operation', timestamp: at(s), content: `<task-notification>\n<task-id>a36</task-id>\n${toolUseId ? '<tool-use-id>a1</tool-use-id>\n' : ''}<status>${status}</status>\n<summary>Agent "Tabule" finished</summary>\n<result>${result}</result>\n</task-notification>` });
+  const handBack = 'Another Claude session sent a message:\n<agent-message from="a36">\n[Subagent hand-back] The text below is the final report of a subagent. The report follows:\n  ## Result\n  I opened PR #68 from feat/orchestrator-boards.\n</agent-message>';
+  applyTranscriptLine(t, asst(1, [use('a1', 'Agent', { description: 'Tabule', prompt: 'p', run_in_background: 'true' })]));
+  applyTranscriptLine(t, user(2, [result('a1', 'Async agent launched successfully.\nagentId: a36 (internal ID)')], { toolUseResult: { isAsync: true, status: 'async_launched', agentId: 'a36' } }));
+  applyTranscriptLine(t, { type: 'queue-operation', timestamp: at(50), content: handBack.split('\n').slice(1).join('\n') });
+  applyTranscriptLine(t, notification(51, 'completed', 'This agent\'s report was delivered to you as a message from "a36" (its SubagentHandback call). Read it there.'));
+  applyTranscriptLine(t, user(52, handBack, { origin: { kind: 'peer', from: 'a36' } }));
+  assert.deepEqual([t.kids[0].state, t.kids[0].report], ['done', 'I opened PR #68 from feat/orchestrator-boards.']);
+  // Resumed with SendMessage, it runs again; an older notification without a tool-use id is matched by its task id.
+  applyTranscriptLine(t, asst(60, [use('s1', 'SendMessage', { to: 'a36', message: 'pokračuj' })]));
+  assert.equal(t.kids[0].state, 'run');
+  applyTranscriptLine(t, notification(90, 'failed', 'API error: limit', false));
+  assert.deepEqual([t.kids[0].state, t.kids[0].report], ['fail', 'API error: limit']);
+  // A hand-back is not the person speaking: an open /btw stays open.
+  applyTranscriptLine(t, user(95, '<command-name>/btw</command-name>\n<command-args>Proč?</command-args>', { uuid: 'b1' }));
+  applyTranscriptLine(t, user(96, handBack, { origin: { kind: 'peer', from: 'a36' } }));
+  assert.equal(t.kids.at(-1)?.state, 'run');
+});
+
 test('context, away summary, pending tool and last words; subagent turns are not the session own', () => {
   const t = newTranscript();
   applyTranscriptLine(t, asst(1, [{ type: 'text', text: 'Mám hotovo.\n\n## Další kroky\n- Přenést tokeny vzhledu na Prorok\n- **Doplnit** tmavý motiv\n\nKonec.' }]));
