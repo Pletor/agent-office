@@ -61,8 +61,8 @@ export async function evaluatePair(read: () => Promise<PairReceipt>, invoke: Pai
         trial.invocationId = result.invocationId;
         trial.outcome = passed && result.stdout === example.expectedStdout ? 'pass' : 'fail';
         trial.reason = trial.outcome === 'pass' ? 'expected-output' : passed ? 'output-mismatch' : result.reason;
-        if (!result.authorityCurrentAtCompletion || !result.cleanupComplete) {
-          stopped = !result.authorityCurrentAtCompletion ? 'authority-not-current' : 'cleanup-incomplete';
+        if (!result.authorityCurrentAtCompletion || result.reason.startsWith('execution-') || !result.cleanupComplete) {
+          stopped = !result.authorityCurrentAtCompletion || result.reason.startsWith('execution-') ? 'authority-not-current' : 'cleanup-incomplete';
           trial.reason = stopped;
         }
       } catch {

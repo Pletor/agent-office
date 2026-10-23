@@ -29,6 +29,8 @@ test('retains planned denominator and stops after errors or authority/cleanup fa
  assert.doesNotMatch(JSON.stringify(failed),/private adapter detail|same\n|--same/);
  const revoked=await evaluatePair(async()=>receipt,async(_read,res,args)=>success(receipt,res,args,'same\n',{authorityCurrentAtCompletion:false,outcome:'fail',reason:'execution-changed'}),ids.plan,process.cwd());
  assert.equal(revoked.plannedInvocations,6);assert.equal(revoked.observedInvocations,1);assert.equal(revoked.status,'incomplete');assert.equal(revoked.trials[0].reason,'authority-not-current');
+ const restored=await evaluatePair(async()=>receipt,async(_read,res,args)=>success(receipt,res,args,'same\n',{outcome:'fail',reason:'execution-unavailable'}),ids.plan,process.cwd());
+ assert.equal(restored.observedInvocations,1);assert.equal(restored.status,'incomplete');assert.equal(restored.trials[0].reason,'authority-not-current');
  let count=0;const dirty=await evaluatePair(async()=>receipt,async(_read,res,args)=>{count++;return success(receipt,res,args,'same\n',{cleanupComplete:false,outcome:'fail',reason:'completed'});},ids.plan,process.cwd());
  assert.equal(count,1);assert.equal(dirty.status,'incomplete');assert.equal(dirty.trials[0].reason,'cleanup-incomplete');
 });
