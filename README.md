@@ -75,6 +75,9 @@ The Harness editor can also show versioned experience by problem: separate repor
 
 **Current coding documentation.** `office-harness --docs-resolve LIBRARY "public question"` and `--docs /owner/repo/VERSION "public question"` call Context7's real MCP tools, with bounded requests and content provenance. Workers use their authenticated Office hook; local calls need no runner-specific MCP setup. See [Context7 documentation tools](docs/harness-context7.md).
 
+Native incident/revert guardrails suppress automatic reuse of affected versions; explicit
+assignments remain visible with warnings. These associations do not establish tool causation.
+
 On the machine that runs the office:
 
 - **Node.js 20+**
