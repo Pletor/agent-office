@@ -40,6 +40,11 @@ test('runs the exact pinned script with arguments under Node permission mode and
   assert.equal(JSON.parse(result.stdout).env.includes('NODE_OPTIONS'), false);
   assert.equal(result.authorityCurrentAtCompletion, true);
   assert.equal(result.cleanupComplete, true);
+  assert.equal(result.observation.schema, 'harness.invocation-metadata/1');
+  assert.equal(result.observation.invocationId, result.invocationId);
+  assert.equal('stdout' in result.observation, false);
+  assert.equal('stderr' in result.observation, false);
+  assert.equal('args' in result.observation, false);
   assert.deepEqual(await readdir(root), []);
 });
 

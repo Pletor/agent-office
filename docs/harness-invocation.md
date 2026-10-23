@@ -48,9 +48,20 @@ normal completion and handled errors; abrupt host/process termination can leave
 a temporary directory and is not reported as successful cleanup. No resume or
 automatic retry re-executes a possibly side-effecting script.
 
+The receipt also contains `observation`, a whitelisted `harness.invocation-metadata/1`
+projection without stdout, stderr or arguments. With a Canvas supporting native
+invocation metadata, collect these objects into your final result JSON's
+`harnessInvocations` array (maximum 32), then use the existing result helper command
+provided in the assignment. Keep the same invocation IDs on retries. The helper
+already forwards optional result fields; no private bundle inspection is needed.
+Do not submit a final task result merely because one tool succeeded. Older Canvas
+versions may store unknown result fields without validating or aggregating them;
+confirm the native `/api/oporahub/harness-invocations` endpoint is deployed before
+treating those records as part of the learning pipeline.
+
 Receipts are **worker-observed**, not independently verified. An exit code of zero
 does not prove task correctness or causal contribution. Promotion remains false;
 cost and tokens remain unknown. This component writes no learning or memory
-records. Native result acceptance remains the independent task-outcome boundary;
-a future native ingestion path must retain this distinction and persist only
-bounded metadata, not arbitrary stdout, arguments or credentials.
+records automatically. Native result acceptance remains the independent task-outcome
+boundary; native invocation ingestion preserves the worker-reported evidence tier
+and accepts only bounded metadata, not arbitrary stdout, arguments or credentials.
