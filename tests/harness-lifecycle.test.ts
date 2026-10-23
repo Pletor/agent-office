@@ -56,6 +56,14 @@ test('authority failure or changed revision publishes nothing and does not call 
   assert.equal(readFileSync(path.join(dir, 'harness-profiles.json'), 'utf8'), bytes);
 });
 
+test('execution authority is fenced again at publication after evidence was read', async t => {
+  const { store } = setup(t); let checks = 0;
+  await assert.rejects(store.advanceTool('/repo', scope, 0, 'promote', async () => ({ current: proof(a),
+    assertCurrent: () => { if (++checks > 1) throw new Error('execution withdrawn'); } })), /execution withdrawn/);
+  assert.ok(checks >= 2); assert.equal(store.lifecycle('/repo', scope).revision, 0);
+  assert.equal(store.lifecycle('/repo', scope).state, undefined);
+});
+
 test('two store writers cannot publish lifecycle and manual edits on the same revision', async t => {
   const { dir, store } = setup(t);
   const other = new HarnessProfiles(dir);

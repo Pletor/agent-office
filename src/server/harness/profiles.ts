@@ -78,6 +78,7 @@ function asPath(target: HarnessTarget): HarnessPath {
  * `lockOptions` are for tests (time, sleeping, file system calls and interleaving hooks).
  */
 export class HarnessProfiles {
+  readonly toolLifecycleProtocol = 1;
   private file: string;
   private lock: string;
   constructor(private dataDir: string, private lockOptions: LockOptions = {}) { this.file = path.join(dataDir, 'harness-profiles.json'); this.lock = this.file + '.lock'; }
@@ -160,6 +161,7 @@ export class HarnessProfiles {
       if (revision !== data.revision) throw new HarnessError(CHANGED, 409);
       const before = data.toolStates?.[key];
       const checks = await readEvidence(before ? structuredClone(before) : undefined);
+      checks.assertCurrent?.();
       const state = advanceLifecycle(scope, before, checks, operation);
       if ((data.version ?? 1) === 1) data.legacyTasks = Object.keys(data.layers).filter(k => k.startsWith('task:'));
       data.version = HARNESS_STORE_VERSION;
@@ -169,7 +171,7 @@ export class HarnessProfiles {
       if (Buffer.byteLength(text) > 2 * 1024 * 1024) throw new HarnessError('Harness profile storage is full.');
       const revisionOf = (raw: string) => { try { return this.parse(raw).revision; } catch { return undefined; } };
       try { await publishRevision(this.file, data.revision, base, text,
-        { fence: () => { lease.verify(); this.lockOptions.hooks?.verified?.(); }, revisionOf }); }
+        { fence: () => { lease.verify(); checks.assertCurrent?.(); this.lockOptions.hooks?.verified?.(); }, revisionOf }); }
       catch (err) {
         if (err instanceof RevisionConflict) throw new HarnessError(CHANGED, 409);
         if (err instanceof DamagedRevision) throw new HarnessError(err.message, 503);
