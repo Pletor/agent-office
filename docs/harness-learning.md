@@ -239,8 +239,9 @@ records; `fixtureEvidence` identifies native verification, execution, problem an
 plan/baseline/candidate digests. Native server observations stay separate from worker
 reports and task acceptance rates. The consumer recomputes complete pair comparisons;
 pending, interrupted and older records without problem binding cannot establish success.
-A complete candidate regression restrains automatic reuse only for the same problem and
+Any independently observed candidate failure restrains automatic reuse only for the same problem and
 script content with the Node adapter. Explicit assignments remain with a
-`verified-fixture-regression-needs-review` warning. Fixture improvements do not add verified
+`verified-fixture-regression-needs-review` or `verified-fixture-failure-needs-review` warning.
+A candidate that still fails is restrained even when its baseline also fails or another case improves. Fixture improvements do not add verified
 tasks, raise production success, or authorize promotion. Missing/disabled verifier history
 is unknown; library preparation still works with its other evidence and policies.

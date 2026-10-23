@@ -206,7 +206,7 @@ test('independent fixture regressions restrain exact candidates without rewritin
   const f = await fixture(t), id = f.id('a'), content = (await f.library.read(id))!.text;
   const evidence = { verificationId: 'native-check', executionId: 'exec-1', problem: 'ts.references',
     candidate: { id, digest: sha(content) }, baseline: { id: 'script:base', digest: 'a'.repeat(64) },
-    plan: { id: 'testing:plan', digest: 'b'.repeat(64) }, cases: 2, improvements: 0, regressions: 1 };
+    plan: { id: 'testing:plan', digest: 'b'.repeat(64) }, cases: 2, improvements: 0, regressions: 1, candidateFailures: 1 };
   const fixtures = { status: 'available' as const, limited: false, unknown: 0, evaluations: [evidence] };
   const accepted = history([cohort(id, content)]);
   const result = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, accepted, undefined, fixtures);
@@ -223,8 +223,15 @@ test('independent fixture regressions restrain exact candidates without rewritin
     assert.ok(scoped.selected.includes(id)); assert.deepEqual(scoped.candidates.find(c => c.id === id)!.fixtureEvidence, []);
   }
   const positive = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, undefined, undefined,
-    { ...fixtures, evaluations: [{ ...evidence, regressions: 0, improvements: 2 }] });
+    { ...fixtures, evaluations: [{ ...evidence, regressions: 0, improvements: 2, candidateFailures: 0 }] });
   const unproven = positive.candidates.find(c => c.id === id)!;
   assert.equal(unproven.verified, null); assert.equal(unproven.tasks, 0); assert.equal(unproven.observed, false);
   assert.equal(positive.promotionAllowed, false);
+  for (const improvements of [0, 1]) {
+    const failed = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, accepted, undefined,
+      { ...fixtures, evaluations: [{ ...evidence, regressions: 0, improvements }] });
+    assert.ok(!failed.selected.includes(id), 'failure is unsafe even if the baseline also failed or another case improved');
+    assert.equal(failed.candidates.find(c => c.id === id)!.observed, false);
+  }
+
 });

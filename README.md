@@ -475,6 +475,6 @@ Every change to the app that lands on `main` is published as a GitHub release by
 
 
 Harness preparation can read independent fixture reruns from the configured Canvas peer.
-Exact-version regressions restrain automatic reuse; explicit assignments retain a warning.
+Exact-version failures and regressions restrain automatic reuse; explicit assignments retain a warning.
 Fixture evidence remains separate from production acceptance rates and never auto-promotes
 resources. See [Harness learning](docs/harness-learning.md#independent-fixture-feedback).

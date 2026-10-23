@@ -2,7 +2,7 @@
 export interface FixtureEvidence {
   verificationId: string; executionId: string; problem: string;
   candidate: { id: string; digest: string }; baseline: { id: string; digest: string }; plan: { id: string; digest: string };
-  improvements: number; regressions: number; cases: number;
+  improvements: number; regressions: number; candidateFailures: number; cases: number;
 }
 export interface FixtureHistory {
   status: 'available' | 'unavailable'; limited: boolean; unknown: number; evaluations: FixtureEvidence[]; reason?: string;
@@ -46,7 +46,7 @@ export function parseFixtureHistory(value: unknown, project: string, workspace: 
     if (r.independentlyVerified !== true || !Array.isArray(paired.trials) || paired.trials.length < 2
       || paired.trials.length > 16 || paired.trials.length % 2 || paired.plannedTrials !== paired.trials.length
       || q.plannedTrials !== paired.plannedTrials || paired.observedTrials !== paired.plannedTrials || paired.unknownPairs !== 0) return fail();
-    const cases = new Set<string>(); let improvements = 0, regressions = 0, candidateFailed = false;
+    const cases = new Set<string>(); let improvements = 0, regressions = 0, candidateFailures = 0;
     for (let i = 0; i < paired.trials.length; i += 2) {
       const pair = paired.trials.slice(i, i + 2), first = i % 4 === 0 ? 'baseline' : 'candidate';
       if (!obj(pair[0]) || !id(pair[0].case) || cases.has(pair[0].case)) return fail();
@@ -61,15 +61,15 @@ export function parseFixtureHistory(value: unknown, project: string, workspace: 
           || (t.outcome === 'fail' && !['output-mismatch', 'nonzero-exit'].includes(t.reason))) return fail();
       }
       const b = pair.find((t: any) => t.side === 'baseline')!, c = pair.find((t: any) => t.side === 'candidate')!;
-      if (c.outcome === 'fail') candidateFailed = true;
+      if (c.outcome === 'fail') candidateFailures++;
       if (b.outcome === 'pass' && c.outcome === 'fail') regressions++;
       if (b.outcome === 'fail' && c.outcome === 'pass') improvements++;
     }
     if (paired.improvements !== improvements || paired.regressions !== regressions
-      || r.outcome !== (candidateFailed ? 'failed' : 'passed')) return fail();
+      || r.outcome !== (candidateFailures ? 'failed' : 'passed')) return fail();
     if (origin.problem === undefined) { unknown++; continue; }
     evaluations.push({ verificationId: q.id, executionId: q.executionId, problem: origin.problem,
-      candidate, baseline, plan, improvements, regressions, cases: cases.size });
+      candidate, baseline, plan, improvements, regressions, candidateFailures, cases: cases.size });
   }
   return { status: 'available', limited: value.requests.length === 100, unknown, evaluations };
 }

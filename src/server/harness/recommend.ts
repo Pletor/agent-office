@@ -18,7 +18,7 @@ interface Candidate {
   priority: number; observed: boolean; low: boolean; reported: LearningRate | null; verified: LearningRate | null; tasks: number; state: string;
   guardrails: NativeGuardrails | null;
   pairedEvidence: PairedEvidence[]; pairedRegression: boolean;
-  fixtureEvidence: FixtureEvidence[]; fixtureRegression: boolean;
+  fixtureEvidence: FixtureEvidence[]; fixtureRegression: boolean; fixtureFailure: boolean;
 }
 /** Same sorted metadata keys as Canvas's version digest; content has its own UTF-8 hash. */
 export function toolVersion(resource: string, category: string, digest: string, requires: string[]) {
@@ -75,9 +75,10 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
       ? paired.evaluations.filter(row => row.candidate.id === id && row.candidate.digest === digest && row.problem === problem) : [];
     const fixtureEvidence = entry.category === 'scripts' && requires.length === 1 && requires[0] === 'command:node'
       ? fixtures.evaluations.filter(row => row.candidate.id === id && row.candidate.digest === digest && row.problem === problem) : [];
+    const fixtureFailure = fixtureEvidence.some(row => row.candidateFailures > 0);
     const fixtureRegression = fixtureEvidence.some(row => row.regressions > 0);
     const pairedRegression = pairedEvidence.some(row => row.status === 'complete' && row.regressions > 0);
-    const guardrails = verified?.guardrails ?? reported?.guardrails ?? null, flagged = !!guardrails?.affectedExecutions || pairedRegression || fixtureRegression;
+    const guardrails = verified?.guardrails ?? reported?.guardrails ?? null, flagged = !!guardrails?.affectedExecutions || pairedRegression || fixtureFailure;
     const missing = requires.filter(requirement => !capabilities.includes(requirement));
     const metadataMissing = !descriptor && !id.startsWith('guide:') && ['scripts', 'tools', 'commands', 'hooks', 'mcp', 'plugins'].includes(entry.category);
     const mandatory = explicit.has(id);
@@ -87,16 +88,16 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     if (mandatory && (missing.length || metadataMissing)) constraints.push({ resource: id, reason: metadataMissing ? 'tool-metadata-needed' : 'missing-declared-capabilities', missing });
     candidates.push({ id, title: entry.title, category: entry.category, digest, versionDigest: version, requires,
       mandatory, baseline: baseline.includes(id), disabled: blocked.has(id), missing, metadataMissing,
-      priority: descriptor?.priority ?? 0, observed, low, guardrails, pairedEvidence, pairedRegression, fixtureEvidence, fixtureRegression,
+      priority: descriptor?.priority ?? 0, observed, low, guardrails, pairedEvidence, pairedRegression, fixtureEvidence, fixtureRegression, fixtureFailure,
       reported: reported?.rate ?? null, verified: verified?.rate ?? null, tasks: verified?.tasks ?? 0,
-      state: blocked.has(id) ? 'disabled' : flagged ? 'regression-review-needed' : missing.length || metadataMissing ? 'needs-capabilities' : low ? 'low-observed-success' : observed ? 'observed-success' : 'candidate' });
+      state: blocked.has(id) ? 'disabled' : fixtureFailure && !fixtureRegression ? 'fixture-failure-review-needed' : flagged ? 'regression-review-needed' : missing.length || metadataMissing ? 'needs-capabilities' : low ? 'low-observed-success' : observed ? 'observed-success' : 'candidate' });
   }
   const selected = candidates.filter(candidate => candidate.mandatory);
   const add = (candidate: typeof candidates[number]) => { if (!selected.some(entry => entry.id === candidate.id) && selected.length < 24) selected.push(candidate); };
   if (auto) {
     // A correlated incident must not optimize away the baseline instructions/testing policy.
     for (const candidate of candidates.filter(entry => entry.baseline && !entry.disabled)) add(candidate);
-    const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && !entry.missing.length && !entry.metadataMissing && !entry.low && !entry.guardrails?.affectedExecutions && !entry.pairedRegression && !entry.fixtureRegression);
+    const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && !entry.missing.length && !entry.metadataMissing && !entry.low && !entry.guardrails?.affectedExecutions && !entry.pairedRegression && !entry.fixtureFailure);
     optional.sort((a, b) => (b.verified?.interval95?.[0] ?? 0) - (a.verified?.interval95?.[0] ?? 0) || b.priority - a.priority || (a.id < b.id ? -1 : 1));
     for (const candidate of optional.filter(entry => entry.observed).slice(0, 3)) add(candidate);
     const exploration = optional.find(entry => !entry.observed);
@@ -130,7 +131,7 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
       evidence: 'server-observed fixture outputs; not production success or promotion' },
     capabilityEvidence: 'caller-declared; not native attestation or permission grants',
     association: 'selected-kit outcomes; actual invocation and causal contribution unobserved', promotionAllowed: false,
-    constraints, warnings: selected.filter(entry => entry.guardrails?.affectedExecutions || entry.pairedRegression || entry.fixtureRegression)
-      .map(entry => ({ resource: entry.id, reason: entry.fixtureRegression ? 'verified-fixture-regression-needs-review' : entry.pairedRegression ? 'paired-fixture-regression-needs-review' : 'linked-regression-needs-review',
+    constraints, warnings: selected.filter(entry => entry.guardrails?.affectedExecutions || entry.pairedRegression || entry.fixtureFailure)
+      .map(entry => ({ resource: entry.id, reason: entry.fixtureRegression ? 'verified-fixture-regression-needs-review' : entry.fixtureFailure ? 'verified-fixture-failure-needs-review' : entry.pairedRegression ? 'paired-fixture-regression-needs-review' : 'linked-regression-needs-review',
         preserved: entry.mandatory ? 'explicit' : 'baseline-policy' })), selected: selected.map(entry => entry.id), candidates, kit };
 }
