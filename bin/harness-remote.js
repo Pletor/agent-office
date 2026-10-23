@@ -21,7 +21,8 @@ export async function remoteHarness(argv) {
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID ?? '');
   if (task) url.searchParams.set('task', task);
   let body;
-  if (['--docs-resolve', '--docs'].includes(action)) {
+  if (action === '--probe' && !args.length && !task) url.searchParams.set('capabilities', '1');
+  else if (['--docs-resolve', '--docs'].includes(action)) {
     url.searchParams.set('docs', '1'); body = JSON.stringify(docsQuery(action, args));
   } else if (['--hierarchy', '--configure', '--bind'].includes(action)) body = hierarchyCommand(action, args, task, url);
   else if (action === '--read' && args.length === 1) url.searchParams.set('read', args[0]);

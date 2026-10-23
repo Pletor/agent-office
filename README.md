@@ -81,6 +81,11 @@ The Czech [implementation and gap map](docs/harness-status.md) explains the UI, 
 
 Versioned experience also shows optional incident/revert warnings without changing assignments.
 
+Agents can inspect bounded runner observations with `office-harness --probe` through their
+authenticated hook, or `--probe RUNNER` locally. Advertised flags remain separate from live
+MCP/permission verification. See [runner probes](docs/harness-probes.md).
+
+
 On the machine that runs the office:
 
 - **Node.js 20+**

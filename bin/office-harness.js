@@ -10,6 +10,9 @@ import { searchCatalog } from './harness-search.js';
 
 import { docsQuery } from './harness-docs.js';
 import { context7 } from '../dist/server/server/harness/context7.js';
+
+import { probeRunner } from '../dist/server/server/harness/runner-probe.js';
+import { probeArgs } from './harness-probe.js';
 const args = process.argv.slice(2);
 if (process.env.AGENT_OFFICE_HOOK_URL) {
   await remoteHarness(args);
@@ -21,7 +24,8 @@ if (args[0] === '--project') {
   if (!project) throw new Error('--project requires a folder');
 }
 const action = args.shift();
-if (['--docs-resolve', '--docs'].includes(action)) {
+if (action === '--probe') console.log(JSON.stringify(await probeRunner(probeArgs(args)), null, 2));
+else if (['--docs-resolve', '--docs'].includes(action)) {
   console.log(JSON.stringify(await context7(docsQuery(action, args), { apiKey: process.env.CONTEXT7_API_KEY }), null, 2));
 } else {
 if (action && !['--read', '--bundle', '--kit', '--recommend', '--search'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--search "words" [--category CATEGORY] | --read id | --bundle id ... | --kit PROBLEM id ... | --recommend PROBLEM [--capability ID]...]');
