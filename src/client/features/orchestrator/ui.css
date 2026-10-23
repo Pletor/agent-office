@@ -1,23 +1,17 @@
-/* The orchestrator's two windows (features/orchestrator): the right board's card picker and the purple
-   board's detail. The design card drawer is "Design karta v procesu" (Opora's drawer), in Opora's own
+/* The orchestrator's window (features/orchestrator): the purple board's detail, also used by the
+   live canvas's window (features/oporalive). The design card drawer is "Design karta v procesu" (Opora's drawer), in Opora's own
    tokens, inside the office's window. */
-.oc-picker, .oc-detail {
+.oc-detail, .ol-window {
   --o-surface: #ffffff; --o-surface-2: #faf8f4; --o-surface-3: #efebe3; --o-ink: #1c1b18; --o-ink-2: #45423b; --o-muted: #66625a;
   --o-line: #ddd7cc; --o-line-strong: #c4bcae; --o-accent: #1d6b70; --o-accent-soft: #e2efee; --o-accent-line: #8cbcbc;
   --o-ok: #3b6d3f; --o-ok-soft: #e3f1e6; --o-ok-line: #9cc4a0; --o-warn: #8a5f0f; --o-warn-soft: #f6ecd8; --dur: .45s;
 }
-.oc-picker { width: min(1080px, 96vw); height: min(720px, 92vh); }
 .oc-detail { width: min(1440px, 97vw); height: min(900px, 94vh); }
 .oc-detail .pw-head h2 { flex: 1; }
 
-/* The picker: the cards, and the picked one as the orchestrator sees it. */
-.oc-pick-body { display: grid !important; grid-template-columns: minmax(260px, 380px) minmax(0, 1fr); gap: 14px; }
-.oc-side { padding: 12px 14px; display: grid; gap: 10px; align-content: start; }
-.oc-name { margin: 0; font-size: 20px; font-weight: 900; overflow-wrap: anywhere; }
 .oc-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; }
 .oc-facts dt { font-weight: 900; color: var(--muted); }
 .oc-facts dd { margin: 0; font-weight: 800; overflow-wrap: anywhere; }
-.oc-acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .oc-k { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 4px; }
 .oc-brief { margin: 0; padding: 10px 12px; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 600 12px/1.45 var(--mono); background: #f8f6f1; border: 2px dashed var(--line); border-radius: 10px; color: var(--ink); }
 
@@ -91,7 +85,7 @@
 @keyframes oc-pop { from { opacity: 0; transform: translateY(6px) scale(.985); } to { opacity: 1; transform: none; } }
 
 @media (max-width: 900px) {
-  .oc-pick-body, .oc-lens, .oc-grid { grid-template-columns: minmax(0, 1fr); }
+  .oc-lens, .oc-grid { grid-template-columns: minmax(0, 1fr); }
   .oc-rail { grid-template-columns: repeat(7, 104px); overflow-x: auto; padding-bottom: 4px; }
 }
 @media (prefers-reduced-motion: reduce) {

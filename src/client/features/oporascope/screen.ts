@@ -7,7 +7,8 @@ const FONT = 'Nunito, ui-rounded, system-ui, sans-serif';
 const INK = '#2b2d42';
 const ON = '#38d9a9';
 const OFF = '#ced4da';
-const ROWS = 8;
+const ROWS = 10;
+const PURPLE = '#9b5de5';
 
 /**
  * The columns the cascade shows: the top level, then the children of the node switched on in the
@@ -30,7 +31,7 @@ export class ScopeBoardTexture {
   private g: CanvasRenderingContext2D;
 
   constructor() {
-    const c = canvasTexture(1680, 600);
+    const c = canvasTexture(1680, 768);
     this.canvas = c.canvas;
     this.g = c.g;
     this.texture = c.texture;
@@ -63,6 +64,7 @@ export class ScopeBoardTexture {
     const focus = cleanFocus(s.scope, s.focus);
     const on = new Set(focus);
     const cols = scopeColumns(s.scope, focus);
+    const deep = deepCard(s.scope, focus);
     const colW = (W - 40) / Math.max(4, cols.length);
     cols.forEach((col, i) => {
       const x = 20 + i * colW;
@@ -73,9 +75,10 @@ export class ScopeBoardTexture {
       col.nodes.slice(0, ROWS).forEach((n, r) => {
         const y = 112 + r * 52;
         const lit = on.has(n.id);
-        g.fillStyle = lit ? '#e6fcf5' : '#ffffff';
-        g.strokeStyle = lit ? ON : '#dee2e6';
-        g.lineWidth = 3;
+        const card = n.id === deep;
+        g.fillStyle = card ? '#f3ecff' : lit ? '#e6fcf5' : '#ffffff';
+        g.strokeStyle = card ? PURPLE : lit ? ON : '#dee2e6';
+        g.lineWidth = card ? 5 : 3;
         g.beginPath();
         g.roundRect(x, y, colW - 16, 44, 10);
         g.fill();
@@ -91,7 +94,7 @@ export class ScopeBoardTexture {
         g.fill();
         g.fillStyle = lit ? INK : '#868e96';
         g.font = `${lit ? 900 : 700} 22px ${FONT}`;
-        const label = n.host ? `${n.name} · ${n.host}` : n.name;
+        const label = `${card ? '🎯 ' : ''}${n.host ? `${n.name} · ${n.host}` : n.name}`;
         g.fillText(fit(g, label, colW - 90), x + 64, y + 23);
       });
       if (col.nodes.length > ROWS) {
@@ -105,6 +108,14 @@ export class ScopeBoardTexture {
         g.fillText('›', x + colW - 14, 92);
       }
     });
+    // Over the bottom bar: what the deepest page switched on is.
+    g.fillStyle = '#f3ecff';
+    g.fillRect(0, H - 112, W, 54);
+    g.fillStyle = PURPLE;
+    g.font = `900 24px ${FONT}`;
+    g.textAlign = 'left';
+    const name = deep ? s.scope.find((n) => n.id === deep)?.name : undefined;
+    g.fillText(fit(g, name ? `🎯 Karta pro orchestrátora: ${name} → fialová tabule` : '🎯 Nejhlubší zapnutá stránka nebo podstránka = karta pro orchestrátora → fialová tabule', W - 40), 20, H - 85);
     // Along the bottom: the focus in words, and the cards in it.
     const line = focusLine(s.scope, focus);
     const cards = s.cards.filter((c) => inFocus(s.scope, focus, c.id));
@@ -120,6 +131,12 @@ export class ScopeBoardTexture {
     g.fillText(`${cards.filter((c) => c.status === 'frontier').length} volných · ${cards.filter((c) => c.status === 'claimed').length} v práci`, W - 20, H - 29);
     this.texture.needsUpdate = true;
   }
+}
+
+/** The orchestrator's card the focus makes: its deepest node switched on (the first focus's), when that's a page or subpage. */
+export function deepCard(scope: readonly OporaScopeNode[], focus: readonly string[]): string | undefined {
+  const leaf = focusPaths(scope, focus)[0]?.at(-1);
+  return leaf && (leaf.level === 'page' || leaf.level === 'subpage') ? leaf.id : undefined;
 }
 
 /** `text`, cut with an ellipsis to fit `maxW`. */

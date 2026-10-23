@@ -83,7 +83,7 @@ export class OporaClient {
     const nodes = Array.isArray(v.graph?.nodes) ? (v.graph!.nodes as Record<string, unknown>[]) : [];
     return nodes
       .map((n) => {
-        const site = n.site && typeof n.site === 'object' ? (n.site as { environments?: unknown }) : undefined;
+        const site = n.site && typeof n.site === 'object' ? (n.site as { environments?: unknown; kind?: unknown }) : undefined;
         const env = Array.isArray(site?.environments) ? (site.environments[0] as { name?: unknown; host?: unknown } | undefined) : undefined;
         return {
           id: String(n.id ?? ''),
@@ -92,6 +92,7 @@ export class OporaClient {
           parentId: typeof n.parentId === 'string' ? n.parentId : null,
           ...(typeof env?.name === 'string' && env.name.trim() ? { env: env.name.trim().slice(0, 60) } : {}),
           ...(typeof env?.host === 'string' && env.host.trim() ? { host: env.host.trim().slice(0, 120) } : {}),
+          ...(site?.kind === 'page' ? { page: true } : {}),
         };
       })
       .filter((n) => n.id);

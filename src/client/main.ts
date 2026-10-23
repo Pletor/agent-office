@@ -164,7 +164,7 @@ parts.meeting = installMeeting(ctx, parts);
 const planning = installPlanning(ctx, parts);
 const opora = installOpora(ctx, parts, { showPlanning: planning.showPlanning, arcade: parts.arcade });
 installOporaScope(ctx);
-installOporaLive(ctx, { openFull: opora.openFull, showPlanning: planning.showPlanning });
+installOporaLive(ctx, { openFull: opora.openFull, showPlanning: planning.showPlanning, openTerminal: (id) => parts.waiting.openWorkerTerminal(id) });
 parts.bookshelf = installBookshelf(ctx);
 installHarness(ctx);
 installHerald(ctx, parts);

@@ -1,4 +1,5 @@
-// The purple board's window (E at its ledge): the full detail of the card picked for the orchestrator, in
+// The purple board's window (E at its ledge): the full detail of the orchestrator's card (the deepest page
+// switched on at the 🎚️ switchboard), in
 // both designs. "Lens (návrh 1)": the card's PR Lens, area map and area plan Lens with the diagram's
 // popovers and step-through (features/lens), beside the card's facts and the overview the orchestrator
 // gets. "Design karta (návrh 2)": the seven stages of a design card (design.ts). Read-only, like Opora's
@@ -7,18 +8,12 @@
 import { store } from '../../state';
 import { h, openModal, type Modal } from '../../ui/dom';
 import { LensSection } from '../lens/ui';
-import { STATUS_CZ, cardLane } from '../opora-plan/cards';
-import { buildBoard } from '../process-wall/lanes';
-import { DesignDrawer, isDesign } from './design';
+import { STATUS_CZ } from '../opora-plan/cards';
+import { DesignDrawer, isDesign, laneFor } from './design';
 
 type TabId = 'lens' | 'design';
 
-/** The process wall's lanes, built the same way the wall builds them, for the focused card's phase, branch and PR. */
-function lanes() {
-  return buildBoard({ events: store.process.events, workers: [...store.workers.values()], tasks: store.queue.tasks, pulls: store.pulls.items, runs: store.opora.runs, cards: store.opora.cards }).lanes;
-}
-
-export function openDetail(deps: { openPicker(): void }): Modal | undefined {
+export function openDetail(deps: { openScope(): void }): Modal | undefined {
   const floor = store.floor;
   if (!floor) return undefined;
   const title = h('h2');
@@ -68,8 +63,8 @@ export function openDetail(deps: { openPicker(): void }): Modal | undefined {
     for (const [id, b] of buttons) { b.classList.toggle('on', id === tab); b.setAttribute('aria-selected', String(id === tab)); }
     if (!f) {
       lensKept = undefined;
-      body.replaceChildren(h('div.oc-empty', {}, h('p', {}, 'Orchestrátor zatím nemá vybranou kartu. Vyber ji na pravé tabuli (deska nad přepínačem na severním skle).'),
-        h('button.btn.primary', { type: 'button', onclick: () => deps.openPicker() }, '🎯 Vybrat kartu')));
+      body.replaceChildren(h('div.oc-empty', {}, h('p', {}, 'Orchestrátor zatím nemá kartu. Zapni stránku nebo podstránku na 🎚️ Zaměření buňky (severní sklo): nejhlubší zapnutá je karta pro orchestrátora.'),
+        h('button.btn.primary', { type: 'button', onclick: () => deps.openScope() }, '🎚️ Zaměření buňky')));
       return;
     }
     if (tab === 'lens') {
@@ -80,9 +75,8 @@ export function openDetail(deps: { openPicker(): void }): Modal | undefined {
       return;
     }
     lensKept = undefined;
-    const lane = card ? cardLane(card, lanes()).lane : undefined;
-    const run = card ? store.opora.runs.find((r) => r.cardId === card.id && r.state !== 'gone') : undefined;
-    drawer.update(card, lane, run?.state === 'working' ? run.workerName : undefined);
+    const { lane, worker } = laneFor(card);
+    drawer.update(card, lane, worker);
     if (body.firstChild !== drawer.root) body.replaceChildren(drawer.root);
   }
 
