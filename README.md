@@ -73,6 +73,8 @@ Agents can prepare a versioned kit with `office-harness --kit PROBLEM resource-i
 
 The Harness editor can also show versioned experience by problem: separate reported/human-closed results, sample counts, unknowns and confidence intervals. This optional read-only lookup preserves unsaved checkbox edits; see [hierarchy and experience](docs/harness-hierarchy.md).
 
+**Current coding documentation.** `office-harness --docs-resolve LIBRARY "public question"` and `--docs /owner/repo/VERSION "public question"` call Context7's real MCP tools, with bounded requests and content provenance. Workers use their authenticated Office hook; local calls need no runner-specific MCP setup. See [Context7 documentation tools](docs/harness-context7.md).
+
 On the machine that runs the office:
 
 - **Node.js 20+**
