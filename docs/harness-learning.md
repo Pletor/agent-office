@@ -253,3 +253,18 @@ the configured ceiling and retained admission count. Disabled, unavailable and
 other-scope configuration are explicit; older peers report budget unavailability.
 This is a read-only snapshot, not a reservation, execution permission, five-percent
 exploration-share gate, or promotion decision. Native admission remains authoritative.
+
+
+### Native nonproduction allocation in recommendations
+
+The existing `fixtureHistory.budget.exploration` snapshot is preserved when advertised by
+Canvas. Office checks its fixed 5% rule (one retained experiment per nineteen eligible
+completed baseline cards), nonnegative safe counts, consistency with the same admitted
+counter, and exact policy digest. A malformed advertised snapshot rejects the native
+fixture response; a missing field stays absent and `unavailable` stays unknown.
+
+Agents should inspect both cumulative capacity and exploration eligibility before
+scheduling. Neither field reserves a slot or authorizes execution. The backend rechecks
+scope, policy, the proposed card and current retained evidence transactionally, so a
+positive generic snapshot can still be refused for a particular task. These counts
+measure nonproduction work allocation, not causal tool benefit or production success.

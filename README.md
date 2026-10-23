@@ -488,3 +488,5 @@ Harness recommendations expose native experiment capacity when advertised by Opo
 A worker can request `office-harness --recover RESOURCE --from EXECUTION` to prepare a historical same-card kit proposal. The [recovery command](docs/harness-accepted-runtime.md#historical-recovery) keeps capabilities private and requires ordinary Canvas acceptance.
 
 Workers with an accepted Harness kit receive [usage guidance in their session](docs/harness-accepted-runtime.md#discovery-in-worker-sessions), including the command that reads their exact pinned resources.
+
+Harness recommendations preserve the native [nonproduction exploration allocation](docs/harness-learning.md#native-nonproduction-allocation-in-recommendations), so agents can inspect eligibility before scheduling an experiment.
