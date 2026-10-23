@@ -443,3 +443,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 [MIT](LICENSE)
 
 A worker can request `office-harness --recover RESOURCE --from EXECUTION` to prepare a historical same-card kit proposal. The [recovery command](docs/harness-accepted-runtime.md#historical-recovery) keeps capabilities private and requires ordinary Canvas acceptance.
+
+Workers with an accepted Harness kit receive [usage guidance in their session](docs/harness-accepted-runtime.md#discovery-in-worker-sessions), including the command that reads their exact pinned resources.
