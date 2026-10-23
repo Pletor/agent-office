@@ -245,3 +245,11 @@ script content with the Node adapter. Explicit assignments remain with a
 A candidate that still fails is restrained even when its baseline also fails or another case improves. Fixture improvements do not add verified
 tasks, raise production success, or authorize promotion. Missing/disabled verifier history
 is unknown; library preparation still works with its other evidence and policies.
+
+
+Native verifier capacity is exposed as `fixtureHistory.budget` in recommendations.
+Office validates the exact project/workspace and recomputes remaining capacity from
+the configured ceiling and retained admission count. Disabled, unavailable and
+other-scope configuration are explicit; older peers report budget unavailability.
+This is a read-only snapshot, not a reservation, execution permission, five-percent
+exploration-share gate, or promotion decision. Native admission remains authoritative.
