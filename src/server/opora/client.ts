@@ -142,6 +142,23 @@ export class OporaClient {
     return s.storyboard && typeof s.storyboard === 'object' ? (s.storyboard as Record<string, unknown>) : null;
   }
 
+  /** One card of the canvas as Opora keeps it (its `design`, `blocks`, `materials`…), or undefined when it isn't there. */
+  async rawNode(project: string, workspace: string, nodeId: string): Promise<Record<string, unknown> | undefined> {
+    const v = await this.get<{ graph?: { nodes?: unknown } }>('/api/view', { project, workspace });
+    const nodes = Array.isArray(v.graph?.nodes) ? (v.graph!.nodes as Record<string, unknown>[]) : [];
+    return nodes.find((n) => n && n.id === nodeId);
+  }
+
+  /** The project's design system (its DESIGN.md), from an Opora that has the endpoint; a 404 on one without. */
+  designSystem(project: string): Promise<unknown> {
+    return this.get('/api/oporahub/design-system', { project });
+  }
+
+  /** A design card's preview record (its `design.mode`, DESIGN.md reference, screenshots per head); a 404 on an Opora without it. */
+  reviewPreview(project: string, workspace: string, nodeId: string): Promise<unknown> {
+    return this.get('/api/oporahub/review-preview', { project, workspace, nodeId });
+  }
+
   async claim(project: string, workspace: string, nodeId: string, owner: string, ttlSeconds: number): Promise<Lease> {
     const r = await this.post<{ token?: unknown; expiresAt?: unknown }>('/api/desktop-v3/lease', { project, workspace, nodeId, op: 'claim', owner, ttlSeconds });
     if (typeof r.token !== 'string' || !r.token) throw new OporaError(0, 'Opora gave no lease token');

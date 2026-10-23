@@ -87,18 +87,22 @@ A floor is linked to the Opora project whose folder is that floor's checkout (Op
 
 ### Designers
 
-Cards on Opora's design pipeline go to the designers' desks, and their brief has them read what the person sketched (drawings, storyboards, attachments) and build it. They work with what the worker's Claude Code has, and do without what it doesn't:
+A card on Opora's design pipeline goes to the designers' desks, and its worker's execution prompt gets a design addendum, the **Opora design card** prompt (⚙️ Settings → **📝 Edit the prompts…**; empty sends none). Before it claims the card, the office reads (GET only, every failure counting as nothing found) the card's drawing and storyboard (`src/server/opora/sketches.ts`), its node on the canvas (inspiration images on its blocks, attachments, a linked Claude Design artifact), its design mode and the design system, and the addendum says what it found, with read-only links: the sketch as SVG (`/api/layout-preview?project=…&workspace=…&layer=<card id>`), its scene (`/api/drawing`) and the storyboard (`/api/storyboard`). The worker is told to read and look at them, build the screens and the motion, and deliver at most 8 screenshots of its last commit (light and dark × mobile 390 px and desktop 1440 px, plus storyboard moments) in `.agent-office/opora-previews/<project>/<card>/<head SHA>/`, outside the repository, with a `preview.json` in the shape of Opora's `POST /api/oporahub/review-jobs/preview` (`headSha`, `designMdSha256` or `null`, `proposedDesignMd` in explore mode only, `screenshots: [{file, label, viewport, stage?}]`, PNGs of at most 2 MiB), listed in its result's `artifacts`. The worker never calls that endpoint (it holds no token); the office uploading them with the execution's token is the next step, so until then they stay on the office's machine. Developer cards get no addendum.
+
+#### DESIGN.md and design-card modes
+
+Each project keeps its design system (fonts, colours, brand, spacing, components) in a `DESIGN.md` at the root of its repository. The office reads it from Opora (`GET /api/oporahub/design-system?project=`) when Opora has one (`available: false` or a 404 counts as none), and otherwise from the floor's checkout as committed at `HEAD` (never uncommitted edits), up to 64 kB, saying when it was cut. The prompt cites it by revision and SHA-256, and the worker puts that SHA-256 in `preview.json` as `designMdSha256`. Up to 8 kB it goes into the addendum whole; a longer one by pointer (`git show HEAD:DESIGN.md`) with its section headings. What the worker is told depends on the card's design mode, which a person sets on Opora (*Podle brandu* / *Nový směr*). The office reads it from `GET /api/oporahub/review-preview` (`design.mode`). If Opora doesn't have that endpoint (404) or won't say (428), it falls back to the node's own `design.mode`, then to `brand`:
+
+| Mode | The addendum says |
+| --- | --- |
+| `brand` (the default, also when Opora doesn't set one) | Follow `DESIGN.md` exactly: its fonts, colours, spacing and components, no new tokens; the screenshots are judged against it. A project without a `DESIGN.md`: build in the existing UI's style and write that style down as a proposed `DESIGN.md` at `design/proposals/<card id>/DESIGN.md`. |
+| `explore` (a new brand direction) | Don't use the existing `DESIGN.md` or brand tokens (it isn't read at all): propose a fresh direction, committed as `design/proposals/<card id>/DESIGN.md` next to the screenshots. The root `DESIGN.md` is never overwritten; a person decides whether the proposal becomes the brand. |
+
+What designers use, when the worker's Claude Code has it:
 
 - **The opora-control-center skill**, for reading the card: `opora_read.py node-brief --raw`, `drawing --layer <card id>` (and `sb/<card id>/<moment id>` for a storyboard moment's sketch) and `drawing-file --id <fileId> --out <file>.png` for the images in them.
-- **The chrome-devtools MCP**, to open the card's drawing (`?…&mode=drawing&layer=<card id>`) and storyboard (`?…&mode=storyboard&node=<card id>`) on Opora in a headless browser and screenshot them, and to screenshot their own work. Opora has to be on the same machine (it only answers on loopback).
+- **The chrome-devtools MCP** (or Playwright with the system Chrome), to open the card's drawing (`?…&mode=drawing&layer=<card id>`) and storyboard (`?…&mode=storyboard&node=<card id>`) on Opora in a headless browser, and to screenshot their own work. Opora has to be on the same machine (it only answers on loopback).
 - **The frontend-design and ui-theme-designer skills** (Claude Code plugins), for building the screens and their tokens and themes.
-- **The claude-design MCP** (optional), to read a Claude Design artifact a card links to. Add it once for your user, then authenticate it in an interactive Claude Code session with `/mcp` (and run `/design-consent` if it refuses):
-
-  ```bash
-  claude mcp add --scope user --transport http claude-design https://api.anthropic.com/v1/design/mcp
-  ```
-
-  Until it's connected, designers work from the sketches alone.
 
 ### Opora full screen inside the office
 
