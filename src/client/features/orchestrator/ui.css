@@ -1,0 +1,99 @@
+/* The orchestrator's two windows (features/orchestrator): the right board's card picker and the purple
+   board's detail. The design card drawer is "Design karta v procesu" (Opora's drawer), in Opora's own
+   tokens, inside the office's window. */
+.oc-picker, .oc-detail {
+  --o-surface: #ffffff; --o-surface-2: #faf8f4; --o-surface-3: #efebe3; --o-ink: #1c1b18; --o-ink-2: #45423b; --o-muted: #66625a;
+  --o-line: #ddd7cc; --o-line-strong: #c4bcae; --o-accent: #1d6b70; --o-accent-soft: #e2efee; --o-accent-line: #8cbcbc;
+  --o-ok: #3b6d3f; --o-ok-soft: #e3f1e6; --o-ok-line: #9cc4a0; --o-warn: #8a5f0f; --o-warn-soft: #f6ecd8; --dur: .45s;
+}
+.oc-picker { width: min(1080px, 96vw); height: min(720px, 92vh); }
+.oc-detail { width: min(1440px, 97vw); height: min(900px, 94vh); }
+.oc-detail .pw-head h2 { flex: 1; }
+
+/* The picker: the cards, and the picked one as the orchestrator sees it. */
+.oc-pick-body { display: grid !important; grid-template-columns: minmax(260px, 380px) minmax(0, 1fr); gap: 14px; }
+.oc-side { padding: 12px 14px; display: grid; gap: 10px; align-content: start; }
+.oc-name { margin: 0; font-size: 20px; font-weight: 900; overflow-wrap: anywhere; }
+.oc-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; }
+.oc-facts dt { font-weight: 900; color: var(--muted); }
+.oc-facts dd { margin: 0; font-weight: 800; overflow-wrap: anywhere; }
+.oc-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.oc-k { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 4px; }
+.oc-brief { margin: 0; padding: 10px 12px; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 600 12px/1.45 var(--mono); background: #f8f6f1; border: 2px dashed var(--line); border-radius: 10px; color: var(--ink); }
+
+/* The detail: Lens (návrh 1). */
+.oc-body { overflow: auto !important; }
+.oc-lens { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: 14px; align-items: start; }
+.oc-lens-main, .oc-lens-side { background: #fff; border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 var(--ink); }
+.oc-lens-side { position: sticky; top: 0; }
+.oc-empty { display: grid; gap: 12px; justify-items: center; align-content: center; text-align: center; font-weight: 800; color: var(--muted); }
+
+/* The detail: Design karta (návrh 2), Opora's card drawer. */
+.oc-dr { background: var(--o-surface); color: var(--o-ink); border: 1px solid var(--o-line-strong); border-radius: 12px; box-shadow: 0 12px 32px rgba(30, 25, 15, .14); overflow: hidden; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+.oc-dr-h { display: grid; gap: 6px; padding: 14px 18px 12px; background: var(--o-surface-2); border-bottom: 1px solid var(--o-line); }
+.oc-dr-h h2 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -.01em; }
+.oc-dr-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--o-muted); }
+.oc-tag { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; background: var(--o-surface-3); color: var(--o-ink-2); }
+.oc-tag.acc { background: var(--o-accent-soft); color: var(--o-accent); }
+.oc-dr-b { padding: 16px 18px 18px; display: grid; gap: 16px; }
+.oc-mrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.oc-mrow .oc-otxt { flex: 1; min-width: 220px; }
+.oc-otxt { font-size: 12.5px; color: var(--o-ink-2); line-height: 1.45; margin: 0; }
+.oc-links { font-family: var(--mono); font-size: 11.5px; }
+
+.oc-flow { display: grid; gap: 8px; }
+.oc-flow-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.oc-flow-h b { font-size: 14px; font-weight: 650; }
+.oc-flow-h span { font-size: 12.5px; color: var(--o-muted); }
+.oc-rail { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.oc-seg { position: relative; display: grid; gap: 6px; align-content: start; padding: 10px 10px 9px; border: 1px solid var(--o-line); border-radius: 10px; background: var(--o-surface-2); text-align: left; cursor: pointer; font: inherit; color: inherit; min-width: 0; transition: background var(--dur), border-color var(--dur); }
+.oc-seg:disabled { cursor: default; }
+.oc-seg .n { font: 600 10.5px/1 var(--mono); color: var(--o-muted); }
+.oc-seg .t { font-size: 12.5px; font-weight: 650; line-height: 1.2; overflow-wrap: anywhere; }
+.oc-seg .y { font-size: 11px; color: var(--o-muted); line-height: 1.25; overflow-wrap: anywhere; }
+.oc-seg .bead { height: 5px; border-radius: 3px; background: var(--o-surface-3); overflow: hidden; position: relative; }
+.oc-seg .bead i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--o-accent); transition: width var(--dur) ease; }
+.oc-seg.done { background: var(--o-surface); }
+.oc-seg.done .bead i { width: 100%; background: var(--o-ok); }
+.oc-seg.cur { background: var(--o-accent-soft); border-color: var(--o-accent-line); box-shadow: inset 0 0 0 1px var(--o-accent-line); }
+.oc-seg.cur .bead i { width: 55%; animation: oc-work 1.8s ease-in-out infinite alternate; }
+.oc-seg.cur .t { color: var(--o-accent); }
+.oc-seg.shown { outline: 2px solid var(--o-accent); outline-offset: 1px; }
+.oc-rail.na .oc-seg { opacity: .45; background: repeating-linear-gradient(135deg, var(--o-surface-2) 0 8px, var(--o-surface-3) 8px 9px); }
+@keyframes oc-work { from { width: 30%; } to { width: 80%; } }
+
+.oc-grid { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 16px; align-items: start; }
+.oc-box { border: 1px solid var(--o-line); border-radius: 10px; background: var(--o-surface); overflow: hidden; }
+.oc-box-h { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--o-line); background: var(--o-surface-2); font-size: 13px; font-weight: 650; }
+.oc-box-h .src { margin-left: auto; font: 500 11px/1.2 var(--mono); color: var(--o-muted); }
+.oc-box-b { padding: 14px; }
+.oc-big { padding: 14px; min-height: 420px; display: grid; align-content: center; background: repeating-linear-gradient(0deg, transparent 0 19px, #f1eee8 19px 20px), repeating-linear-gradient(90deg, transparent 0 19px, #f1eee8 19px 20px); }
+.oc-big .dp-pv { background: var(--o-surface); }
+.oc-big .dp-ba { max-width: 420px; margin: 0 auto; }
+.oc-aside { display: grid; gap: 12px; }
+.oc-slots { display: grid; gap: 6px; }
+.oc-slot { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 12.5px; }
+.oc-slot .q { width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid var(--o-ink-2); background: var(--o-surface); transition: background var(--dur); }
+.oc-slot.full .q { background: var(--o-ok); border-color: var(--o-ok); }
+.oc-slot.human .q { background: var(--o-accent); border-color: var(--o-accent); }
+.oc-slot.half .q { background: linear-gradient(90deg, #c99a3a 50%, var(--o-surface) 50%); border-color: #c99a3a; }
+.oc-slot.none .q { border-style: dashed; border-color: var(--o-line-strong); }
+.oc-slot.none .l { color: var(--o-muted); }
+.oc-slot .r { font: 500 11px/1.2 var(--mono); color: var(--o-muted); text-align: right; }
+.oc-sent { padding: 10px 12px; border-radius: 10px; background: var(--o-accent-soft); color: var(--o-accent); font-size: 13px; font-weight: 600; line-height: 1.4; }
+.oc-sent.wait { background: var(--o-warn-soft); color: var(--o-warn); }
+.oc-sent.ok { background: var(--o-ok-soft); color: var(--o-ok); }
+.oc-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.oc-obtn { font: 600 13px/1 system-ui, sans-serif; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--o-accent); background: var(--o-accent); color: #fff; cursor: pointer; text-decoration: none; }
+.oc-obtn.ghost { background: var(--o-surface); color: var(--o-accent); }
+.oc-obtn:disabled { opacity: .45; cursor: default; }
+.oc-swap { animation: oc-pop var(--dur) ease both; }
+@keyframes oc-pop { from { opacity: 0; transform: translateY(6px) scale(.985); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 900px) {
+  .oc-pick-body, .oc-lens, .oc-grid { grid-template-columns: minmax(0, 1fr); }
+  .oc-rail { grid-template-columns: repeat(7, 104px); overflow-x: auto; padding-bottom: 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .oc-swap, .oc-seg.cur .bead i { animation: none !important; }
+}
