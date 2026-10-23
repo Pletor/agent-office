@@ -439,3 +439,6 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+
+On Windows, worker commands such as `office-harness` remain available when Git Bash starts a login shell with an inherited `ORIGINAL_PATH`. Office preserves that path and prepends its own command directory; see [configuration](docs/configuration.md#worker-commands-in-git-bash).
