@@ -117,6 +117,7 @@ test('the keeper picks a card on the canvas, reads it through the readers, and k
       plan: async (_b: string, _a: string, _p: string, _w: string, area?: string) => { reads.push(`plan ${area ?? 'project'}`); return area ? areaPlan : { state: 'none' as const }; },
     },
     preview: { card: async () => input().preview! },
+    layers: { page: async () => ({ state: 'missing' as const, layers: [] }) },
   };
   const k = new OrchestratorFocusKeeper(deps);
   t.after(() => k.shutdown());

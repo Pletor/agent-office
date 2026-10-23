@@ -6,7 +6,9 @@ import type { Fixture } from '../../world/office/fixture';
 
 // 🎚️ The switchboard: the inside of the planning room's north glass, behind the 🛰️ Opora screen that
 // faces the desks. It shows the project's architecture as a cascade (environment → domain → page →
-// subpage) with what's switched on, which is what the cell works on (see ./screen.ts).
+// subpage) with what's switched on, which is what the cell works on (see ./screen.ts). It has the whole
+// height of the glass: the deepest page switched on is also the orchestrator's card, with no plate of
+// its own over it (features/orchestrator).
 
 declare module '../../world/types' {
   interface OfficeHandles {
@@ -15,7 +17,7 @@ declare module '../../world/types' {
 }
 
 /** Its size, and how high its middle is, on the inside of the north glass. */
-export const SCOPE_BOARD = { width: 4.2, height: 1.5, y: 1.45 } as const;
+export const SCOPE_BOARD = { width: 4.2, height: 1.92, y: 1.66 } as const;
 
 export const oporaScopeBoard: Fixture<'oporaScopeBoard'> = (site) => {
   const R = PLANNING_ROOM;

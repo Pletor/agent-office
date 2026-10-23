@@ -13,6 +13,8 @@ export interface CanvasNode {
   parentId: string | null;
   env?: string;
   host?: string;
+  /** Opora's site says it's a page of the app (`site.kind: page`, with its route). */
+  page?: boolean;
 }
 
 /** What the switchboard calls each level. */
@@ -28,7 +30,12 @@ const MAX_SCOPE = 400;
  */
 export function buildScope(nodes: readonly CanvasNode[]): OporaScopeNode[] {
   const out: OporaScopeNode[] = [];
-  const sectors = nodes.filter((n) => n.kind === 'sector');
+  const kinds = new Map(nodes.map((n) => [n.id, n.kind]));
+  // A sector drawn inside a card is a layer of that page's own canvas (area → sector → node), not a domain.
+  const sectors = nodes.filter((n) => n.kind === 'sector' && !(n.parentId && kinds.get(n.parentId) === 'node'));
+  // Where the canvas marks its pages (a site of kind page), only those are pages and subpages: the
+  // tasks laid inside a page belong to its own canvas, which the purple board shows.
+  const marked = nodes.some((n) => n.page);
   const withEnv = sectors.some((s) => s.env);
   const envs = new Set<string>();
   for (const s of sectors) {
@@ -46,6 +53,7 @@ export function buildScope(nodes: readonly CanvasNode[]): OporaScopeNode[] {
     const next: CanvasNode[] = [];
     for (const n of left) {
       const parent = n.parentId ? byLevel.get(n.parentId) : undefined;
+      if (parent && marked && !n.page) continue;
       if (!parent) {
         next.push(n);
         continue;

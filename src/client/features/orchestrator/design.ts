@@ -12,15 +12,25 @@ import { h } from '../../ui/dom';
 import { brandPanel, modeChip } from '../design-preview/parts';
 import { designStage, evidence, shownHead, STAGES, type Evidence, type StageInput } from '../design-preview/stage';
 import { preview } from '../design-preview/view';
-import type { Lane } from '../process-wall/lanes';
+import { buildBoard, type Lane } from '../process-wall/lanes';
+import { cardLane } from '../opora-plan/cards';
+import { store } from '../../state';
 import '../design-preview/ui.css';
 
 /** What each stage yields, from the design's rail. */
-const YIELDS = ['cíl a inspirace', 'drátěný model', 'snímky pohybu', 'živý náhled', 'screenshoty', 'před / po', 'potvrzeno'];
-const NAMES = ['Zadání', 'Návrh / skica', 'Storyboard', 'Implementace', 'Kontroly', 'Review', 'Hotovo'];
+export const YIELDS = ['cíl a inspirace', 'drátěný model', 'snímky pohybu', 'živý náhled', 'screenshoty', 'před / po', 'potvrzeno'];
+export const NAMES = ['Zadání', 'Návrh / skica', 'Storyboard', 'Implementace', 'Kontroly', 'Review', 'Hotovo'];
 const SLOT_TITLE: Record<Evidence['state'], string> = { full: 'doloženo', human: 'potvrzeno člověkem', half: 'deklarováno bez dokladu', none: 'chybí' };
 
 export const isDesign = (c?: OporaCard) => !!c && (c.group === 'design' || c.profile === 'design');
+
+/** The card's lane on the process wall (built as the wall builds it: its phase, branch and PR) and the worker on it now. */
+export function laneFor(card: OporaCard | undefined): { lane?: Lane; worker?: string } {
+  if (!card) return {};
+  const lanes = buildBoard({ events: store.process.events, workers: [...store.workers.values()], tasks: store.queue.tasks, pulls: store.pulls.items, runs: store.opora.runs, cards: store.opora.cards }).lanes;
+  const run = store.opora.runs.find((r) => r.cardId === card.id && r.state !== 'gone');
+  return { lane: cardLane(card, lanes).lane, worker: run?.state === 'working' ? run.workerName : undefined };
+}
 
 /** Who's on turn at a stage, in a sentence, and whether it waits on a person (`wait`) or is done (`ok`). */
 export function turnSentence(stage: number, worker: string | undefined, confirmed: boolean): [string, '' | 'wait' | 'ok'] {

@@ -6,10 +6,13 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { LENS_ID } from '../../shared/opora-lens.js';
+import { focusPaths } from '../../shared/opora-scope.js';
 import type { OporaState, OrchestratorFocus, OrchestratorState } from '../../shared/protocol.js';
 import { lensReader, type LensReader } from '../opora/lens-reader.js';
 import { previewReader, type PreviewReader } from '../opora/preview-reader.js';
+import { layersReader, type LayersReader } from '../opora/layers-reader.js';
 import { orchestratorBrief } from './brief.js';
+import { cardPath } from './page-brief.js';
 
 /** How often the overview is put together again while a card is focused (the readers cache for 30 s). */
 const REFRESH_MS = 60_000;
@@ -25,6 +28,7 @@ export interface FocusDeps {
   update(state: OrchestratorState): void;
   lens?: Pick<LensReader, 'card' | 'plan'>;
   preview?: Pick<PreviewReader, 'card'>;
+  layers?: Pick<LayersReader, 'page'>;
 }
 
 export class OrchestratorFocusKeeper {
@@ -59,7 +63,9 @@ export class OrchestratorFocusKeeper {
       return undefined;
     }
     if (typeof cardId !== 'string' || !LENS_ID.test(cardId)) return 'That isn’t a card';
-    const card = this.deps.opora().cards.find((c) => c.id === cardId);
+    const o = this.deps.opora();
+    // A page or subpage of the switchboard's cascade is a card even before the frontier lists it.
+    const card = o.cards.find((c) => c.id === cardId) ?? o.scope.find((n) => n.id === cardId && (n.level === 'page' || n.level === 'subpage'));
     if (!card) return 'That card isn’t on the floor’s Opora canvas';
     this.focus = { cardId, name: card.name.slice(0, 160), by: by.slice(0, 60), at: Date.now() };
     this.text = null;
@@ -68,6 +74,19 @@ export class OrchestratorFocusKeeper {
     this.deps.update(this.state());
     void this.refresh();
     return undefined;
+  }
+
+  /**
+   * Follows the cell's focus at the 🎚️ switchboard: its deepest page or subpage switched on (the first
+   * focus's) is the orchestrator's card, and a focus with none (a domain, the whole project) lets go.
+   * Called after someone switches the focus; a card picked in between stays until the next switch.
+   */
+  follow(by: string): string | undefined {
+    const o = this.deps.opora();
+    const leaf = focusPaths(o.scope, o.focus)[0]?.at(-1);
+    const id = leaf && (leaf.level === 'page' || leaf.level === 'subpage') ? leaf.id : null;
+    if (id === (this.focus?.cardId ?? null)) return undefined;
+    return this.set(id, by);
   }
 
   /** The overview for the planner's brief, once it's been put together. */
@@ -85,7 +104,8 @@ export class OrchestratorFocusKeeper {
     const run = o.runs.find((r) => r.cardId === focus.cardId && r.state !== 'gone');
     const linked = o.project && o.workspace ? { base: o.url, project: o.project.id, workspace: o.workspace } : undefined;
     const design = !!card && (card.group === 'design' || card.profile === 'design');
-    const lens = this.deps.lens ?? lensReader, preview = this.deps.preview ?? previewReader;
+    const lens = this.deps.lens ?? lensReader, preview = this.deps.preview ?? previewReader, layers = this.deps.layers ?? layersReader;
+    const page = linked ? await layers.page({ base: linked.base, agent: this.deps.agent, project: linked.project, workspace: linked.workspace }, focus.cardId).catch(() => undefined) : undefined;
     const [cardLens, areaPlan, projectPlan, shown] = linked
       ? await Promise.all([
         lens.card(linked.base, this.deps.agent, linked.project, linked.workspace, focus.cardId),
@@ -96,7 +116,7 @@ export class OrchestratorFocusKeeper {
       : [undefined, undefined, undefined, undefined];
     // Someone picked another card (or let go) while this was being read.
     if (seq !== this.seq || this.focus !== focus) return;
-    const text = orchestratorBrief({ focus, card, run, lens: cardLens, areaPlan, projectPlan, preview: shown ?? (design ? { state: 'unavailable', mode: 'brand', sketch: false, heads: [] } : undefined) });
+    const text = orchestratorBrief({ focus, card, run, path: cardPath(o.scope, focus.cardId) || undefined, page, lens: cardLens, areaPlan, projectPlan, preview: shown ?? (design ? { state: 'unavailable', mode: 'brand', sketch: false, heads: [] } : undefined) });
     if (text === this.text) return;
     this.text = text;
     this.at = Date.now();

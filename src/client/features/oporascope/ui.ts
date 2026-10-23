@@ -4,7 +4,7 @@ import type { OporaCard, OporaState } from '../../../shared/protocol';
 import type { Net } from '../../net';
 import { store } from '../../state';
 import { h, openModal, type Modal } from '../../ui/dom';
-import { scopeColumns } from './screen';
+import { deepCard, scopeColumns } from './screen';
 
 const CARD_WORDS: Record<OporaCard['status'], string> = {
   frontier: 'volná',
@@ -52,6 +52,7 @@ function paint(s: OporaState, body: HTMLElement, open: string[] | undefined, act
   const way = open ?? focusPaths(s.scope, focus)[0]?.map((n) => n.id) ?? [];
   const cards = new Map(s.cards.map((c) => [c.id, c]));
   const line = focusLine(s.scope, focus);
+  const deep = deepCard(s.scope, focus);
   const top = h(
     'div.scope-top',
     {},
@@ -69,14 +70,16 @@ function paint(s: OporaState, body: HTMLElement, open: string[] | undefined, act
         const box = h('input', { type: 'checkbox', checked: lit, 'aria-label': `${n.name}: ${lit ? 'zapnuto' : 'vypnuto'}`, onchange: () => act.send(n.id, !lit) });
         return h(
           'div.scope-row',
-          { class: [lit ? 'on' : '', way.includes(n.id) ? 'open' : '', !inFocus(s.scope, focus, n.id) ? 'out' : ''].filter(Boolean).join(' ') },
+          { class: [lit ? 'on' : '', n.id === deep ? 'deep' : '', way.includes(n.id) ? 'open' : '', !inFocus(s.scope, focus, n.id) ? 'out' : ''].filter(Boolean).join(' ') },
           h('label.scope-switch', {}, box, h('span.knob')),
           h('button.scope-name', { type: 'button', title: 'Ukázat, co je pod tím', onclick: () => act.open(n.id) }, n.name, n.host ? h('small', {}, n.host) : null),
-          card ? h('span.scope-card', { class: card.status }, CARD_WORDS[card.status]) : null,
+          n.id === deep ? h('span.scope-deep', { title: 'Karta pro orchestrátora: jde na fialovou tabuli' }, '🎯 karta') : card ? h('span.scope-card', { class: card.status }, CARD_WORDS[card.status]) : null,
           h('button.btn.small.scope-only', { type: 'button', title: 'Izolovat: pracovat jen na tomhle', onclick: () => act.send(n.id, true, true) }, '◎'),
         );
       }),
     ),
   );
-  body.replaceChildren(top, h('div.scope-cols', {}, ...cols), h('p.muted', {}, 'Zapnutím se zapne i vše nad tím, vypnutím i vše pod tím. Nejhlubší zapnuté je zaměření: buňka bere karty jen odtud a plánovač u stolu se drží jen jich. ◎ izoluje jediný prvek.'));
+  body.replaceChildren(top, h('div.scope-cols', {}, ...cols),
+    h('p.scope-hint', {}, '🎯 Nejhlubší zapnutá stránka nebo podstránka je zároveň karta pro orchestrátora: přeletí na fialovou tabuli (Canvas živě a římsa pod ní) a plánovač u stolu ji dostane v zadání.'),
+    h('p.muted', {}, 'Zapnutím se zapne i vše nad tím, vypnutím i vše pod tím. Nejhlubší zapnuté je zaměření: buňka bere karty jen odtud a plánovač u stolu se drží jen jich. ◎ izoluje jediný prvek.'));
 }

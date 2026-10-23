@@ -59,7 +59,10 @@ export const oporaHandlers = {
     const floor = here(ctx, c);
     if (!floor) return;
     if (msg.id !== null && (typeof msg.id !== 'string' || !msg.id || msg.id.length > 160)) return ctx.warn(c, 'That isn’t a part of the project’s architecture');
-    ctx.warn(c, floor.opora.switchFocus(msg.id, msg.on === true, msg.only === true, c.peer.name));
+    const why = floor.opora.switchFocus(msg.id, msg.on === true, msg.only === true, c.peer.name);
+    ctx.warn(c, why);
+    // The deepest page switched on is the orchestrator's card, which goes to the purple board (orchestrator/focus.ts).
+    if (!why) ctx.warn(c, floor.orchestrator.follow(c.peer.name));
   },
   'opora.start'(ctx, c) {
     const floor = here(ctx, c);

@@ -61,7 +61,7 @@ The page asks the office, `GET /api/opora-lens?floor=<id>&card=<nodeId>[&area=<s
 
 ## In the planning room
 
-The same Lens and *Jak to bude vypadat* pieces make up the orchestrator's detail window on the planning room's purple board: pick a card at the right board (the plate over the 🎚️ switchboard), then **E** at the purple board's ledge for **Lens (návrh 1)** and **Design karta (návrh 2)**, Opora's wide card drawer with the seven stages on a rail. It asks the same routes as the inspector. See [the orchestrator's boards](features.md#orchestrator-boards).
+The same Lens and *Jak to bude vypadat* pieces make up the orchestrator's detail window on the planning room's purple board: switch a page on at the 🎚️ switchboard (the deepest one on is the orchestrator's card), then **E** at the purple board's ledge for **Lens (návrh 1)** and **Design karta (návrh 2)**, Opora's wide card drawer with the seven stages on a rail. It asks the same routes as the inspector. See [the orchestrator's boards](features.md#orchestrator-boards).
 
 ## Live data and limits
 

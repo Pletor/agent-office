@@ -1,0 +1,31 @@
+/* The purple board's window (features/oporalive): the orchestrator's card, its plan by layers with what a
+   person can do, and "Design karta v procesu" beside it (orchestrator/ui.css has the drawer). */
+.ol-window { width: min(1500px, 97vw); height: min(920px, 94vh); }
+.ol-hd { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.ol-hd h2 { margin: 0; }
+.ol-path { font-size: 13px; font-weight: 800; color: var(--muted); overflow-wrap: anywhere; }
+.ol-body { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 14px; overflow: auto !important; align-items: start; }
+.ol-col { display: grid; gap: 10px; align-content: start; }
+.ol-said { margin: 0; min-height: 1em; font-size: 13px; font-weight: 800; color: #6a3fb0; }
+.ol-plan { display: grid; gap: 10px; }
+.ol-ph { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ol-ph span { flex: 1; font-size: 13px; font-weight: 800; color: var(--muted); }
+.ol-page { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: 12px; background: #efe4fb; border: 3px solid #9b5de5; }
+.ol-page b { flex: 1; }
+.ol-area { display: grid; gap: 8px; padding: 10px; border-radius: 14px; border: 2px dashed #b69be0; background: #fbf8ff; }
+.ol-area h3 { margin: 0; font-size: 14px; text-transform: uppercase; letter-spacing: .03em; color: #6a3fb0; }
+.ol-area h3 small { display: block; text-transform: none; letter-spacing: 0; font-weight: 700; color: var(--muted); }
+.ol-sec { background: #fff; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 10px; display: grid; gap: 6px; }
+.ol-sec.hot { border-color: #9b5de5; background: #f6f0ff; }
+.ol-sh { display: flex; gap: 8px; align-items: baseline; }
+.ol-sh b { flex: 1; }
+.ol-sh span { font-size: 12px; font-weight: 800; color: var(--muted); }
+.ol-nodes { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.ol-node { display: flex; align-items: center; gap: 8px; }
+.ol-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--ink); flex: none; }
+.ol-nm { flex: 1; min-width: 0; font-weight: 800; font-size: 13px; overflow-wrap: anywhere; }
+.ol-nm small { display: block; font-weight: 700; color: var(--muted); font-size: 11px; }
+.ol-av { font-size: 11px; font-weight: 900; border: 2px dashed var(--ink); border-radius: 10px; padding: 0 6px; }
+.ol-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.ol-side .oc-dr { box-shadow: none; }
+@media (max-width: 900px) { .ol-body { grid-template-columns: minmax(0, 1fr); } }

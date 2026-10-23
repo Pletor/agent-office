@@ -11,6 +11,7 @@ import { fileRoutes } from './files.js';
 import { githubRoutes } from './github.js';
 import { jukeboxRoutes } from './jukebox.js';
 import { pageRoutes } from './pages.js';
+import { oporaLayersRoutes } from './opora-layers.js';
 import { oporaLensRoutes } from './opora-lens.js';
 import { oporaPlanRoutes } from './opora-plan.js';
 import { oporaPreviewRoutes } from './opora-preview.js';
@@ -63,5 +64,6 @@ export const routes: readonly Route[] = [
   oporaPlanRoutes.read,
   oporaPreviewRoutes.read,
   oporaPreviewRoutes.file,
+  oporaLayersRoutes.read,
   pageRoutes.bundle,
 ];

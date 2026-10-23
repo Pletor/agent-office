@@ -25,3 +25,7 @@
 .scope-card.claimed { background: #d0ebff; }
 .scope-card.blocked, .scope-card.waiting { background: #fff3bf; }
 .scope-only { flex: none; }
+/* The deepest page switched on: the orchestrator's card, which goes to the purple board. */
+.scope-row.deep { border-color: #9b5de5; background: #f3ecff; box-shadow: 0 0 0 3px #9b5de5; }
+.scope-deep { font-size: 11px; font-weight: 900; border-radius: 8px; padding: 0 6px; background: #9b5de5; color: #fff; flex: none; }
+.scope-hint { margin: 10px 0 0; padding: 7px 10px; border-radius: 10px; background: #f3ecff; color: #6a3fb0; font-weight: 800; font-size: 13px; }
