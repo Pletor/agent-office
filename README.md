@@ -481,3 +481,5 @@ resources. See [Harness learning](docs/harness-learning.md#independent-fixture-f
 
 Native fixture quarantine uses all retained verification records, so an old failure cannot
 fall out merely because recent history fills up. See [recommendation evidence](docs/harness-recommend.md#independent-fixture-history-and-lasting-quarantine).
+
+Harness recommendations expose native experiment capacity when advertised by Opora; missing capacity is explicit and a snapshot never grants execution permission. See [learning evidence](docs/harness-learning.md).

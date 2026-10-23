@@ -122,3 +122,19 @@ test('all-history quarantine survives an empty recent window and validates scope
   }
   assert.equal(parseFixtureHistory({ requests: [] }, 'project-a', 'workspace-a').quarantine, undefined);
 });
+
+
+test('validates scoped experiment capacity without treating it as reservation or permission', () => {
+  const budget = { schema: 'harness.experiment-capacity/1', scope: { project: 'project-a', workspace: 'workspace-a' },
+    status: 'available', limit: 2, admitted: 1, remaining: 1, capacityAvailable: true, reservation: false };
+  const parse = (value: unknown) => parseFixtureHistory({ requests: [], budget: value }, 'project-a', 'workspace-a');
+  assert.equal(parse(budget).budget?.remaining, 1);
+  assert.equal(parse({ ...budget, admitted: 3, remaining: 0, capacityAvailable: false }).budget?.admitted, 3);
+  assert.equal(parseFixtureHistory({ requests: [] }, 'project-a', 'workspace-a').budget, undefined);
+  for (const change of [{ scope: { project: 'foreign', workspace: 'workspace-a' } }, { reservation: true },
+    { admitted: -1 }, { admitted: 0.5 }, { limit: true }, { limit: 1001 }, { remaining: 2 },
+    { capacityAvailable: false }, { status: 'disabled' }]) assert.throws(() => parse({ ...budget, ...change }));
+  const disabled = { ...budget, status: 'disabled', limit: null, remaining: null, capacityAvailable: false };
+  assert.equal(parse(disabled).budget?.status, 'disabled');
+  assert.throws(() => parse({ ...disabled, capacityAvailable: true }));
+});

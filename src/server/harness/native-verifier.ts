@@ -8,7 +8,12 @@ export interface FixtureQuarantine {
   complete: boolean; unboundFailures: number;
   cohorts: { problem: string; candidate: { id: string; digest: string }; verificationId: string }[];
 }
+export interface FixtureBudget {
+  status: 'available' | 'disabled' | 'unavailable' | 'not-configured-for-scope';
+  limit: number | null; admitted: number; remaining: number | null; capacityAvailable: boolean; reservation: false;
+}
 export interface FixtureHistory {
+  budget?: FixtureBudget;
   quarantine?: FixtureQuarantine;
   status: 'available' | 'unavailable'; limited: boolean; unknown: number; evaluations: FixtureEvidence[]; reason?: string;
 }
@@ -18,6 +23,21 @@ const hex = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}
 const fail = (): never => { throw new Error('Invalid native fixture verification'); };
 const ref = (v: unknown) => { if (!obj(v) || !id(v.id) || !hex(v.digest)) return fail(); return { id: v.id, digest: v.digest }; };
 export const noFixtureHistory = (reason: string): FixtureHistory => ({ status: 'unavailable', limited: false, unknown: 0, evaluations: [], reason });
+
+function parseBudget(value: unknown, project: string, workspace: string): FixtureBudget | undefined {
+  if (value === undefined) return;
+  if (!obj(value) || value.schema !== 'harness.experiment-capacity/1' || !obj(value.scope)
+    || value.scope.project !== project || value.scope.workspace !== workspace || value.reservation !== false
+    || !Number.isSafeInteger(value.admitted) || value.admitted < 0
+    || !['available', 'disabled', 'unavailable', 'not-configured-for-scope'].includes(value.status)) return fail();
+  if (value.status === 'available') {
+    if (!Number.isSafeInteger(value.limit) || value.limit < 0 || value.limit > 1000
+      || value.remaining !== Math.max(0, value.limit - value.admitted)
+      || value.capacityAvailable !== (value.remaining > 0)) return fail();
+  } else if (value.limit !== null || value.remaining !== null || value.capacityAvailable !== false) return fail();
+  return { status: value.status, limit: value.limit, admitted: value.admitted, remaining: value.remaining,
+    capacityAvailable: value.capacityAvailable, reservation: false };
+}
 
 function parseQuarantine(value: unknown, project: string, workspace: string): FixtureQuarantine | undefined {
   if (value === undefined) return;
@@ -93,7 +113,7 @@ export function parseFixtureHistory(value: unknown, project: string, workspace: 
       candidate, baseline, plan, improvements, regressions, candidateFailures, cases: cases.size });
   }
   return { status: 'available', limited: value.requests.length === 100, unknown, evaluations,
-    quarantine: parseQuarantine(value.quarantine, project, workspace) };
+    quarantine: parseQuarantine(value.quarantine, project, workspace), budget: parseBudget(value.budget, project, workspace) };
 }
 
 export async function nativeFixtureHistory(base: string, project: string, workspace: string, read: typeof fetch = fetch): Promise<FixtureHistory> {
