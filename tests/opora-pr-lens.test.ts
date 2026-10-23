@@ -53,7 +53,8 @@ function fakes(opts: { env?: NodeJS.ProcessEnv; existing?: { number: number; url
     },
     transport: (async (url: URL, init?: RequestInit) => {
       posts.push({ url: String(url), body: JSON.parse(String(init?.body)) });
-      return new Response('{}', { status: String(url).endsWith('/lens') ? opts.lensStatus ?? 200 : 200 });
+      const lens = String(url).endsWith('/lens'), status = lens ? opts.lensStatus ?? 200 : 200;
+      return new Response(lens && status === 409 ? JSON.stringify({ error: 'Execution is no longer authoritative.', code: 'review_conflict' }) : '{}', { status });
     }) as typeof fetch,
   };
   return { tools, gh, posts };
@@ -211,4 +212,41 @@ test('flag off, no spec, or a Canvas without the lens endpoint: the PR goes out 
   const f = fakes({ lensStatus: 404 });
   const out = await new PullRequestHandoff(dir, 'http://127.0.0.1:8740', 'office-1', f.tools).handOff(subject(dir), quiet)!;
   assert.ok(out.state === 'opened' && out.link === 'linked', 'a 404 on /lens never touches the handoff');
+});
+
+test('the spec goes to Canvas after the PR is linked; a 409 is logged with its reason, shown as failed and tried once more later', async (t) => {
+  const dir = directory(t);
+  render(path.join(dir, 'tree'));
+  const f = fakes({ lensStatus: 409 });
+  const later: (() => void)[] = [];
+  f.tools.later = (run) => { later.push(run); };
+  const said: [string, string][] = [];
+  const out = await new PullRequestHandoff(dir, 'http://127.0.0.1:8740', 'office-1', f.tools).handOff(subject(dir), (m, level) => said.push([m, level]))!;
+  assert.ok(out.state === 'opened' && out.link === 'linked', 'a refused lens never touches the handoff');
+  const urls = f.posts.map((p) => p.url);
+  assert.ok(urls.findIndex((u) => u.endsWith('/pull-request')) < urls.findIndex((u) => u.endsWith('/lens')), 'linked first, then the lens');
+  const warned = said.filter(([m, level]) => level === 'warn' && m.includes('PR Lens'));
+  assert.equal(warned.length, 1);
+  assert.match(warned[0][0], /conflict \(HTTP 409: Execution is no longer authoritative\.\); trying once more later/);
+  assert.equal(later.length, 1, 'one retry scheduled');
+  later[0]();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(f.posts.filter((p) => p.url.endsWith('/lens')).length, 2, 'retried once');
+  assert.equal(later.length, 1, 'no second retry');
+  assert.ok(said.some(([m]) => m.includes('on retry') && m.includes('conflict')));
+  assert.ok(!said.some(([m]) => m.includes('PRIVATE-token')), 'the lease token is never logged');
+});
+
+test('the live-process event says when Canvas did not store the spec, and why', () => {
+  const sent = { prNumber: 42, headSha: HEAD, validatedAt: 'now', specSha256: 'a'.repeat(64), specBytes: 9 };
+  const failed = lensEvent(lease(), sent, 'conflict', 'HTTP 409: Execution is no longer authoritative.');
+  assert.equal(failed.kind, 'pr.lens');
+  assert.equal(failed.state, 'fail');
+  assert.match(failed.title, /se neuložil/);
+  assert.match(String(failed.detail), /Canvas: conflict \(HTTP 409: Execution is no longer authoritative\.\)/);
+  assert.equal(lensEvent(lease(), sent, 'failed').state, 'fail');
+  assert.equal(lensEvent(lease(), sent, 'not-deployed').state, 'info');
+  assert.equal(lensEvent(lease(), sent, 'recorded').state, 'ok');
+  assert.ok(String(lensEvent(lease(), sent, 'failed', 'x'.repeat(400)).detail).length <= 240);
 });
