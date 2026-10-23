@@ -23,6 +23,7 @@ import { readRemoteReport, remoteReportInstructions, withReplayedCommits } from 
 import { pinnedSteps, stepChecklist } from './plan-steps.js';
 import { findIsolatedReceipt, nativeResultPayload, submitIsolatedResult } from './isolated-results.js';
 import { IsolatedPullRequests, patchInstructions } from './isolated-pull-request.js';
+import { floorCheckEnv } from './floor-checks.js';
 import { createSelfCheckReporter } from './self-checks.js';
 
 export interface IsolatedFloor { id: string; dir: string; view(): OporaState; alive(): boolean }
@@ -58,8 +59,10 @@ export class IsolatedOfficeService implements IsolatedOfficeAccess {
     }
     if (this.config && !this.broken) {
       const agent = `office-isolated-${floor.id}`, log = (m: string, level: string) => (level === 'info' ? console.log : console.warn)(`[opora] ${m}`);
+      // The floor's own checks (.agent-office/opora-checks.json) win over the env vars (floor-checks.ts).
       this.pullRequests = options.pullRequests === undefined ? new IsolatedPullRequests(floor.dir, path.join(directory, 'pull-requests'), this.config.canvas, agent,
-        undefined, createSelfCheckReporter(this.config.canvas, agent, path.join(directory, 'pull-requests'), log)) : options.pullRequests ?? undefined;
+        undefined, createSelfCheckReporter(this.config.canvas, agent, path.join(directory, 'pull-requests'), log,
+          floorCheckEnv(path.join(floor.dir, '.agent-office'), log))) : options.pullRequests ?? undefined;
       this.registry.register(new ManagedAgentsExecutor(new ManagedAgentsHttp(this.config.managed, this.config.secrets, this.transport), this.journal!));
       this.timer = setInterval(() => { if (!this.ticking) { this.ticking = true; void this.tick().finally(() => { this.ticking = false; }).catch(() => {}); } }, options.pollMs ?? 60000);
       this.timer.unref?.();
