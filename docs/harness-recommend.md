@@ -54,6 +54,29 @@ Probe requirements in the actual runner before repeating `--capability ID`. Thes
 
 ## Measured experience
 
+Office also reads `/api/oporahub/harness-paired-evaluations` from the same configured
+peer in parallel, with a five-second deadline, no redirects or forwarded worker
+credentials, and a 1-MiB response bound. The response's project/workspace, execution
+identity, trial order, counts and comparison are validated; arbitrary fields are
+dropped. `pairedHistory` reports unavailable evidence, receipt-window limits and
+invalid/conflicting receipt counts explicitly. An older Canvas without this endpoint
+returns unavailable evidence; existing proposal-only preparation still works.
+
+For exact Node script ID/content digest/problem and `command:node` requirements,
+`candidates[].pairedEvidence` exposes source receipts, plan and both version digests.
+A completed comparison reporting a fixture regression excludes that optional candidate from automatic
+selection and marks it `regression-review-needed`, even when net improvement is
+positive. An explicit inherited choice remains selected with
+`paired-fixture-regression-needs-review`; baseline instruction/testing policy stays
+in force. Incomplete comparisons remain visible but cannot suppress selection: loss of execution authority or incomplete cleanup is not a completed tool comparison. No existing profile or running pinned assignment is changed.
+
+Positive paired reports do not raise verified percentages, sample sizes, confidence
+or observed-success eligibility. They remain exploratory evidence awaiting independent
+review. Repeated experiments are not independent production trials. The native exact-head
+review gate and independent output verification are separate requirements; this change
+does not grant promotion authority. A bounded window can omit older regressions, so
+an empty list or unavailable peer is not a clean bill of health.
+
 Office reads the configured floor's native Canvas `/api/oporahub/harness-learning` endpoint with its own project/workspace, a five-second deadline and a 256-KiB response limit. Wrong scope, malformed counts, duplicate cohorts and unavailable peers become explicit unknown history. Percentages and Wilson intervals are recomputed from counts. Limited history is reported; offline data cannot assert native verification.
 
 Only exact resource ID, content digest, configuration digest and problem match. Text, category or requirement changes start a separate cohort. Agent reports remain separate and cannot qualify observed success. The initial ranking threshold is five known outcomes, three different cards, 80% coverage and a 95% Wilson lower bound of 50%. At least four failures with an upper bound below 50% suppress automatic addition; explicit policy choices remain unchanged and visible. Priority breaks ties, never creates verification.

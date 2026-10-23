@@ -7,6 +7,7 @@ import { send } from '../http/util.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { HarnessProfiles, HarnessError } from './profiles.js';
 import { nativeHistory, noHistory } from './native-outcomes.js';
+import { nativePairedHistory, noPairedHistory } from './native-paired.js';
 import { recommendHarness, validateRecommendation } from './recommend.js';
 import { oporaHarnessTask } from '../../shared/harness-cascade.js';
 
@@ -31,10 +32,11 @@ export async function recommendationRequest(ctx: Ctx, floor: Floor, req: http.In
     const task = url.searchParams.get('task') ?? '', view = floor.opora.view(), peer = peerKey(floor);
     if (task.startsWith('opora:') && (!view.project || !view.workspace || !task.startsWith(oporaHarnessTask(view.project.id, view.workspace, '')))) throw new HarnessError('Task is outside the linked project/workspace.', 403);
     const before = await profile(ctx.cfg.dataDir, floor, task);
-    const history = view.connected && view.project && view.workspace
-      ? await nativeHistory(view.url, view.project.id, view.workspace) : noHistory('floor-not-connected');
+    const [history, paired] = view.connected && view.project && view.workspace
+      ? await Promise.all([nativeHistory(view.url, view.project.id, view.workspace), nativePairedHistory(view.url, view.project.id, view.workspace)])
+      : [noHistory('floor-not-connected'), noPairedHistory('floor-not-connected')];
     const result = await recommendHarness(new HarnessLibrary(harnessSources(floor.dir, local)),
-      problem, capabilities, before.view, history);
+      problem, capabilities, before.view, history, paired);
     const after = await profile(ctx.cfg.dataDir, floor, task);
     if (peerKey(floor) !== peer || before.view.revision !== after.view.revision || before.pathDigest !== after.pathDigest) throw new HarnessError('Scope or profiles changed during preparation. Retry.', 409);
     return send(res, 200, { ...result, context: { task, project: view.project?.id ?? null, workspace: view.workspace, pathDigest: before.pathDigest } });

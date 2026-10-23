@@ -7,6 +7,7 @@ import { HarnessLibrary } from './catalog.js';
 import { buildHarnessKit, kitBytes } from './kit.js';
 import { HarnessError } from './profiles.js';
 import { noHistory, type NativeHistory, type NativeGuardrails } from './native-outcomes.js';
+import { noPairedHistory, type PairedHistory, type PairedEvidence } from './native-paired.js';
 import { toolbox, toolId } from './toolbox.js';
 
 const hash = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -15,6 +16,7 @@ interface Candidate {
   mandatory: boolean; baseline: boolean; disabled: boolean; missing: string[]; metadataMissing: boolean;
   priority: number; observed: boolean; low: boolean; reported: LearningRate | null; verified: LearningRate | null; tasks: number; state: string;
   guardrails: NativeGuardrails | null;
+  pairedEvidence: PairedEvidence[]; pairedRegression: boolean;
 }
 /** Same sorted metadata keys as Canvas's version digest; content has its own UTF-8 hash. */
 export function toolVersion(resource: string, category: string, digest: string, requires: string[]) {
@@ -42,7 +44,8 @@ export function validateRecommendation(problem: string, capabilities: string[]) 
   if (!toolId(problem) || capabilities.length > 32 || !capabilities.every(toolId) || new Set(capabilities).size !== capabilities.length) throw new HarnessError('Choose one problem ID and at most 32 distinct declared capabilities.');
 }
 export async function recommendHarness(library: HarnessLibrary, problem: string, capabilities: string[],
-  profile?: HarnessProfile, history: NativeHistory = noHistory('no-native-peer')) {
+  profile?: HarnessProfile, history: NativeHistory = noHistory('no-native-peer'),
+  paired: PairedHistory = noPairedHistory('no-native-peer')) {
   validateRecommendation(problem, capabilities);
   const catalog = await library.list(), policy = await toolbox(library, catalog.entries, problem), descriptors = policy.descriptors;
   const canonical = new Map(catalog.entries.flatMap(entry => [entry.id, ...((entry as { aliases?: string[] }).aliases ?? [])].map(id => [id, entry.id] as const)));
@@ -65,7 +68,10 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     const version = toolVersion(id, entry.category, digest, requires);
     const rows = history.cohorts.filter(row => row.resource === id && row.digest === digest && row.versionDigest === version && row.problem === problem);
     const verified = rows.find(row => row.tier === 'verified'), reported = rows.find(row => row.tier === 'reported');
-    const guardrails = verified?.guardrails ?? reported?.guardrails ?? null, flagged = !!guardrails?.affectedExecutions;
+    const pairedEvidence = entry.category === 'scripts' && requires.length === 1 && requires[0] === 'command:node'
+      ? paired.evaluations.filter(row => row.candidate.id === id && row.candidate.digest === digest && row.problem === problem) : [];
+    const pairedRegression = pairedEvidence.some(row => row.status === 'complete' && row.regressions > 0);
+    const guardrails = verified?.guardrails ?? reported?.guardrails ?? null, flagged = !!guardrails?.affectedExecutions || pairedRegression;
     const missing = requires.filter(requirement => !capabilities.includes(requirement));
     const metadataMissing = !descriptor && !id.startsWith('guide:') && ['scripts', 'tools', 'commands', 'hooks', 'mcp', 'plugins'].includes(entry.category);
     const mandatory = explicit.has(id);
@@ -75,7 +81,7 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     if (mandatory && (missing.length || metadataMissing)) constraints.push({ resource: id, reason: metadataMissing ? 'tool-metadata-needed' : 'missing-declared-capabilities', missing });
     candidates.push({ id, title: entry.title, category: entry.category, digest, versionDigest: version, requires,
       mandatory, baseline: baseline.includes(id), disabled: blocked.has(id), missing, metadataMissing,
-      priority: descriptor?.priority ?? 0, observed, low, guardrails,
+      priority: descriptor?.priority ?? 0, observed, low, guardrails, pairedEvidence, pairedRegression,
       reported: reported?.rate ?? null, verified: verified?.rate ?? null, tasks: verified?.tasks ?? 0,
       state: blocked.has(id) ? 'disabled' : flagged ? 'regression-review-needed' : missing.length || metadataMissing ? 'needs-capabilities' : low ? 'low-observed-success' : observed ? 'observed-success' : 'candidate' });
   }
@@ -84,7 +90,7 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
   if (auto) {
     // A correlated incident must not optimize away the baseline instructions/testing policy.
     for (const candidate of candidates.filter(entry => entry.baseline && !entry.disabled)) add(candidate);
-    const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && !entry.missing.length && !entry.metadataMissing && !entry.low && !entry.guardrails?.affectedExecutions);
+    const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && !entry.missing.length && !entry.metadataMissing && !entry.low && !entry.guardrails?.affectedExecutions && !entry.pairedRegression);
     optional.sort((a, b) => (b.verified?.interval95?.[0] ?? 0) - (a.verified?.interval95?.[0] ?? 0) || b.priority - a.priority || (a.id < b.id ? -1 : 1));
     for (const candidate of optional.filter(entry => entry.observed).slice(0, 3)) add(candidate);
     const exploration = optional.find(entry => !entry.observed);
@@ -111,7 +117,12 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     proposalStatus: constraints.length ? 'blocked' : selected.some(entry => !entry.id.startsWith('guide:')) ? 'tools-proposed' : 'reference-only',
     unresolvedCandidateRequirements: [...new Set(candidates.filter(entry => !entry.disabled).flatMap(entry => entry.missing))],
     history: { status: history.status, limited: history.limited, reason: history.reason ?? null },
+    pairedHistory: { status: paired.status, limited: paired.limited, reason: paired.reason ?? null,
+      invalidReceipts: paired.invalidReceipts, conflictingEvaluations: paired.conflictingEvaluations,
+      evidence: 'worker-reported fixture comparison; not independent confidence or promotion' },
     capabilityEvidence: 'caller-declared; not native attestation or permission grants',
     association: 'selected-kit outcomes; actual invocation and causal contribution unobserved', promotionAllowed: false,
-    constraints, warnings: selected.filter(entry => entry.guardrails?.affectedExecutions).map(entry => ({ resource: entry.id, reason: 'linked-regression-needs-review', preserved: entry.mandatory ? 'explicit' : 'baseline-policy' })), selected: selected.map(entry => entry.id), candidates, kit };
+    constraints, warnings: selected.filter(entry => entry.guardrails?.affectedExecutions || entry.pairedRegression)
+      .map(entry => ({ resource: entry.id, reason: entry.pairedRegression ? 'paired-fixture-regression-needs-review' : 'linked-regression-needs-review',
+        preserved: entry.mandatory ? 'explicit' : 'baseline-policy' })), selected: selected.map(entry => entry.id), candidates, kit };
 }
