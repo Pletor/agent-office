@@ -40,11 +40,15 @@ test('projects server-observed exact fixture counts without execution details or
   const pass = parseFixtureHistory(history(record()), 'project-a', 'workspace-a');
   assert.deepEqual(pass.evaluations[0], { verificationId: id, executionId: 'exec-1', problem: 'evaluation:paired-node',
     candidate: { id: 'script:candidate', digest: hash('1') }, baseline: { id: 'script:baseline', digest: hash('f') },
-    plan: { id: 'testing:compare', digest: hash('e') }, improvements: 0, regressions: 0, cases: 2 });
+    plan: { id: 'testing:compare', digest: hash('e') }, improvements: 0, regressions: 0, candidateFailures: 0, cases: 2 });
   const regression = parseFixtureHistory(history(record([['pass', 'fail'], ['fail', 'pass']])), 'project-a', 'workspace-a');
   assert.equal(regression.evaluations[0].regressions, 1);
   assert.equal(regression.evaluations[0].improvements, 1);
   assert.equal(regression.unknown, 0);
+  assert.equal(regression.evaluations[0].candidateFailures, 1);
+  const bothFail = parseFixtureHistory(history(record([['fail', 'fail'], ['fail', 'pass']])), 'project-a', 'workspace-a');
+  assert.equal(bothFail.evaluations[0].regressions, 0);
+  assert.equal(bothFail.evaluations[0].candidateFailures, 1);
   assert.doesNotMatch(JSON.stringify(pass), /assignmentDigest|acceptedRevision|outputDigest|authorityCurrent|server-observed/);
 });
 
