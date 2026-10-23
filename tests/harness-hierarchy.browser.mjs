@@ -15,10 +15,22 @@ try {
     const names = ['Stránka', 'Vrstva', 'Oblast', 'Sektor', 'Karta'];
     const keys = levels.map(level => 'opora:p:w:' + level);
     const layers = emptyLayers(); layers.global = { quality: { resource: 'guide:testing' } };
-    let revision = 0, rejectSave = false;
+    let revision = 0, rejectSave = false, experienceAvailable = true;
+    let experienceGate, experienceSeen, experienceDone;
     await page.route('**/api/harness**', async route => {
       const request = route.request(), url = new URL(request.url());
       let data;
+      if (url.pathname.endsWith('/recommend')) {
+        experienceSeen?.();
+        if (experienceGate) await experienceGate;
+        if (!experienceAvailable) return route.fulfill({ status: 404, json: { error: 'not installed' } });
+        try { return await route.fulfill({ json: { schema: 'harness.recommendation/1', history: { status: 'available', limited: false }, candidates: [{
+          id: 'guide:testing', digest: 'a'.repeat(64), tasks: 3, missing: [],
+          verified: { pass: 5, fail: 0, unknown: 1, interval95: [56.55, 100] },
+          reported: { pass: 7, fail: 1, unknown: 0, interval95: [52.9, 97.8] }
+        }] } }); } catch { /* A scope change can abort this deliberately delayed fixture. */ }
+        finally { experienceDone?.(); }
+      }
       if (url.pathname.endsWith('/projects')) data = { projects: [{ floor: 'lab', name: 'Vývoj', projectName: 'Harness', connected: true }] };
       else if (url.pathname.endsWith('/file')) data = await library.read(url.searchParams.get('id'));
       else if (!url.pathname.endsWith('/hierarchy')) data = catalog;
@@ -56,6 +68,29 @@ try {
     await page.getByText(/revize 1/).waitFor(); assert.equal(await checkbox.isChecked(), false);
     await page.locator('.harness-resource-check').filter({ has: page.getByRole('checkbox', { name: title, exact: true }) }).getByRole('button', { name: 'Dědit', exact: true }).click();
     assert.equal(await checkbox.isChecked(), true);
+    await page.locator('.harness-experience summary').click();
+    await page.getByLabel('Typ úkolu pro zkušenosti').fill('ts.references');
+    await page.getByRole('button', { name: 'Načíst zkušenosti', exact: true }).click();
+    await page.getByText('Načteno pro ts.references.', { exact: true }).waitFor();
+    const row = page.locator('.harness-resource-check').filter({ has: page.getByRole('checkbox', { name: title, exact: true }) });
+    assert.match(await row.innerText(), /Lidské potvrzení: 100 % · 5\/5/);
+    assert.match(await row.innerText(), /Hlášení agenta: 87,5 %/);
+    assert.equal(await checkbox.isChecked(), true, 'read-only measurements preserve the unsaved checkbox draft');
+    await row.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(process.env.HARNESS_SHOTS ?? os.tmpdir(), 'harness-experience-' + width + '.png') });
+    let release, seen, finished;
+    experienceGate = new Promise(resolve => { release = resolve; });
+    const requested = new Promise(resolve => { seen = resolve; }); experienceSeen = seen;
+    const completed = new Promise(resolve => { finished = resolve; }); experienceDone = finished;
+    await page.getByRole('button', { name: 'Načíst zkušenosti', exact: true }).click(); await requested;
+    await page.getByLabel('Projekt / repozitář', { exact: true }).selectOption('repository');
+    await page.getByText(/Projekt \/ repozitář · revize 1/).waitFor();
+    release(); await completed;
+    assert.equal(await page.locator('.harness-experience-badge').count(), 0, 'late measurements cannot repaint another scope');
+    experienceGate = experienceSeen = experienceDone = undefined;
+    experienceAvailable = false;
+    await page.getByRole('button', { name: 'Načíst zkušenosti', exact: true }).click();
+    await page.getByText('Tato instalace zatím neposkytuje měření zkušeností.', { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.locator('.harness-body').evaluate(element => { element.scrollTop = 0; });
     await page.screenshot({ path: path.join(process.env.HARNESS_SHOTS ?? os.tmpdir(), 'harness-hierarchy-' + width + '.png'), fullPage: true });
@@ -64,5 +99,5 @@ try {
     await page.getByRole('button', { name: 'Close', exact: true }).click(); assert.equal(await page.getByRole('dialog').count(), 0);
     assert.deepEqual(errors, []); await page.close();
   }
-  console.log('PASS: seven levels, inherited checkboxes, save/conflict/reload, desktop/mobile, Esc and close');
+  console.log('PASS: seven levels, inheritance, save/conflict/reload, versioned rates, late-response fences, optional endpoint, desktop/mobile, Esc and close');
 } finally { await browser.close(); }

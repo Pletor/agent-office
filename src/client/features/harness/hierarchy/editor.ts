@@ -3,6 +3,7 @@ import type { HarnessCatalog, HarnessText } from '../../../../shared/harness';
 import { HARNESS_LEVELS, type HarnessLayer, type HarnessLevel } from '../../../../shared/harness-cascade';
 import { HARNESS_LEVEL_NAMES, type HarnessHierarchyView } from '../../../../shared/harness-navigation';
 import { resourceModel, setResource } from './model';
+import { experiencePanel } from './experience';
 import './style.css';
 
 /** Edits one explicitly selected scope. A save never mutates an accepted execution. */
@@ -19,9 +20,10 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
   const advanced = h('textarea', { rows: 7, spellcheck: false, 'aria-label': 'Harness layer JSON' });
   const origins = h('pre.harness-effective');
   const preview = h('pre.harness-effective');
+  const experience = experiencePanel(floor, () => view, signal, () => renderRows());
   const el = h('details.harness-cascade', {}, h('summary', {}, 'Pracovní výbava: Globál → Projekt → Stránka → Vrstva → Oblast → Sektor → Karta'),
     h('p', {}, 'Zaškrtněte prostředky pro vybranou úroveň. Zděděné prostředky lze vypnout nebo obnovit. Změna výběru úrovně zahodí neuložené úpravy. Uložené nastavení se použije při přípravě další práce.'),
-    nav, status, bind, h('div.harness-profile-grid', {}, h('section', {}, filter, rows), h('section', {},
+    nav, status, bind, experience.el, h('div.harness-profile-grid', {}, h('section', {}, filter, rows), h('section', {},
       h('details', {}, h('summary', {}, 'Pokročilé sloty a nastavení'), advanced),
       h('details', {}, h('summary', {}, 'Účinné prostředky a původ'), origins),
       h('details', {}, h('summary', {}, 'Náhled uloženého kontextu'), preview))),
@@ -50,7 +52,7 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
       return h('label', {}, HARNESS_LEVEL_NAMES[level], select);
     }));
   }
-  function render() {
+  function renderRows() {
     if (!view) return;
     const model = resourceModel(view, draft), words = filter.value.toLowerCase().trim().split(/\s+/);
     const entries = [...(catalog?.entries ?? [])];
@@ -65,8 +67,13 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
       checkbox.onchange = () => { draft = setResource(view!, draft, entry.id, checkbox.checked); changed(); };
       const restore = h('button.btn', { type: 'button', disabled: !writable(), onclick: () => { draft = setResource(view!, draft, entry.id, 'inherit'); changed(); } }, 'Dědit');
       const origin = active.length ? [...new Set(active.map(item => HARNESS_LEVEL_NAMES[item.scope] + (item.nodeName ? ' / ' + item.nodeName : '')))].join(', ') : inherited ? 'Zděděný prostředek vypnutý zde' : 'Nepoužívá se';
-      return h('div.harness-resource-check', {}, h('label', {}, checkbox, h('span', {}, h('strong', {}, entry.title), h('small', {}, entry.category + ' · ' + origin))), restore);
+      return h('div.harness-resource-check', {}, h('label', {}, checkbox, h('span', {}, h('strong', {}, entry.title), h('small', {}, entry.category + ' · ' + origin), experience.badge(entry.id))), restore);
     }));
+  }
+  function render() {
+    if (!view) return;
+    const model = resourceModel(view, draft);
+    renderRows();
     advanced.value = JSON.stringify(draft, null, 2); advanced.disabled = !writable();
     origins.textContent = JSON.stringify(model.effective, null, 2); preview.textContent = view.preview || view.warning;
     save.disabled = !writable() || !dirty; reload.disabled = pending;
@@ -88,6 +95,7 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
       if (!response.ok) throw new Error(data.error ?? 'Konfiguraci nelze načíst.');
       if (signal.aborted || seq !== ticket) return;
       view = data; draft = { ...view!.layers[view!.level] }; dirty = false;
+      experience.reset();
       status.textContent = [HARNESS_LEVEL_NAMES[view!.level], 'revize ' + view!.revision, view!.notice, view!.warning, view!.writable ? '' : 'Pouze ke čtení'].filter(Boolean).join(' · ');
     } catch (error) { if (!signal.aborted && seq === ticket) status.textContent = (error as Error).message; }
     finally { if (seq === ticket) { pending = false; render(); } }
