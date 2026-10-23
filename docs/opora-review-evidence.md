@@ -1,4 +1,4 @@
-# Security reviews, self-check evidence, PR Lens diagrams, the reviewer eval and isolated PRs
+# Security reviews, self-check evidence, PR Lens diagrams, design previews, the reviewer eval and isolated PRs
 
 Back to the [README](../README.md). Builds on the [review workers](opora-review-workers.md), the [pull request handoff](opora-execution.md#pull-request-handoff) and [PR upkeep](opora-pr-upkeep.md). The Canvas side is in Opora Canvas's `docs/oporahub-review-jobs.md` ("Druh úlohy (`kind`)", "Důkaz vlastních kontrol") and `docs/oporahub-review-identity.md` ("Jak eval spustit").
 
@@ -47,6 +47,17 @@ Canvas's `docs/cista-linie.md` §4: the worker that made a change draws it with 
 - **Nothing found, an unusable spec, or `AGENT_OFFICE_OPORA_PR_LENS=off`**: skipped silently, and the worker isn't asked to draw.
 
 Code: `src/server/opora/pr-lens.ts`, called from `pull-request-handoff.ts` and `execution-prompt.ts`.
+
+## Design previews
+
+A design card's worker leaves screenshots of its last commit, with a `preview.json`, in `.agent-office/opora-previews/<project>/<card>/<head SHA>/` ([design cards](configuration.md)). Once the handoff has linked the pull request, the office reads that folder for the PR's head and sends it to Opora's `POST /api/oporahub/review-jobs/preview` (Opora `docs/design-nahled.md` §4), so a person can press **Potvrdit vzhled** on the card.
+
+- **The request** carries `project`, `workspace`, `executionId`, the execution's lease `token` and `epoch`, and `preview: {prNumber, headSha, designMdSha256, proposedDesignMd?, screenshots: [{label, viewport, stage?, dataURL}]}`, with `Origin` set to Opora's own origin and the office's `X-Opora-Actor`. Each screenshot goes as a `data:image/png;base64,…` URL; `proposedDesignMd` (explore cards) is the Markdown read from the head commit at the path the worker named, never the working tree.
+- **Checked before sending**, as Opora checks them: `preview.json` up to 64 KiB and for this head; 1–8 screenshots, each a plain `.png` file next to it (no paths, no symlinks) with the PNG signature and at most 2 MiB; labels 1–60 printable characters and unique, `stage` the same; viewport width 120–8000 and height 120–20000; `designMdSha256` a SHA-256 or `null`; a proposal nonempty and at most 64 KiB; the whole body under Opora's 23 MiB. Opora fills in the card's mode itself.
+- **No folder or no `preview.json`**: nothing happens. An unusable one is not sent: it is logged and toasted with what's wrong, and a `design.preview` process event fails. A refusal or an unreachable Opora is reported the same way as the PR Lens (Opora's reason in the log, the toast and the event), and a 409 is tried once more a minute later. A 404 (an Opora without the endpoint) is `info`. It never touches the pull request or the stored result.
+- **The lease token** is only in the request body: never in a log line, a toast, a process event or the PR.
+
+Code: `src/server/opora/design-preview-upload.ts`, called from `pull-request-handoff.ts`.
 
 ## The reviewer eval
 
