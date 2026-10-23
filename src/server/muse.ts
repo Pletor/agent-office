@@ -86,10 +86,6 @@ export function normalizeMuseHook(event: string, payload: unknown): MuseHookEven
   return result;
 }
 
-export function validateMuseHook(event: string, payload: unknown): boolean {
-  return !!normalizeMuseHook(event, payload);
-}
-
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }

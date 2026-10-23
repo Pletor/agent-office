@@ -8,7 +8,6 @@ import path from 'node:path';
 import {
   GROK_HOOK_EVENTS,
   normalizeGrokHook,
-  validateGrokHook,
   withoutGrokLaunchArgs,
   writeGrokHome,
   writeGrokHook,
@@ -30,12 +29,12 @@ test('normalizes bounded root Grok hook payloads from camelCase or snake_case', 
 });
 
 test('rejects unknown, malformed, empty, oversized, and child-scoped Grok events', () => {
-  assert.equal(validateGrokHook('Unknown', { sessionId: 'x' }), false);
-  assert.equal(validateGrokHook('Stop', null), false);
-  assert.equal(validateGrokHook('Stop', { sessionId: '' }), false);
-  assert.equal(validateGrokHook('Stop', { sessionId: 'x'.repeat(161) }), false);
-  assert.equal(validateGrokHook('Stop', { sessionId: 'x', subagentType: 'explore' }), false);
-  assert.equal(validateGrokHook('Stop', { sessionId: 'x', agent_id: 'child-1' }), false);
+  assert.equal(normalizeGrokHook('Unknown', { sessionId: 'x' }), undefined);
+  assert.equal(normalizeGrokHook('Stop', null), undefined);
+  assert.equal(normalizeGrokHook('Stop', { sessionId: '' }), undefined);
+  assert.equal(normalizeGrokHook('Stop', { sessionId: 'x'.repeat(161) }), undefined);
+  assert.equal(normalizeGrokHook('Stop', { sessionId: 'x', subagentType: 'explore' }), undefined);
+  assert.equal(normalizeGrokHook('Stop', { sessionId: 'x', agent_id: 'child-1' }), undefined);
 });
 
 test('strips launch flags the office always sets itself', () => {
