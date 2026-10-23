@@ -17,3 +17,13 @@ test('checkboxes disable every active slot, restore upstream and preserve unrela
   const occupied = { [resourceSlot('new')]: { resource: 'other' } };
   assert.deepEqual(setResource(view, occupied, 'new', true)[resourceSlot('new')], { resource: 'other' });
 });
+
+test('canonical rows preserve alias bindings and disable or restore every matching slot', () => {
+  const view = { layers: emptyLayers(), path: [], level: 'task' } as unknown as HarnessHierarchyView;
+  view.layers.global = { old: { resource: 'legacy-id' }, current: { resource: 'el:project:one' } };
+  const disabled = setResource(view, {}, 'el:project:one', false, ['legacy-id']);
+  assert.deepEqual(disabled, { old: null, current: null });
+  assert.deepEqual(setResource(view, disabled, 'el:project:one', 'inherit', ['legacy-id']), {});
+  const orphanedDisable = { [resourceSlot('legacy-id')]: null };
+  assert.deepEqual(setResource({ ...view, layers: emptyLayers() }, orphanedDisable, 'el:project:one', 'inherit', ['legacy-id']), {});
+});

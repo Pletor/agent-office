@@ -12,10 +12,12 @@ export function resourceModel(view: HarnessHierarchyView, draft: HarnessLayer) {
   const upstream = Object.fromEntries(HARNESS_LEVELS.slice(0, HARNESS_LEVELS.indexOf(view.level)).map(level => [level, layers[level]]));
   return { effective: resolveHarness(view.level === 'global' ? { global: draft } : layers, view.path), upstream: resolveHarness(upstream, view.path) };
 }
-export function setResource(view: HarnessHierarchyView, draft: HarnessLayer, id: string, enabled: boolean | 'inherit'): HarnessLayer {
+export function setResource(view: HarnessHierarchyView, draft: HarnessLayer, id: string, enabled: boolean | 'inherit', aliases: string[] = []): HarnessLayer {
   const next = { ...draft }, { effective, upstream } = resourceModel(view, draft);
-  const has = (binding: unknown): boolean => !!binding && typeof binding === 'object' && 'resource' in binding && binding.resource === id;
+  const ids = new Set([id, ...aliases]);
+  const has = (binding: unknown): boolean => !!binding && typeof binding === 'object' && 'resource' in binding && typeof binding.resource === 'string' && ids.has(binding.resource);
   const relevant = new Set([...Object.keys(effective).filter(slot => has(effective[slot].binding)), ...Object.keys(upstream).filter(slot => has(upstream[slot].binding)), ...Object.keys(draft).filter(slot => has(draft[slot]))]);
+  for (const resource of ids) if (draft[resourceSlot(resource)] === null) relevant.add(resourceSlot(resource));
   if (enabled === 'inherit') for (const slot of relevant) delete next[slot];
   else if (!enabled) for (const slot of relevant) next[slot] = null;
   else {

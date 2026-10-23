@@ -30,6 +30,8 @@ The legacy `--effective` and `--assign repository|task` protocol remains availab
 
 ## Storage and handoffs
 
+When a catalog supplies legacy aliases, the checkbox row recognizes those saved assignments as the same resource. Disable and inherit affect all matching slots. Missing-resource rows remain readable even when version metadata is unavailable. Global assignments accept only the handbook and explicitly published `Shared harness` resources; private machine and project files cannot become defaults for all workers.
+
 Version 2 profiles retain old task assignments, lifting them into the corresponding scope when their node becomes a page/layer/area/sector. Saving that scope replaces the lifted layer and retires its migration marker; deleting the override restores normal ancestor inheritance. Old task bytes remain for recovery. Global/repository identity is unchanged. Store updates use revision compare-and-set, file leases and exclusive durable revision publication, so concurrent processes cannot both publish the same revision. Audit entries record actor, scope, node and slot names. Keep the profile/binding files and their revision directories together when backing up or migrating an office. Downgrading to a reader that does not support profile version 2 requires restoring the pre-migration backup; it must not rewrite the new store.
 
 The path digest checks scope/node ancestry before a save and again after acquiring the write lease. A geometry move, deletion or reparenting requires reloading. Resource availability and the 24-resource/96-KiB resolved-context budget are checked before committing. Missing resources can still block later handoffs if files change after saving; this editor does not pin resource versions.
