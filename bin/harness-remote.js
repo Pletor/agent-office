@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { recommendationArgs } from './harness-recommend.js';
+import { searchCatalog } from './harness-search.js';
+import { harnessBundle } from '../dist/server/shared/harness.js';
 
 /** Worker-authenticated access; never fall back to local machine access when credentials exist. */
 export async function remoteHarness(argv) {
@@ -16,7 +18,12 @@ export async function remoteHarness(argv) {
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID ?? '');
   if (task) url.searchParams.set('task', task);
   let body;
-  if (action === '--recommend') {
+  if (action === '--read' && args.length === 1) url.searchParams.set('read', args[0]);
+  else if (action === '--search') url.searchParams.set('catalog', '1');
+  else if (action === '--bundle' && args.length >= 1 && args.length <= 24) {
+    url.searchParams.set('kit', '1'); url.searchParams.set('problem', 'reference.read');
+    for (const id of args) url.searchParams.append('resource', id);
+  } else if (action === '--recommend') {
     const input = recommendationArgs(args); url.searchParams.set('recommend', '1'); url.searchParams.set('problem', input.problem);
     for (const capability of input.capabilities) url.searchParams.append('capability', capability);
   } else if (action === '--catalog' && !args.length) url.searchParams.set('catalog', '1');
@@ -36,5 +43,9 @@ export async function remoteHarness(argv) {
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error ?? 'Harness request failed');
-  console.log(JSON.stringify(result, null, 2));
+  if (action === '--read') console.log(result.text);
+  else if (action === '--search') console.log(JSON.stringify(searchCatalog(result, args), null, 2));
+  else if (action === '--bundle') console.log(harnessBundle(result.resources.map(entry => ({ id: entry.resource, title: entry.resource,
+    source: 'Catalog snapshot SHA-256 ' + entry.digest, path: entry.resource, category: entry.category, text: entry.content }))));
+  else console.log(JSON.stringify(result, null, 2));
 }

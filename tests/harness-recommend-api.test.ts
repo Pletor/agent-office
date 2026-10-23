@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Ctx } from '../src/server/office/context.js';
@@ -12,6 +12,8 @@ import { HarnessProfiles } from '../src/server/harness/profiles.js';
 
 test('recommendation uses the authenticated floor peer and refuses stale scope/profile snapshots', async t => {
   const dir = mkdtempSync(path.join(tmpdir(), 'harness-recommend-api-'));
+  mkdirSync(path.join(dir, '.harness', 'rules'), { recursive: true });
+  writeFileSync(path.join(dir, '.harness', 'rules', 'quality.md'), 'Run the pinned checks.');
   const profiles = new HarnessProfiles(dir);
   let calls = 0, mutate = false;
   const native = http.createServer(async (req, res) => {
@@ -45,6 +47,13 @@ test('recommendation uses the authenticated floor peer and refuses stale scope/p
   const hook = '/office/harness?worker=ordinary&recommend=1&problem=ts.references';
   assert.equal((await fetch(base + hook)).status, 401);
   const headers = { authorization: 'Bearer hook-test' };
+  const catalogResponse = await fetch(base + '/office/harness?worker=ordinary&catalog=1', { headers });
+  const catalog = await catalogResponse.json();
+  const quality = catalog.entries.find((entry: { title: string }) => entry.title === 'quality.md');
+  assert.ok(quality);
+  const read = await fetch(base + '/office/harness?worker=ordinary&read=' + quality.id, { headers });
+  assert.equal(read.status, 200); assert.equal((await read.json()).text, 'Run the pinned checks.');
+  assert.equal((await fetch(base + '/office/harness?worker=ordinary&read=private-machine-resource', { headers })).status, 404);
   response = await fetch(base + hook, { headers }); assert.equal(response.status, 200);
   assert.equal((await response.json()).promotionAllowed, false);
   assert.equal((await fetch(base + hook + '&task=opora:foreign:w:n', { headers })).status, 403);

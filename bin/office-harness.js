@@ -6,6 +6,7 @@ import { remoteHarness } from './harness-remote.js';
 import { buildHarnessKit } from '../dist/server/server/harness/kit.js';
 import { recommendHarness } from '../dist/server/server/harness/recommend.js';
 import { recommendationArgs } from './harness-recommend.js';
+import { searchCatalog } from './harness-search.js';
 const args = process.argv.slice(2);
 if (process.env.AGENT_OFFICE_HOOK_URL) {
   await remoteHarness(args);
@@ -17,9 +18,10 @@ if (args[0] === '--project') {
   if (!project) throw new Error('--project requires a folder');
 }
 const action = args.shift();
-if (action && !['--read', '--bundle', '--kit', '--recommend'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--read id | --bundle id ... | --kit PROBLEM id ... | --recommend PROBLEM [--capability ID]...]');
+if (action && !['--read', '--bundle', '--kit', '--recommend', '--search'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--search "words" [--category CATEGORY] | --read id | --bundle id ... | --kit PROBLEM id ... | --recommend PROBLEM [--capability ID]...]');
 const library = new HarnessLibrary(harnessSources(project, true));
-if (action === '--recommend') {
+if (action === '--search') console.log(JSON.stringify(searchCatalog(await library.list(), args), null, 2));
+else if (action === '--recommend') {
   const input = recommendationArgs(args);
   console.log(JSON.stringify(await recommendHarness(library, input.problem, input.capabilities), null, 2));
 } else if (action === '--kit') {
