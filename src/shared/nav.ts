@@ -326,9 +326,6 @@ export function officeNav(wing = 0): NavGrid {
   return (OFFICE_NAVS[level] ??= new NavGrid({ ...FLOOR, minZ: wingMinZ(level) }, obstacles(level), on));
 }
 
-/** The office floor as it is until it's built out. */
-export const OFFICE_NAV = officeNav(0);
-
 export function walkable(x: number, z: number, wing = 0): boolean {
   return officeNav(wing).walkable(x, z);
 }

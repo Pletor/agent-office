@@ -21,8 +21,6 @@ export interface OpenCodeUsageEvent {
   usage: Usage;
 }
 
-export type OpenCodeHookEvent = OpenCodeStatusEvent | OpenCodeUsageEvent;
-
 /**
  * Merge the per-process plugin, and the office's MCP server when there is one (`mcp`, see
  * openCodeMcp), into inline OpenCode config without touching user config files.

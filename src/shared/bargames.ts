@@ -130,9 +130,6 @@ export function score(game: BarGame, u: number, v: number, stuck: boolean): Scor
   return game === 'darts' ? dartScore(u, v) : axeScore(u, v, stuck);
 }
 
-/** The most a round can score: three treble twenties, or five killshots. */
-export const BEST_ROUND: Record<BarGame, number> = { darts: 180, axe: 5 * AXE_TARGET.kill.points };
-
 // ---- Throwing ---------------------------------------------------------------------------------------
 
 /**
