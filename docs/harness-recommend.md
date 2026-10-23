@@ -88,3 +88,20 @@ For context v2, propose the returned `kit` as `fields.harness` through normal Op
 ## Verification
 
 Run `npm run typecheck`, `npm test`, `npm run build`. Focused tests cover independent Python/TypeScript configuration identity, unknown evidence, scope/denominator validation, capability constraints, exact versions, inherited disable/auto-off, bounded exploration, metadata races and authenticated HTTP preparation. The feature makes no LLM call or OpenViking write.
+
+
+## Independent fixture history and lasting quarantine
+
+The configured native verifier contributes separate `fixtureEvidence`. Preparation matches
+its accepted problem and exact script content with the Node adapter; it never adds fixture
+passes to verified task-acceptance percentages. Any complete candidate failure restrains
+automatic reuse, even if the baseline also fails. Explicit choices remain with a warning.
+
+`fixtureQuarantines` contains source verification IDs from the native all-history projection.
+An old failure remains effective after leaving the newest100-request window. A newer pass
+does not erase it; a different content digest or problem is a different cohort. If the native
+projection reports overflow or an unbound failure, automatic Node additions are restrained
+with `fixture-history-incomplete`. Missing legacy support or an unavailable peer is exposed
+as unavailable evidence, not a declaration of health. Existing human task outcomes and
+policy choices remain separate. This is version restraint, not global publication or a
+complete experiment/promotion/rollback lifecycle.

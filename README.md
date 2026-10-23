@@ -478,3 +478,6 @@ Harness preparation can read independent fixture reruns from the configured Canv
 Exact-version failures and regressions restrain automatic reuse; explicit assignments retain a warning.
 Fixture evidence remains separate from production acceptance rates and never auto-promotes
 resources. See [Harness learning](docs/harness-learning.md#independent-fixture-feedback).
+
+Native fixture quarantine uses all retained verification records, so an old failure cannot
+fall out merely because recent history fills up. See [recommendation evidence](docs/harness-recommend.md#independent-fixture-history-and-lasting-quarantine).
