@@ -25,6 +25,8 @@ import { MeetingRoom } from './meetings.js';
 import { PlanningRoom } from './planning.js';
 import { OporaBridge } from './opora/bridge.js';
 import { OrchestratorFocusKeeper } from './orchestrator/focus.js';
+import { SessionsKeeper } from './sessions/keeper.js';
+import { processHub } from './process/hub.js';
 import { IsolatedOfficeService } from './opora/isolated-service.js';
 import { harnessPlannerBrief } from './harness/handoff.js';
 import { PLANNER_SEAT } from '../shared/planning.js';
@@ -138,6 +140,8 @@ export class Floor {
   readonly opora: OporaBridge;
   /** The card picked for the orchestrator at the right board, and the overview its planner gets (see orchestrator/). */
   readonly orchestrator: OrchestratorFocusKeeper;
+  /** What each worker's session is doing, for the planning room's third screen, and its overview for the planner (see sessions/). */
+  readonly sessions: SessionsKeeper;
   readonly isolatedExecutions: IsolatedOfficeService;
   /** How the planning room's plan stood at its last update, to see the orchestrator end a turn. */
   private planStatus?: string;
@@ -322,7 +326,7 @@ export class Floor {
           const o = this.opora.view();
           return { base: o.url, project: o.project?.id, name: o.project?.name, workspace: o.workspace ?? undefined, focus: this.opora.focusLine() };
         },
-        brief: () => this.orchestrator?.brief(),
+        brief: () => [this.orchestrator?.brief(), this.sessions?.brief()].filter(Boolean).join('\n\n') || undefined,
       },
     );
 
@@ -354,6 +358,12 @@ export class Floor {
 
     // The card picked at the right board for the orchestrator, whose overview the planner gets.
     this.orchestrator = new OrchestratorFocusKeeper({ opora: () => this.opora.view(), agent: `office-${def.id}`, dataDir, update: (state) => ctx.emit(this, { t: 'orchestrator', state }) });
+    // Every worker's session for the third screen (left wall of the planning room), read off its transcript.
+    this.sessions = new SessionsKeeper({
+      workers: () => this.workers.list(), dataDir, update: (state) => ctx.emit(this, { t: 'sessions', state }),
+      opora: () => this.opora.view(), focusCard: () => this.orchestrator.state().focus?.cardId, events: () => processHub.snapshot(def.id).events,
+      pulls: () => this.github.pulls.items, tasks: () => this.queue.state().tasks,
+    });
 
     // What each worker changed, for the Changes window at its desk (see changes.ts).
     this.changes = new Changes(
@@ -501,6 +511,7 @@ export class Floor {
     this.planning.shutdown();
     this.opora.shutdown();
     this.orchestrator.shutdown();
+    this.sessions.shutdown();
     this.isolatedExecutions.shutdown();
     this.changes.stop();
     this.whiteboard.flush();

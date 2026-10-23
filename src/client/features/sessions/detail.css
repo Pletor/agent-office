@@ -1,0 +1,39 @@
+/* The session's detail over the third screen, as the prototype's modal (relace.css "Modální detail relace"). */
+.ss-detail { position: relative; width: min(980px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; background: #fff; border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink); text-align: left; }
+.ss-detail .m-h { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--paper-2); border-bottom: 3px solid var(--ink); flex-wrap: wrap; position: sticky; top: 0; z-index: 2; }
+.ss-detail .m-h > .btn.close { margin-left: auto; }
+.ss-detail .m-h h3 { margin: 0; font-size: 17px; font-weight: 900; }
+.ss-detail .m-h .path { font-size: 12px; font-weight: 800; color: var(--muted); }
+.ss-detail .m-g { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 14px; padding: 14px; }
+.ss-detail .m-sec { display: grid; gap: 7px; align-content: start; min-width: 0; }
+.ss-detail .recap { border: 2px solid var(--ink); border-radius: 12px; padding: 9px 11px; background: var(--paper); font-size: 12.5px; font-weight: 800; line-height: 1.4; display: grid; gap: 6px; }
+.ss-detail .recap.need { background: #fff2c7; }
+.ss-detail .recap .acts, .ss-detail .say { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.ss-detail .say input, .ss-detail .say select { flex: 1; min-width: 180px; font: 800 12.5px/1.2 var(--font); padding: 5px 8px; border: 2px solid var(--ink); border-radius: 8px; background: #fff; color: var(--ink); }
+.ss-detail .todo { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.ss-detail .todo li { display: flex; gap: 8px; align-items: center; font-size: 12.5px; font-weight: 800; padding: 3px 6px; border-radius: 8px; transition: background .4s; }
+.ss-detail .todo li i { width: 15px; height: 15px; border: 2px solid var(--ink); border-radius: 4px; flex: none; display: grid; place-items: center; font-style: normal; font-size: 10px; font-weight: 900; }
+.ss-detail .todo li.on { color: var(--muted); text-decoration: line-through; }
+.ss-detail .todo li.on i { background: var(--ink); color: #fff; }
+.ss-detail .todo li.cur { background: #fff2c7; }
+.ss-detail .todo li.cur i { background: var(--accent); }
+.ss-detail .todo li.ticked { animation: ss-tick .9s ease; }
+@keyframes ss-tick { 0% { background: #d9f7ec; } 100% { background: transparent; } }
+.ss-detail .todo li.kidrow { text-decoration: none; }
+.ss-detail .side { display: grid; gap: 10px; align-content: start; }
+.ss-detail .kv { border: 2px solid var(--ink); border-radius: 12px; padding: 8px 10px; display: grid; gap: 4px; font-size: 12px; font-weight: 800; }
+.ss-detail .kv .r { display: flex; justify-content: space-between; gap: 8px; }
+.ss-detail .kv .r span { color: var(--muted); }
+.ss-detail .kv .r b { font-family: var(--mono); font-size: 11px; text-align: right; overflow-wrap: anywhere; }
+.ss-detail .ctx { height: 10px; border: 2px solid var(--ink); border-radius: 6px; overflow: hidden; }
+.ss-detail .ctx i { display: block; height: 100%; background: var(--info); }
+.ss-detail .ctx i.hot { background: var(--accent); }
+.ss-detail .files { font: 600 11px/1.5 var(--mono); display: grid; }
+.ss-detail .files div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ss-detail .files .a { color: var(--human); } .ss-detail .files .m { color: #a86a00; } .ss-detail .files .d { color: #c62f55; }
+.ss-detail .lensbox { padding: 4px 14px 10px; display: grid; gap: 6px; }
+.ss-detail .lensbox .pw-sec.lens { border: 2px solid var(--ink); border-radius: 12px; padding: 8px 10px; }
+.ss-detail .orch { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 14px 14px; align-items: center; }
+.ss-detail .orch .say { flex-basis: 100%; }
+.ss-detail .note { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+@media (max-width: 1180px) { .ss-detail .m-g { grid-template-columns: minmax(0, 1fr); } }

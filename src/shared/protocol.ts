@@ -14,6 +14,7 @@ import type { OrchestratorClientMsg, OrchestratorServerMsg } from './protocol/or
 import type { PlanningClientMsg, PlanningServerMsg } from './protocol/planning.js';
 import type { PresenceClientMsg, PresenceServerMsg } from './protocol/presence.js';
 import type { ProcessClientMsg, ProcessServerMsg } from './protocol/process.js';
+import type { SessionsClientMsg, SessionsServerMsg } from './protocol/sessions.js';
 import type { QueueClientMsg, QueueServerMsg } from './protocol/queue.js';
 import type { ReaClientMsg, ReaServerMsg } from './protocol/rea.js';
 import type { StatusClientMsg, StatusServerMsg } from './protocol/status.js';
@@ -34,6 +35,7 @@ export * from './protocol/orchestrator.js';
 export * from './protocol/planning.js';
 export * from './protocol/presence.js';
 export * from './protocol/process.js';
+export * from './protocol/sessions.js';
 export * from './protocol/queue.js';
 export * from './protocol/rea.js';
 export * from './protocol/status.js';
@@ -53,6 +55,7 @@ export type ClientMsg =
   | PlanningClientMsg
   | OporaClientMsg
   | OrchestratorClientMsg
+  | SessionsClientMsg
   | FloorClientMsg
   | PlanClientMsg
   | ChangesClientMsg
@@ -82,6 +85,7 @@ export type ServerMsg =
   | PlanningServerMsg
   | OporaServerMsg
   | OrchestratorServerMsg
+  | SessionsServerMsg
   | FloorServerMsg
   | ChangesServerMsg
   | AccountsServerMsg

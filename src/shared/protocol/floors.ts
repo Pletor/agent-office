@@ -15,6 +15,7 @@ import type { MeetingState } from './meetings.js';
 import type { OporaState } from './opora.js';
 import type { OrchestratorState } from './orchestrator.js';
 import type { PlanningState } from './planning.js';
+import type { SessionsState } from './sessions.js';
 import type { PeerInfo } from './presence.js';
 import type { QueueState } from './queue.js';
 import type { ServicesState } from './settings.js';
@@ -128,6 +129,8 @@ export interface FloorView {
   opora: OporaState;
   /** The card picked for the orchestrator at the Opora Control Center's right board, and the overview its planner gets. */
   orchestrator: OrchestratorState;
+  /** The floor's sessions for the planning room's third screen: checklists, sub-sessions, context, what they ask (see server/sessions/). */
+  sessions: SessionsState;
   /** The basketball by the hoop: who has it, or how it was last thrown. */
   ball: BallState;
   /** The cars in the garage (see CARS in shared/garage.ts): where each one is, and who's in it. */

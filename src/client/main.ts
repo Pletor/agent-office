@@ -76,6 +76,7 @@ import { installDesignPreview } from './features/design-preview';
 import { installLens } from './features/lens';
 import { installOporaPlan } from './features/opora-plan';
 import { installOrchestrator } from './features/orchestrator';
+import { installSessions } from './features/sessions';
 import { installWorkerActions } from './features/workers/actions';
 import { installWorkerViews } from './features/workers/views';
 
@@ -206,6 +207,7 @@ installDesignPreview(ctx);
 installLens(ctx);
 installOporaPlan(ctx);
 installOrchestrator(ctx);
+installSessions(ctx, { answerWorker: (id) => parts.waiting.answerWorker(id) });
 parts.hud = installHud(ctx, core, parts);
 
 // ---- Main loop ---------------------------------------------------------------------------------------
