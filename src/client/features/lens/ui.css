@@ -1,0 +1,15 @@
+/* The Lens section of the process wall's card inspector (features/lens/ui.ts). */
+.pw-sec.lens { --mono: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace; display: grid; gap: 8px; min-width: 0; }
+.lens-body { display: grid; gap: 8px; min-width: 0; }
+.lens-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lens-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.lens-tab { font: 800 12px/1.2 var(--font); padding: 3px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); cursor: pointer; }
+.lens-tab.on { background: var(--ink); color: var(--paper); }
+.lens-tab.empty:not(.on) { color: var(--muted); border-style: dashed; }
+.lens-tab:focus-visible, .lens-open:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.lens-open { margin-left: auto; font-size: 12px; font-weight: 900; color: var(--ink); }
+.lens-meta { font-size: 11px; font-weight: 800; color: var(--muted); }
+.lens-title { font-size: 14px; font-weight: 900; overflow-wrap: anywhere; }
+.lens-sum { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.45; overflow-wrap: anywhere; }
+.lens-d { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 5px; border: 2px solid var(--ink); font: 900 11px/1 var(--mono); flex: none; background: #e9ecef; }
+.lens-d.added { background: var(--good); } .lens-d.modified { background: var(--warn); } .lens-d.removed { background: var(--bad); color: #fff; }
