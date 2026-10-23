@@ -3,6 +3,7 @@ import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runPinnedNode } from './invoke-node-process.js';
+import { invocationObservation } from './invoke-observation.js';
 
 type Execution = { executionId: string; epoch: number; project: string; workspace: string; nodeId: string; acceptedRevision: string; assignmentDigest: string };
 type Resource = { resource: string; category: string; content: string; digest: string; requires: string[] };
@@ -72,10 +73,11 @@ export async function invokeNode(read: () => Promise<Receipt>, resourceId: strin
     let current = false;
     try { current = await check(); } catch { /* unavailable is not current */ }
     try { await rm(directory, { recursive: true, force: true, maxRetries: 3 }); } catch { cleanup = false; }
-    return { schema: 'harness.invocation/1', invocationId: randomUUID(), execution: receipt.execution,
+    const measured = { schema: 'harness.invocation/1', invocationId: randomUUID(), execution: receipt.execution,
       resource: { id: resource.resource, digest: resource.digest }, adapter: 'node-readonly/1', nodeVersion: process.version,
       ...result, outcome: current && cleanup && result.reason === 'completed' && result.exitCode === 0 ? 'pass' : 'fail',
       authorityCurrentAtCompletion: current, cleanupComplete: cleanup, evidence: 'worker-observed', independentlyVerified: false,
       causalContribution: false, promotionAllowed: false, tokens: null, cost: null };
+    return { ...measured, observation: invocationObservation(measured) };
   } finally { await rm(directory, { recursive: true, force: true, maxRetries: 3 }).catch(() => { cleanup = false; }); }
 }
