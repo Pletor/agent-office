@@ -13,6 +13,13 @@ export function addInspectorSection(section: (lane: Lane) => Node | null): () =>
   return () => { const i = sections.indexOf(section); if (i >= 0) sections.splice(i, 1); };
 }
 
+/** Only those sections, for a lane: the card inspector's end, and a card picked in Lens plánu (features/opora-plan). */
+export function inspectorSections(lane: Lane): Node[] {
+  const out: Node[] = [];
+  for (const section of sections) { const el = section(lane); if (el) out.push(el); }
+  return out;
+}
+
 const isCheck = (e: ProcessEvent) => e.kind === 'pr.checks' || e.kind === 'check.self' || (e.kind === 'tool.use' && (e.tool?.action === 'test' || e.tool?.action === 'failing'));
 
 function onTurn(lane: Lane): HTMLElement {
@@ -67,6 +74,6 @@ export function renderInspector(lane?: Lane): Node[] {
         h('div.t', { title: e.detail ?? '' }, e.title))));
   }
   out.push(h('section.pw-sec', {}, h('span.k', {}, 'Poslední události'), lane.events.length ? tl : h('span.pw-note', {}, 'Karta je známá ze stavu kanceláře, ale zatím nic nehlásila.')));
-  for (const section of sections) { const el = section(lane); if (el) out.push(el); }
+  out.push(...inspectorSections(lane));
   return out;
 }

@@ -74,6 +74,7 @@ import { installWhiteboard } from './features/whiteboard';
 import { installProcessWall } from './features/process-wall';
 import { installDesignPreview } from './features/design-preview';
 import { installLens } from './features/lens';
+import { installOporaPlan } from './features/opora-plan';
 import { installWorkerActions } from './features/workers/actions';
 import { installWorkerViews } from './features/workers/views';
 
@@ -202,6 +203,7 @@ installDictation(ctx);
 installProcessWall(ctx);
 installDesignPreview(ctx);
 installLens(ctx);
+installOporaPlan(ctx);
 parts.hud = installHud(ctx, core, parts);
 
 // ---- Main loop ---------------------------------------------------------------------------------------

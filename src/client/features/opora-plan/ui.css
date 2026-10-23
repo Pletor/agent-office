@@ -1,0 +1,24 @@
+/* The process wall window's "Lens plánu" tab (features/opora-plan/tab.ts). */
+.op-tab { display: grid; grid-template-columns: minmax(230px, 310px) minmax(0, 1fr); gap: 14px; min-height: 0; }
+.op-q { width: 100%; max-width: none; font-weight: 700; }
+.op-list { padding-bottom: 6px; }
+.op-group h4 { display: flex; justify-content: space-between; gap: 8px; margin: 0; padding: 10px 14px 4px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.op-card { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 14px; border: 0; border-bottom: 2px solid var(--line-2); background: #fff; color: var(--ink); font: 800 13px/1.3 var(--font); text-align: left; cursor: pointer; }
+.op-card:hover { background: var(--paper); }
+.op-card.on { background: var(--ink); color: var(--paper); }
+.op-card:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.op-card .nm { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.op-card .op-st { font-size: 11px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+.op-card.on .op-st { color: inherit; opacity: .8; }
+.op-live { font-size: 10px; font-weight: 900; padding: 0 5px; border: 2px solid currentColor; border-radius: 6px; white-space: nowrap; }
+.op-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--ink); background: #fff; flex: none; }
+.op-card.on .op-dot { border-color: var(--paper); }
+.op-dot.s-closed { background: var(--good); } .op-dot.s-claimed { background: var(--info); }
+.op-dot.s-blocked { background: var(--bad); } .op-dot.s-waiting { background: var(--warn); } .op-dot.s-frontier { background: #c9f5e8; }
+.op-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-back[hidden] { display: none; }
+.op-back { margin-left: auto; padding: 3px 10px; font-size: 12px; box-shadow: 0 2px 0 var(--ink); }
+.op-detail .pw-notice { margin: 0; }
+@media (max-width: 760px) {
+  .op-tab { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(150px, 36%) minmax(0, 1fr); }
+}

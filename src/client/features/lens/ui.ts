@@ -11,8 +11,10 @@ import './ui.css';
 const ABSENT: Record<string, string> = {
   none: 'Opora k ní zatím nic nemá.',
   missing: 'Tahle Opora ji ještě neumí vydat (404).',
-  unavailable: 'Opora teď neodpovídá.',
+  unavailable: 'Opora nedostupná: teď neodpovídá.',
 };
+/** What "nothing recorded" means on each tab, in words. */
+const NONE = { pr: 'Karta zatím nemá PR Lens.', area: 'Karta zatím nemá mapu oblasti.', plan: 'Oblast karty zatím nemá plán Lens.' };
 
 type ViewId = 'pr' | 'area' | 'plan';
 interface Shown { id: ViewId; label: string; view?: LensView; meta: string[]; absent?: string; plan?: PlanLens }
@@ -20,13 +22,13 @@ interface Shown { id: ViewId; label: string; view?: LensView; meta: string[]; ab
 function shown(r: OporaLensReply): Shown[] {
   const out: Shown[] = [];
   const pr = r.card.pr;
-  out.push({ id: 'pr', label: 'Změna (PR)', view: pr, absent: pr ? undefined : r.card.state === 'ok' ? ABSENT.none : ABSENT[r.card.state],
+  out.push({ id: 'pr', label: 'Změna (PR)', view: pr, absent: pr ? undefined : r.card.state === 'ok' || r.card.state === 'none' ? NONE.pr : ABSENT[r.card.state],
     meta: pr ? [pr.number ? `PR #${pr.number}` : '', pr.prState ?? '', pr.current === false ? 'Lens je ze starší verze' : pr.current ? 'aktuální head' : '', pr.by ? `kreslil ${pr.by}` : ''].filter(Boolean) : [] });
   const area = r.card.area;
-  out.push({ id: 'area', label: 'Mapa oblasti', view: area, absent: area ? undefined : r.card.state === 'ok' ? ABSENT.none : ABSENT[r.card.state],
+  out.push({ id: 'area', label: 'Mapa oblasti', view: area, absent: area ? undefined : r.card.state === 'ok' || r.card.state === 'none' ? NONE.area : ABSENT[r.card.state],
     meta: area ? [area.acceptedRevision !== undefined ? `plán rev. ${area.acceptedRevision}` : '', area.by ? `kreslil ${area.by}` : ''].filter(Boolean) : [] });
   const plan = r.plan;
-  out.push({ id: 'plan', label: 'Plán oblasti', view: plan.view, absent: plan.view ? undefined : ABSENT[plan.state === 'ok' ? 'none' : plan.state],
+  out.push({ id: 'plan', label: 'Plán oblasti', view: plan.view, absent: plan.view ? undefined : plan.state === 'ok' || plan.state === 'none' ? NONE.plan : ABSENT[plan.state],
     plan, meta: [plan.area ? `oblast ${plan.area}` : '', plan.digest ? `otisk ${plan.digest.slice(0, 12)}` : '', plan.graphify?.sourceRevision ? `Graphify ${plan.graphify.sourceRevision.slice(0, 12)}` : ''].filter(Boolean) });
   return out;
 }
