@@ -41,8 +41,13 @@ export async function harnessHierarchyRequest(ctx: Ctx, floor: Floor, req: http.
         if (level === 'global' && !authority.globalWrite) throw new HarnessError('Globální nastavení patří správci v kanceláři.', 403);
         const layer = parseHarnessLayer(body.layer);
         if (target && body.pathDigest !== context.digest) throw new HarnessError('Hierarchie se změnila. Načtěte ji znovu před uložením.', 409);
-        const library = new HarnessLibrary(harnessSources(floor.dir, authority.local)), catalog = await library.list();
-        for (const binding of Object.values(layer)) if (binding && 'resource' in binding && !catalog.entries.some(e => e.id === binding.resource)) throw new HarnessError('Prostředek není dostupný v tomto projektu: ' + binding.resource);
+        const library = new HarnessLibrary(harnessSources(floor.dir, authority.local));
+        await library.list();
+        for (const binding of Object.values(layer)) if (binding && 'resource' in binding) {
+          const entry = await library.read(binding.resource);
+          if (!entry) throw new HarnessError('Prostředek není dostupný v tomto projektu: ' + binding.resource);
+          if (level === 'global' && !['Harness handbook', 'Shared harness'].includes(entry.source)) throw new HarnessError('Globální prostředek musí být veřejně sdílený všem pracovníkům: ' + binding.resource);
+        }
         const prospective = store.view(floor.dir, context.path);
         prospective.layers[level] = layer;
         prospective.effective = resolveHarness(level === 'global' ? { global: layer } : prospective.layers, prospective.path);

@@ -15,12 +15,15 @@ export async function buildHarnessKit(library: HarnessLibrary, problem: string, 
   if (ids.length > 24 || new Set(ids).size !== ids.length || ids.some(id => !validId(id))) throw new HarnessError('Choose at most 24 distinct catalog resource IDs.');
   await library.list();
   const kit: HarnessKit = { schema: 'harness.kit/1', problems: [problem], resources: [] };
+  const canonical = new Set<string>();
   for (const id of ids) {
     const entry = await library.read(id);
     if (!entry) throw new HarnessError('Resource is unavailable for this worker: ' + id, 404);
+    if (canonical.has(entry.id)) throw new HarnessError('Select each canonical resource only once: ' + entry.id);
+    canonical.add(entry.id);
     if (entry.text.includes('\0') || [...entry.text].some(c => { const code = c.codePointAt(0)!; return code >= 0xd800 && code <= 0xdfff; })) throw new HarnessError('Resource is not valid UTF-8 text: ' + id);
-    kit.resources.push({ slot: entry.category + '.' + createHash('sha256').update(id).digest('hex'),
-      resource: id, category: entry.category, digest: createHash('sha256').update(entry.text, 'utf8').digest('hex'),
+    kit.resources.push({ slot: entry.category + '.' + createHash('sha256').update(entry.id).digest('hex'),
+      resource: entry.id, category: entry.category, digest: createHash('sha256').update(entry.text, 'utf8').digest('hex'),
       content: entry.text, requires: [] });
     if (kitBytes(kit) > 96 * 1024) throw new HarnessError('Harness kit exceeds 96 KiB including metadata and Unicode escapes.');
   }

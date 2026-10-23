@@ -45,8 +45,11 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
   profile?: HarnessProfile, history: NativeHistory = noHistory('no-native-peer')) {
   validateRecommendation(problem, capabilities);
   const catalog = await library.list(), policy = await toolbox(library, catalog.entries, problem), descriptors = policy.descriptors;
-  const explicit = new Set(Object.values(profile?.effective ?? {}).flatMap(({ binding }) => binding && 'resource' in binding ? [binding.resource] : []));
-  const blocked = disabled(profile, catalog.entries.map(entry => entry.id));
+  const canonical = new Map(catalog.entries.flatMap(entry => [entry.id, ...((entry as { aliases?: string[] }).aliases ?? [])].map(id => [id, entry.id] as const)));
+  const normalize = (id: string) => canonical.get(id) ?? id;
+  const explicit = new Set(Object.values(profile?.effective ?? {}).flatMap(({ binding }) => binding && 'resource' in binding ? [normalize(binding.resource)] : []));
+  const blocked = new Set([...disabled(profile, [...canonical.keys()])].map(normalize));
+  for (const id of explicit) blocked.delete(id);
   const automatic = profile?.effective['settings.harness.auto']?.binding;
   const auto = !(automatic && 'value' in automatic && automatic.value === false);
   const baseline = auto ? ['guide:instructions', 'guide:testing'].filter(id => !blocked.has(id)) : [];

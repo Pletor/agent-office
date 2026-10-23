@@ -58,14 +58,16 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
     const entries = [...(catalog?.entries ?? [])];
     for (const value of Object.values(model.effective)) if (value.binding && 'resource' in value.binding) {
       const id = value.binding.resource;
-      if (!entries.some(entry => entry.id === id)) entries.push({ id, title: 'Nedostupný prostředek: ' + id, category: 'instructions', source: 'uložené nastavení', path: id });
+      if (!entries.some(entry => entry.id === id || (entry as { aliases?: string[] }).aliases?.includes(id))) entries.push(Object.assign({ id, title: 'Nedostupný prostředek: ' + id, category: 'instructions' as const, source: 'uložené nastavení', path: id }, { group: '', version: 0, digest: '', aliases: [] }));
     }
     rows.replaceChildren(...entries.filter(entry => words.every(word => (entry.title + ' ' + entry.category + ' ' + entry.path).toLowerCase().includes(word))).map(entry => {
-      const active = Object.values(model.effective).filter(item => item.binding && 'resource' in item.binding && item.binding.resource === entry.id);
-      const inherited = Object.values(model.upstream).some(item => item.binding && 'resource' in item.binding && item.binding.resource === entry.id);
+      const aliases = (entry as { aliases?: string[] }).aliases ?? [];
+      const matches = (id: string) => entry.id === id || aliases.includes(id);
+      const active = Object.values(model.effective).filter(item => item.binding && 'resource' in item.binding && matches(item.binding.resource));
+      const inherited = Object.values(model.upstream).some(item => item.binding && 'resource' in item.binding && matches(item.binding.resource));
       const checkbox = h('input', { type: 'checkbox', checked: active.length > 0, disabled: !writable(), 'aria-label': entry.title });
-      checkbox.onchange = () => { draft = setResource(view!, draft, entry.id, checkbox.checked); changed(); };
-      const restore = h('button.btn', { type: 'button', disabled: !writable(), onclick: () => { draft = setResource(view!, draft, entry.id, 'inherit'); changed(); } }, 'Dědit');
+      checkbox.onchange = () => { draft = setResource(view!, draft, entry.id, checkbox.checked, aliases); changed(); };
+      const restore = h('button.btn', { type: 'button', disabled: !writable(), onclick: () => { draft = setResource(view!, draft, entry.id, 'inherit', aliases); changed(); } }, 'Dědit');
       const origin = active.length ? [...new Set(active.map(item => HARNESS_LEVEL_NAMES[item.scope] + (item.nodeName ? ' / ' + item.nodeName : '')))].join(', ') : inherited ? 'Zděděný prostředek vypnutý zde' : 'Nepoužívá se';
       return h('div.harness-resource-check', {}, h('label', {}, checkbox, h('span', {}, h('strong', {}, entry.title), h('small', {}, entry.category + ' · ' + origin), experience.badge(entry.id))), restore);
     }));

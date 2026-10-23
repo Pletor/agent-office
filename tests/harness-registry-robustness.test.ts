@@ -54,14 +54,14 @@ test('a project element is refused in the global layer; a repository binding in 
   assert.doesNotThrow(() => assertBindable(libA, 'task', xA.id));
   assert.doesNotThrow(() => assertBindable(libA, 'global', 'guide:testing'), 'the handbook is the same everywhere');
   const profiles = new HarnessProfiles(data);
-  profiles.save(at('a'), '', 'repository', { 'rules.quality': { resource: xA.id } }, 0);
+  await profiles.save(at('a'), '', 'repository', { 'rules.quality': { resource: xA.id } }, 0);
   assert.match(await harnessHandoff(data, at('a'), '', false), /rules of A/);
   assert.match(await harnessHandoff(data, at('b'), '', false), /No resource instructions assigned/, 'A\'s repository binding is invisible in B');
   // A store written before the rule (or by hand) holding a global binding to a project element: B's handoff must not pick up B's same-path file.
-  profiles.save(at('a'), '', 'global', { 'rules.quality': { resource: xA.id } }, 1);
+  await profiles.save(at('a'), '', 'global', { 'rules.quality': { resource: xA.id } }, 1);
   await assert.rejects(harnessHandoff(data, at('b'), '', false), /unavailable for this worker: project-scoped element in global layer/);
   assert.match(await harnessHandoff(data, at('a'), '', false), /rules of A/, 'the repository binding of A still overrides the global slot');
-  profiles.save(at('a'), '', 'repository', {}, 2);
+  await profiles.save(at('a'), '', 'repository', {}, 2);
   await assert.rejects(harnessHandoff(data, at('a'), '', false), /project-scoped element in global layer/, 'the rule does not depend on which project happens to match');
   const machine = { name: 'Machine / skills', dir: at('machine'), ns: 'machine', prefix: '.claude/skills', category: 'skills' as const };
   await put('machine/tooling/SKILL.md', 'shared');
@@ -274,7 +274,7 @@ test('after a checkout move the canonical ID and the new alias resolve; the alia
   const oldAlias = legacy(at('one/.harness/rules/review.md'));
   assert.deepEqual(before.aliases, [oldAlias]);
   const profiles = new HarnessProfiles(data);
-  profiles.save(at('one'), '', 'repository', { 'rules.quality': { resource: oldAlias } }, 0);
+  await profiles.save(at('one'), '', 'repository', { 'rules.quality': { resource: oldAlias } }, 0);
   await rename(at('one'), at('two'));
   const moved = lib(at('two'), data);
   const after = (await moved.list()).entries.find((e) => e.path === 'rules/review.md')!;
@@ -284,9 +284,9 @@ test('after a checkout move the canonical ID and the new alias resolve; the alia
   assert.equal(moved.resolve(after.id).status, 'available');
   // Repository profiles are keyed by the checkout path too, so the moved checkout starts with no layer; the old one, if reused, would block on the alias.
   assert.deepEqual(profiles.view(at('two')).layers.repository, {});
-  profiles.save(at('two'), '', 'repository', { 'rules.quality': { resource: oldAlias } }, 1);
+  await profiles.save(at('two'), '', 'repository', { 'rules.quality': { resource: oldAlias } }, 1);
   await assert.rejects(harnessHandoff(data, at('two'), '', false), /unavailable for this worker/);
-  profiles.save(at('two'), '', 'repository', { 'rules.quality': { resource: after.id } }, 2);
+  await profiles.save(at('two'), '', 'repository', { 'rules.quality': { resource: after.id } }, 2);
   assert.match(await harnessHandoff(data, at('two'), '', false), new RegExp('Element: ' + after.id + ' · revision 1'));
 });
 

@@ -51,6 +51,8 @@ const leftovers = async (data: string) => (await readdir(data)).filter((f) => f.
 
 test('stale takeover vs a fresh lock: a lock replaced between the observation and the rename is put back, never deleted, and the contender does not acquire', async (t) => {
   const { put, data, lock } = await fixture(t);
+  const now = Date.now();
+  t.mock.method(Date, 'now', () => now);
   await put('data/harness-registry.json.lock', 'dead-owner 0');
   const old = new Date(Date.now() - 60_000);
   await utimes(lock, old, old);
@@ -228,7 +230,7 @@ test('private OpenViking files cannot become global policy merely by pinning the
   assert.equal((await pinned.read(ep.id))?.text, 'Viking A');
   // The handoff applies the same rule to a global binding already in the store.
   const profiles = new HarnessProfiles(data);
-  profiles.save(at('a'), '', 'global', { 'memory.recall': { resource: ea.id } }, 0);
+  await profiles.save(at('a'), '', 'global', { 'memory.recall': { resource: ea.id } }, 0);
   const env = process.env.AGENT_OFFICE_OPENVIKING_DIR;
   t.after(async () => { if (env === undefined) delete process.env.AGENT_OFFICE_OPENVIKING_DIR; else process.env.AGENT_OFFICE_OPENVIKING_DIR = env; });
   delete process.env.AGENT_OFFICE_OPENVIKING_DIR;

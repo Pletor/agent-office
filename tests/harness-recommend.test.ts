@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { HarnessLibrary, harnessSources } from '../src/server/harness/catalog.js';
 import { recommendHarness, toolVersion } from '../src/server/harness/recommend.js';
+import { buildHarnessKit } from '../src/server/harness/kit.js';
 import { nativeHistory, parseNativeHistory } from '../src/server/harness/native-outcomes.js';
 import { parseToolbox } from '../src/server/harness/toolbox.js';
 import { resolveHarness, type HarnessProfile } from '../src/shared/harness-cascade.js';
@@ -36,6 +37,24 @@ function cohort(resource: string, content: string, pass = 5, fail = 0, tier = 'v
 function profile(global = {}, repository = {}, task = {}): HarnessProfile {
   const layers = { global, repository, task }; return { revision: 3, layers, effective: resolveHarness(layers) };
 }
+
+test('catalog aliases preserve explicit and disabled choices and cannot duplicate a kit resource', async t => {
+  const f = await fixture(t), canonical = f.id('a'), alias = 'legacy-resource';
+  const list = f.library.list.bind(f.library), read = f.library.read.bind(f.library);
+  t.mock.method(f.library, 'list', async () => {
+    const catalog = await list();
+    return { ...catalog, entries: catalog.entries.map(entry => entry.id === canonical ? { ...entry, aliases: [alias] } : entry) };
+  });
+  t.mock.method(f.library, 'read', (id: string) => read(id === alias ? canonical : id));
+  const explicit = await recommendHarness(f.library, 'ts.references', ['command:node'], profile({ work: { resource: alias } }));
+  assert.ok(explicit.selected.includes(canonical));
+  assert.equal(explicit.selected.includes(alias), false);
+  assert.ok(explicit.kit!.resources.some(resource => resource.resource === canonical));
+  const disabled = await recommendHarness(f.library, 'ts.references', ['command:node'], profile({ work: { resource: alias } }, {}, { work: null }));
+  assert.equal(disabled.selected.includes(canonical), false);
+  assert.equal(disabled.candidates.find(candidate => candidate.id === canonical)!.state, 'disabled');
+  await assert.rejects(buildHarnessKit(f.library, 'ts.references', [alias, canonical]), /canonical resource only once/);
+});
 
 test('unknown history adds at most one tool candidate and preserves exact pinned content and requirements', async t => {
   const f = await fixture(t), result = await recommendHarness(f.library, 'ts.references', ['command:node']);
