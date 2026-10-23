@@ -85,46 +85,19 @@ Build with `npm run build`, then run `node bin/agent-office.js . --port 4617 --p
 
 Keyboard: the search field has focus on open (a moment after, so the **E** that opened the shelf isn't typed into it); **/** jumps back to it, **↑/↓/Home/End** move through the resource list, and **Tab** stays inside the library until you close it, after which focus returns to where it was. On a phone (≤ 700 px) the list and the reader take turns on the screen; **← Resources** goes back to the list. Loading shows placeholder rows, a failed load or read offers **Try again**, and an empty catalog or a search with no results says what to do next. Animations stop under the system's reduced-motion setting. The example password is for a loopback-only disposable preview, not a network deployment.
 
-Open **Inheritance: Global → Repository → Task**. Each layer is a JSON object of named slots:
+Open **Pracovní výbava** for the seven-level checkbox editor. Choose a project, connect its floor to the open Opora project/workspace, then select the page, layer, area, sector or card. Enabled resources show where they came from; uncheck to disable their slots here or choose **Dědit** to restore inheritance. Save explicitly. Advanced JSON supports scalar settings and named resource slots. Switching scope or reloading discards unsaved edits; failed saves retain the draft.
 
-```json
-{
-  "rules.quality": { "resource": "guide:testing" },
-  "settings.language": { "value": "cs" },
-  "tools.browser": null
-}
-```
-
-- **Global** applies to all repository floors in this office instance. Separate running offices do not share this store.
-- **Repository** overrides matching global slots for this floor's checkout; other slots inherit.
-- **Task** overrides matching slots for the selected task in that repository. Task IDs from Opora include project, workspace and card, so the same short ID elsewhere cannot collide.
-- A missing key inherits. `null` explicitly disables an inherited assignment. Delete the override to inherit again. A binding replaces the whole binding at that key; there is no deep merge or instruction concatenation for the same slot.
-
-Try `{"settings.color":{"value":"red"}}` globally, `blue` for the repository, and `green` for a task. Save each layer and inspect **Effective slots and their origins**. Removing the task override should reveal `blue`, then removing the repository override reveals `red`. Load a task before saving it. Switching scope or reloading discards unsaved edits. A revision conflict requires reloading; stale editors cannot overwrite another user's changes.
-
-For resources, choose a semantic slot and scope in the inheritance editor, collapse it, select a book, click **Assign resource**, and **Save layer**. The first opening loads profiles automatically; the default slot is `rules.quality` at repository scope. Assignment edits and ad-hoc **Add to pack** selections are intentionally separate. Saving a layer persists assignments; exporting a pack does not.
-
-**Resolved handoff preview** shows the exact saved configuration/content to be supplied to a worker, with scope provenance and SHA-256 snapshot digest. Missing or inaccessible resources show a blocking warning. Profiles survive restarts in `<office dataDir>/harness-profiles.json`. Repository identity is the absolute checkout path (case-insensitive on Windows); moving a checkout requires reassigning its repository/task profiles. Resource IDs are local installation IDs, not portable package names.
+See [Seven-level Harness inheritance](harness-hierarchy.md) for the exact Canvas mapping, binding rules, migration/backup requirements, agent commands and verification. Global defaults are shared across floors of this office instance. Independent offices do not share a global store. Repository identity is the absolute checkout path; node keys include project, workspace and card IDs.
 
 ## Orchestrator handoff
 
-The Opora planner/router receives these instructions automatically and has `office-harness` on PATH:
+Use `office-harness --hierarchy` to inspect the real hierarchy and its profile/binding revisions, `--bind PROJECT WORKSPACE REVISION` to connect the open project, and `--configure LEVEL assignments.json --task KEY` to save a node layer. The file contains `revision`, `pathDigest` and the complete replacement `layer`. Only the active administrator-owned planner/router may edit; global writes belong to the administrator UI. Ordinary workers can read project resources. Browser mutations require same-origin administrator sessions.
 
-```sh
-office-harness --catalog
-office-harness --effective
-office-harness --effective --task 'opora:PROJECT:WORKSPACE:CARD'
-office-harness --assign repository assignments.json
-office-harness --assign task assignments.json --task 'opora:PROJECT:WORKSPACE:CARD'
-```
+The legacy `--effective` / `--assign repository|task` commands remain compatible with custom/unbound task IDs. Bound Opora nodes require `--hierarchy` / `--configure` for writes. Read-only local catalog and bundle commands are unchanged.
 
-Use the actual namespaced task IDs returned by `--effective` (components are URL-encoded). `assignments.json` contains `{"revision":N,"layer":{...}}`, with the latest revision and the **complete replacement layer**. Include unchanged slots you want to retain. Configure task requirements before making a card runnable; automatic handout may dispatch ready cards as soon as the orchestrator finishes a turn.
+Context v1 handoffs resolve all seven levels before claiming a bound Opora card and embed the resource contents and snapshot digest. Missing resources or unavailable bindings block preparation; later edits do not change a seated worker. Context v2 receives its immutable accepted Canvas assignment without dynamic Harness additions. Limits remain 64 slots per layer, 24 distinct effective resources, 96 KiB resolved handoff and 2 MiB profile storage.
 
-Browser writes require an administrator/shared-password session and same-origin requests. The worker endpoint uses the worker's hook token and derives its repository from that worker, not caller input. Only the active Opora planner/router belonging to an administrator (or shared-password session) may change repository/task layers. Global writes are administrator UI-only. Ordinary workers can inspect their project-scoped effective context but cannot edit profiles or discover administrator machine resources.
-
-Every `OporaBridge.take` path (manual take, autopilot, orchestrator handout) resolves profiles before claiming the card. It reads the selected resources, embeds the manifest and contents in the worker's initial prompt, and fails before claiming if something is unavailable or exceeds the budget. Later profile edits do not change an already seated worker's prompt. Limits: 64 slots per layer, 24 distinct effective resources, 96 KiB resolved handoff, 2 MiB persisted profiles. Invalid saved JSON fails closed and is not overwritten.
-
-This first integration applies to **Opora card dispatch**, not arbitrary direct hires or the unrelated file-planning queue. Scalar settings are **context requirements**, not runtime provider flags: `settings.model` does not change the actual model selection. Resources do not install hooks, execute scripts, connect MCP, start OpenViking, grant tool permissions or override native runner/user instructions. Confirm those capabilities in the selected runner before relying on them.
+Scalar settings are context requirements, not runtime provider flags. Selecting tools, scripts, hooks, MCP or memory references does not execute, install, connect or grant permission to them. This hierarchy change does not add automatic recommendation, outcome measurements, Context7 queries or OpenViking persistence.
 
 ## Accepted tool kits
 
@@ -159,6 +132,6 @@ previously emitted kits retain their exact content. On PowerShell, save stdout w
 
 Run `npm run typecheck`, `npm test`, and `npm run build`. Focused coverage: `node --import tsx --import=#tests/css --test tests/harness*.test.ts tests/opora.test.ts tests/size.test.ts`.
 
-With the isolated office running on 4617, `node tests/harness-office.browser.mjs` tests the **production bundle**, real session/catalog, F8 and **E** at the shelf (both open with an empty search, so the E isn't typed into it, and searching *hooks* finds *Hooks and lifecycle*) and ✕/Esc mouse-look behavior. For the editable visual lab, run Vite on 5187 and `node tests/harness-live.browser.mjs`: this forwards requests to the real authenticated office API, exercises all three layers and restores test settings unless a concurrent edit intervenes. It does not launch paid agents. `node tests/harness-screens.browser.mjs` (Vite on 5187, after `npm run build`) checks the full-screen layout at 1440 × 900 and 390 × 844: ✕ placement, focus trap and return, keys, phone panes, long content, loading, error, empty and no-match states, and no sideways scroll. `node tests/harness.browser.mjs` (Vite on 5187, after `npm run build`) serves the lab page from the real catalog and reader, then walks the library: opening it, adding a memory resource to a context pack, downloading the pack, Esc and ✕, the no-match state and the 390 px phone layout without sideways scroll, with no page errors. `HARNESS_OFFICE_URL`, `HARNESS_PASSWORD`, `HARNESS_FLOOR`, `HARNESS_LAB_URL` and `HARNESS_SHOTS` customize these tests. Screenshots default to the OS temporary directory.
+With the isolated office running on 4617, `node tests/harness-office.browser.mjs` tests the **production bundle**, real session/catalog, F8 and **E** at the shelf (both open with an empty search, so the E isn't typed into it, and searching *hooks* finds *Hooks and lifecycle*) and ✕/Esc mouse-look behavior. For the hierarchy visual lab, run Vite on 5192 and `node tests/harness-hierarchy.browser.mjs`; it exercises all seven selectors and checkbox saves against a disposable fixture. It launches no paid agents and writes no live settings. The old `harness-live.browser.mjs` targets the retired three-level editor. `node tests/harness-screens.browser.mjs` (Vite on 5187, after `npm run build`) checks the full-screen layout at 1440 × 900 and 390 × 844: ✕ placement, focus trap and return, keys, phone panes, long content, loading, error, empty and no-match states, and no sideways scroll. `node tests/harness.browser.mjs` (Vite on 5187, after `npm run build`) serves the lab page from the real catalog and reader, then walks the library: opening it, adding a memory resource to a context pack, downloading the pack, Esc and ✕, the no-match state and the 390 px phone layout without sideways scroll, with no page errors. `HARNESS_OFFICE_URL`, `HARNESS_PASSWORD`, `HARNESS_FLOOR`, `HARNESS_LAB_URL` and `HARNESS_SHOTS` customize these tests. Screenshots default to the OS temporary directory.
 
 ![Persisted inheritance editor and scope provenance](images/harness-cascade.png)

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { recommendationArgs } from './harness-recommend.js';
 import { searchCatalog } from './harness-search.js';
 import { harnessBundle } from '../dist/server/shared/harness.js';
+import { hierarchyCommand } from './harness-hierarchy.js';
 
 /** Worker-authenticated access; never fall back to local machine access when credentials exist. */
 export async function remoteHarness(argv) {
@@ -18,7 +19,8 @@ export async function remoteHarness(argv) {
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID ?? '');
   if (task) url.searchParams.set('task', task);
   let body;
-  if (action === '--read' && args.length === 1) url.searchParams.set('read', args[0]);
+  if (['--hierarchy', '--configure', '--bind'].includes(action)) body = hierarchyCommand(action, args, task, url);
+  else if (action === '--read' && args.length === 1) url.searchParams.set('read', args[0]);
   else if (action === '--search') url.searchParams.set('catalog', '1');
   else if (action === '--bundle' && args.length >= 1 && args.length <= 24) {
     url.searchParams.set('kit', '1'); url.searchParams.set('problem', 'reference.read');
