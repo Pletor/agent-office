@@ -133,34 +133,47 @@ export interface LensEvidence {
   specSha256: string; specBytes: number; spec?: unknown; note?: string; stale?: boolean;
 }
 export type LensOutcome = 'recorded' | 'not-deployed' | 'conflict' | 'failed';
+/** What Canvas answered: the outcome and, when it refused or couldn't be reached, why (its own error text, capped; never the request). */
+export interface LensReply { outcome: LensOutcome; reason?: string }
+
+/** Canvas's `{error}` text or the transport's message as one short line. */
+const reasonText = (v: unknown): string => (typeof v === 'string' ? v : '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
 
 /** POST /api/oporahub/review-jobs/lens as the office's agent, with the execution's credentials like every execution post. 404: Canvas doesn't take it yet, which is fine. */
-export async function postLens(base: string, agent: string, transport: typeof fetch, lease: ExecutionLease, lens: LensEvidence): Promise<LensOutcome> {
+export async function postLens(base: string, agent: string, transport: typeof fetch, lease: ExecutionLease, lens: LensEvidence): Promise<LensReply> {
   try {
     const response = await transport(new URL('/api/oporahub/review-jobs/lens', base), {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15_000),
       headers: { Accept: 'application/json', 'Content-Type': 'application/json', Origin: new URL(base).origin, 'X-Opora-Actor': `agent; name=${agent}` },
       body: JSON.stringify({ project: lease.project, workspace: lease.workspace, token: lease.token, epoch: lease.epoch, executionId: lease.executionId, lens }),
     });
-    if (response.ok) return 'recorded';
-    return response.status === 404 ? 'not-deployed' : response.status === 409 ? 'conflict' : 'failed';
-  } catch { return 'failed'; }
+    if (response.ok) return { outcome: 'recorded' };
+    const outcome: LensOutcome = response.status === 404 ? 'not-deployed' : response.status === 409 ? 'conflict' : 'failed';
+    const said = await response.json().then((b: unknown) => (isObject(b) ? reasonText(b.error) : ''), () => '');
+    return { outcome, reason: `HTTP ${response.status}${said ? `: ${said}` : ''}` };
+  } catch (error) { return { outcome: 'failed', reason: reasonText((error as Error).message) || 'unreachable' }; }
 }
 
-export function lensEvent(lease: Pick<ExecutionLease, 'project' | 'workspace' | 'nodeId' | 'executionId'>, lens: LensEvidence, outcome: LensOutcome): ProcessInput {
+export function lensEvent(lease: Pick<ExecutionLease, 'project' | 'workspace' | 'nodeId' | 'executionId'>, lens: LensEvidence, outcome: LensOutcome, reason?: string): ProcessInput {
+  const failed = outcome === 'conflict' || outcome === 'failed';
   return {
-    kind: 'pr.lens', phase: 'review', state: lens.stale ? 'wait' : 'ok',
-    title: `PR Lens spec u PR #${lens.prNumber}`,
-    detail: `head ${lens.headSha.slice(0, 12)} · ${lens.stale ? 'ze starší verze · ' : ''}Canvas: ${outcome}`,
+    kind: 'pr.lens', phase: 'review', state: failed ? 'fail' : outcome === 'not-deployed' ? 'info' : lens.stale ? 'wait' : 'ok',
+    title: `PR Lens spec u PR #${lens.prNumber}${failed ? ' se neuložil' : ''}`,
+    detail: `head ${lens.headSha.slice(0, 12)} · ${lens.stale ? 'ze starší verze · ' : ''}Canvas: ${outcome}${reason ? ` (${reason})` : ''}`.slice(0, 240),
     refs: { project: lease.project, workspace: lease.workspace, cardId: lease.nodeId, executionId: lease.executionId, sha: lens.headSha, pr: lens.prNumber },
   };
 }
 
-/** What the attachment runs, the same narrow gh/Canvas the handoff fakes in tests. */
-export interface LensTools { gh(args: string[], cwd: string): Promise<string>; transport: typeof fetch; env: NodeJS.ProcessEnv }
+/** How long after a 409 the office tries the spec once more (Canvas may not have caught up with the PR link yet). */
+export const LENS_RETRY_MS = 60_000;
+const retryLater = (run: () => void) => { setTimeout(run, LENS_RETRY_MS).unref(); };
+
+/** What the attachment runs, the same narrow gh/Canvas the handoff fakes in tests; `later` schedules the one retry after a 409. */
+export interface LensTools { gh(args: string[], cwd: string): Promise<string>; transport: typeof fetch; env: NodeJS.ProcessEnv; later?: (run: () => void) => void }
+type LensLog = (message: string, level: 'info' | 'warn' | 'error') => void;
 export interface PreparedLens { spec: LensSpec; markdown: string; stale: boolean }
 
-/** The handoff's PR Lens step. Every failure here is swallowed: a diagram is evidence, never a gate. */
+/** The handoff's PR Lens step. A failure never stops the handoff (a diagram is evidence, never a gate), but it is logged and shown in the live process. */
 export class PrLensAttachment {
   constructor(private base: string, private agent: string, private tools: LensTools) {}
 
@@ -183,14 +196,27 @@ export class PrLensAttachment {
     } catch { /* evidence, never a gate */ }
   }
 
-  /** Sends the spec to Canvas (optional evidence, while the lease is still held) and tells the process journal. A stale spec is not sent inline. */
-  async report(lease: ExecutionLease, pr: { number: number; headSha: string }, lens: PreparedLens): Promise<LensOutcome> {
+  /**
+   * Sends the spec to Canvas (optional evidence, with the execution's credentials, after its PR is linked) and tells
+   * the process journal. A refusal or an unreachable Canvas is logged; a 409 is tried once more later. A stale spec is not sent inline.
+   */
+  async report(lease: ExecutionLease, pr: { number: number; headSha: string }, lens: PreparedLens, log: LensLog = () => {}): Promise<LensOutcome> {
     const { spec, stale } = lens;
     const inline = !stale && spec.bytes <= MAX_INLINE_SPEC;
     const evidence: LensEvidence = { prNumber: pr.number, headSha: pr.headSha, validatedAt: spec.validatedAt, specSha256: spec.sha256, specBytes: spec.bytes,
       ...(stale ? { stale: true, note: 'spec is from an older head' } : inline ? { spec: spec.doc } : { note: 'spec too large' }) };
-    const outcome = await postLens(this.base, this.agent, this.tools.transport, lease, evidence);
-    emitProcess(this.agent, lensEvent(lease, evidence, outcome));
+    const outcome = await this.send(lease, evidence, log, false);
+    if (outcome === 'conflict') (this.tools.later ?? retryLater)(() => { void this.send(lease, evidence, log, true); });
+    return outcome;
+  }
+
+  private async send(lease: ExecutionLease, evidence: LensEvidence, log: LensLog, retry: boolean): Promise<LensOutcome> {
+    const { outcome, reason } = await postLens(this.base, this.agent, this.tools.transport, lease, evidence);
+    emitProcess(this.agent, lensEvent(lease, evidence, outcome, reason));
+    if (outcome === 'conflict' || outcome === 'failed') {
+      const next = outcome === 'conflict' && !retry ? '; trying once more later' : '';
+      log(`🛰️ PR Lens for ${lease.executionId} (PR #${evidence.prNumber})${retry ? ' on retry' : ''} wasn't stored by Canvas: ${outcome} (${reason ?? 'no reason'})${next}`, 'warn');
+    } else if (retry) log(`🛰️ PR Lens for ${lease.executionId} (PR #${evidence.prNumber}) on retry: ${outcome}`, 'info');
     return outcome;
   }
 }

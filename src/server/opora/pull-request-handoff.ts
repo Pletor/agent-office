@@ -22,6 +22,8 @@ export interface HandoffTools {
   gh(args: string[], cwd: string): Promise<string>;
   transport: typeof fetch;
   env: NodeJS.ProcessEnv;
+  /** Schedules the PR Lens's one retry after a 409 (pr-lens.ts); a minute later when left out. */
+  later?: (run: () => void) => void;
 }
 export const defaultHandoffTools = (): HandoffTools => ({
   git: (args, cwd) => run('git', args, cwd, 90_000),
@@ -157,11 +159,11 @@ export class PullRequestHandoff {
       notify(`🛰️ Opora execution ${id}: ${reason}. Its Canvas result stands; open the PR by hand.`, 'warn');
       return { state: 'failed', headSha, reason };
     }
-    if (lens) {
-      if (existed && open) await this.lens.comment(repository, pr.number, lens, dir).catch(() => undefined);
-      await this.lens.report(lease, { number: pr.number, headSha }, lens).catch(() => undefined);
-    }
+    if (lens && existed && open) await this.lens.comment(repository, pr.number, lens, dir).catch(() => undefined);
     const link = await this.link(lease, { repository, number: pr.number, headRef: branch, headSha });
+    // After the link: Canvas takes a PR lens only for the execution's open linked PR at this head (Opora #61, N1).
+    if (lens) await this.lens.report(lease, { number: pr.number, headSha }, lens, notify)
+      .catch((error) => notify(`🛰️ PR Lens for ${id} failed: ${(error as Error).message}`, 'warn'));
     const linked = { linked: 'linked to its Canvas execution', 'not-deployed': "Canvas can't link pull requests yet (404); its trailers let Canvas find it later", conflict: 'Canvas refused the link as a conflict (409)', failed: "Canvas didn't confirm the link" }[link];
     notify(`🛰️ ${existed ? 'Reused' : 'Opened'} ${repository}#${pr.number} for Opora execution ${id}: ${linked}`, link === 'linked' || link === 'not-deployed' ? 'info' : 'warn');
     return { state: existed ? 'reused' : 'opened', branch, headSha, repository, number: pr.number, url: pr.url, link };
