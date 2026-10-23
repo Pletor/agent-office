@@ -61,6 +61,8 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 
 There's a lot more (a rooftop bar, an office dog, an arcade, a jukebox that keeps the songs you upload, supercars in the garage to drive round a scenic loop past a farm, pines, mountains and a beach): see [docs/features.md](docs/features.md).
 
+Authenticated workers with the accepted Node invocation adapter can compare pinned script versions using `office-harness --evaluate-pair PLAN_RESOURCE`. Predeclared cases measure output correctness separately from process success, preserve failures and unknown trials, and keep experiment outcomes separate from production-problem ratings. See [paired candidate evaluation](docs/harness-paired-evaluation.md).
+
 ## Requirements
 
 **Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP and memory references. Press **F8** anywhere (or **E** at the shelf) to open it across the whole screen, on a phone too. Save **Global → Repository → Task** assignments, inspect inherited values and export context packs. The Opora orchestrator can assign repository/task profiles with `office-harness`; each Opora card handoff includes the resolved, content-bearing snapshot. Assignments do not install tools or activate MCP/memory servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md).
