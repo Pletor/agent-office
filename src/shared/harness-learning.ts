@@ -76,19 +76,22 @@ export function cohortKey(c: HarnessCohort): string {
 }
 function compare(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
 /** Binomial Wilson interval in percent. This is uncertainty, not a reliability guarantee. */
-export function learningRate(rows: HarnessObservation[]): LearningRate {
-  const pass = rows.filter(r => r.outcome === 'pass').length;
-  const fail = rows.filter(r => r.outcome === 'fail').length;
+export function learningRateCounts(pass: number, fail: number, unknown: number): LearningRate {
+  if (![pass, fail, unknown].every(n => Number.isSafeInteger(n) && n >= 0 && n <= 1_000_000_000)) throw new Error('Invalid outcome counts');
   const n = pass + fail, p = n ? pass / n : 0, z = 1.959963984540054;
   const denominator = 1 + z * z / (n || 1);
   const centre = (p + z * z / (2 * (n || 1))) / denominator;
   const margin = z * Math.sqrt(p * (1 - p) / (n || 1) + z * z / (4 * (n || 1) ** 2)) / denominator;
-  const durations = rows.flatMap(r => r.durationMs === null ? [] : [r.durationMs]);
-  return { pass, fail, unknown: rows.length - n, percent: n ? 100 * p : null,
+  const total = pass + fail + unknown;
+  return { pass, fail, unknown, percent: n ? 100 * p : null,
     interval95: n ? [100 * Math.max(0, centre - margin), 100 * Math.min(1, centre + margin)] : null,
-    coverage: rows.length ? n / rows.length : null, executions: new Set(rows.map(r => r.execution)).size,
-    durationSamples: durations.length,
-    meanDurationMs: durations.length ? durations.reduce((mean, d, i) => mean + (d - mean) / (i + 1), 0) : null };
+    coverage: total ? n / total : null, executions: total, durationSamples: 0, meanDurationMs: null };
+}
+export function learningRate(rows: HarnessObservation[]): LearningRate {
+  const pass = rows.filter(r => r.outcome === 'pass').length, fail = rows.filter(r => r.outcome === 'fail').length;
+  const durations = rows.flatMap(r => r.durationMs === null ? [] : [r.durationMs]);
+  return { ...learningRateCounts(pass, fail, rows.length - pass - fail), executions: new Set(rows.map(r => r.execution)).size,
+    durationSamples: durations.length, meanDurationMs: durations.length ? durations.reduce((mean, d, i) => mean + (d - mean) / (i + 1), 0) : null };
 }
 /** Deterministic replay. Revisions replace outcomes; retries and duplicate deliveries never add votes. */
 export function replayHarnessLearning(input: unknown[]): LearningSummary[] {

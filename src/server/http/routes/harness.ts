@@ -3,18 +3,20 @@ import { send, sameOrigin } from '../util.js';
 import { harnessProfileRequest } from '../../harness/api.js';
 import { floorParam } from './files.js';
 import { HarnessLibrary, harnessSources } from '../../harness/catalog.js';
+import { recommendationRequest } from '../../harness/recommendation-api.js';
 import { buildHarnessKit } from '../../harness/kit.js';
 import { HarnessError } from '../../harness/profiles.js';
 
 /** Machine-owned resources are visible only to admins or the machine's shared-password session. */
 export const harnessRoute: Route = {
-  path: ['/api/harness', '/api/harness/file', '/api/harness/kit'],
+  path: ['/api/harness', '/api/harness/file', '/api/harness/kit', '/api/harness/recommend'],
   method: 'GET',
   auth: 'session',
-  async handle(ctx, { res, url, session, path }) {
+  async handle(ctx, { req, res, url, session, path }) {
     const floor = floorParam(ctx, url);
     if (!floor) return send(res, 404, { error: 'No such floor' });
     const local = !session.account || session.account.role === 'admin';
+    if (path === '/api/harness/recommend') return recommendationRequest(ctx, floor, req, res, url, local);
     const library = new HarnessLibrary(harnessSources(floor.dir, local));
     if (path === '/api/harness/kit') {
       try { return send(res, 200, await buildHarnessKit(library, url.searchParams.get('problem') ?? '', url.searchParams.getAll('resource')), { 'cache-control': 'no-store' }); }

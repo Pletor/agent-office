@@ -7,6 +7,7 @@ import { harnessHandoff } from './handoff.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { oporaHarnessTask } from '../../shared/harness-cascade.js';
 import { buildHarnessKit } from './kit.js';
+import { recommendationRequest } from './recommendation-api.js';
 
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean) {
   try {
@@ -48,6 +49,7 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   // Workers without an identified administrator owner may read only project-published resources.
   const active = plan?.workerId === id && (plan.mode === 'opora' || plan.mode === 'router');
   const admin = !!active && (!plan.owner || ctx.accounts.get(plan.owner)?.role === 'admin');
+  if (url.searchParams.has('recommend')) return recommendationRequest(ctx, floor, req, res, url, admin);
   if (req.method === 'GET' && url.searchParams.has('catalog')) {
     return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin)).list());
   }
