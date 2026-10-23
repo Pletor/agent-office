@@ -229,3 +229,18 @@ Observed invocation and runner identity, finer historical hierarchy cohorts, pro
 incident attribution, paired candidate evaluation/global promotion and the complete production
 pilot remain outstanding. Native measurements remain selected-kit associations; missing
 invocation/cost/runtime values are unknown and automatic promotion stays off.
+
+
+### Independent fixture feedback
+
+Preparation also reads `/api/oporahub/harness-verifier/requests` from the configured
+Canvas peer. `fixtureHistory` reports availability, bounded-window coverage and unknown
+records; `fixtureEvidence` identifies native verification, execution, problem and exact
+plan/baseline/candidate digests. Native server observations stay separate from worker
+reports and task acceptance rates. The consumer recomputes complete pair comparisons;
+pending, interrupted and older records without problem binding cannot establish success.
+A complete candidate regression restrains automatic reuse only for the same problem and
+script content with the Node adapter. Explicit assignments remain with a
+`verified-fixture-regression-needs-review` warning. Fixture improvements do not add verified
+tasks, raise production success, or authorize promotion. Missing/disabled verifier history
+is unknown; library preparation still works with its other evidence and policies.
