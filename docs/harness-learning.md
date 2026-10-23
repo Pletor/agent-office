@@ -1,5 +1,7 @@
 # Harness that learns from work
 
+For the concise current implementation/gap map, see [Harness status](harness-status.md).
+
 Back to [Harness](harness.md). Status: **implementation contract**, not a claim that the learning loop is deployed.
 
 Česky: agent si podle úkolu sestaví pracovní výbavu, ověří ji a po práci vrátí doloženou zkušenost. Knihovna rozlišuje hlášení agenta, skutečně provedené kontroly a ověřený výsledek. Procenta mají počet použití, verzi, typ problému a nejistotu. Osvědčené verze doporučuje, regresní vyřazuje a zkušenosti ukládá přes existující Oporu do OpenVikingu. Tento dokument je připravené zadání, nikoli již spuštěná funkce.

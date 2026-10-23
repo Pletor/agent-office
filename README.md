@@ -73,6 +73,7 @@ Agents can prepare a versioned kit with `office-harness --kit PROBLEM resource-i
 
 Native incident/revert guardrails suppress automatic reuse of affected versions; explicit
 assignments remain visible with warnings. These associations do not establish tool causation.
+The Czech [implementation and gap map](docs/harness-status.md) explains the UI, evidence and remaining production work.
 
 On the machine that runs the office:
 
