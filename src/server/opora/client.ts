@@ -154,6 +154,11 @@ export class OporaClient {
     return this.get('/api/oporahub/design-system', { project });
   }
 
+  /** A design card's preview record (its `design.mode`, DESIGN.md reference, screenshots per head); a 404 on an Opora without it. */
+  reviewPreview(project: string, workspace: string, nodeId: string): Promise<unknown> {
+    return this.get('/api/oporahub/review-preview', { project, workspace, nodeId });
+  }
+
   async claim(project: string, workspace: string, nodeId: string, owner: string, ttlSeconds: number): Promise<Lease> {
     const r = await this.post<{ token?: unknown; expiresAt?: unknown }>('/api/desktop-v3/lease', { project, workspace, nodeId, op: 'claim', owner, ttlSeconds });
     if (typeof r.token !== 'string' || !r.token) throw new OporaError(0, 'Opora gave no lease token');

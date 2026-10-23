@@ -26,7 +26,7 @@ test('brand mode puts DESIGN.md in the addendum and says to follow it exactly', 
   assert.match(out, /api\/layout-preview\?project=p1&workspace=draft&layer=c1/);
   assert.match(out, /Design mode: brand\. Follow the project's DESIGN\.md/);
   assert.match(out, /--brand: #9b5de5/);
-  assert.match(out, /light and dark × mobile \(390 px\) and desktop \(1440 px\)/);
+  assert.match(out, /light and dark × mobile \(390×844\) and desktop \(1440×900\)/);
   assert.match(out, /at most 8 PNGs/);
   assert.ok(out.includes(path.join('/data/opora-previews/p1/c1', '<head-sha>')));
 });
@@ -63,9 +63,12 @@ test('a card that is not a design card gets no addendum, and reads nothing', asy
   assert.equal(reads, 0);
 });
 
-function fakeClient(node: Record<string, unknown>, designSystem: () => Promise<unknown>) {
+const notFound = async () => { throw new OporaError(404, 'nope'); };
+
+function fakeClient(node: Record<string, unknown>, designSystem: () => Promise<unknown>, reviewPreview: () => Promise<unknown> = notFound) {
   const asked: string[] = [];
   const client = {
+    reviewPreview: async () => { asked.push('review-preview'); return reviewPreview(); },
     drawing: async () => ({ elements: [{ type: 'rectangle' }] }),
     storyboard: async () => ({ animation: 'kod', moments: [{ id: 'm1', t: 0 }] }),
     rawNode: async () => node,
@@ -107,7 +110,7 @@ test('Opora\'s design system wins when it has one, and an explore card never ask
   assert.match(out, /--brand: teal/);
   const explore = fakeClient({ id: 'c1', design: { mode: 'explore' } }, async () => ({ markdown: '# From Opora' }));
   const out2 = await prepareDesignBrief({ client: explore.client, prompt: (id) => PROMPTS[id].text, card, base: where.base, project: 'p1', workspace: 'draft', repoDir: dir, dataDir: '.' });
-  assert.deepEqual(explore.asked, []);
+  assert.deepEqual(explore.asked, ['review-preview']);
   assert.match(out2, /Design mode: explore/);
   assert.doesNotMatch(out2, /--brand/);
 });
@@ -121,3 +124,35 @@ test('DESIGN.md is read as committed at HEAD and capped', (t) => {
   assert.equal(big.truncated, true);
   assert.equal(big.text.length, DESIGN_MD_CAP);
 });
+
+const prep = (client: OporaClient, repoDir = '.') => prepareDesignBrief({ client, prompt: (id) => PROMPTS[id].text, card, base: where.base, project: 'p1', workspace: 'draft', repoDir, dataDir: '.' });
+
+test('the mode comes from Opora’s review-preview first, over the node’s own', async () => {
+  const f = fakeClient({ id: 'c1', design: { mode: 'brand' } }, async () => ({ available: true, markdown: DESIGN_MD }), async () => ({ design: { mode: 'explore', revision: 2 } }));
+  const out = await prep(f.client);
+  assert.match(out, /Design mode: explore/);
+  assert.match(out, /"designMdSha256":null/);
+  assert.ok(!f.asked.includes('design-system'));
+});
+
+test('no review-preview record is brand, and brand cites DESIGN.md by revision and sha256', async () => {
+  const sha = 'a'.repeat(64);
+  const f = fakeClient({ id: 'c1' }, async () => ({ available: true, markdown: DESIGN_MD, sha256: sha, revision: 'b'.repeat(40), bytes: 60 }), async () => ({ design: { mode: 'brand', revision: 0 } }));
+  const out = await prep(f.client);
+  assert.match(out, /Design mode: brand\. Follow the project's DESIGN\.md · rev bbbbbbbbbbbb · sha256 aaaaaaaaaaaa/);
+  assert.match(out, new RegExp(`"designMdSha256":"${sha}"`));
+  assert.match(out, /preview\.json/);
+});
+
+for (const [why, fail] of [['404 (not deployed)', notFound], ['428 (no identity)', async () => { throw new OporaError(428, 'identity_required'); }], ['an answer without a mode', async () => ({ available: false })]] as const) {
+  test(`review-preview ${why} falls back to the node's design.mode, then to brand`, async (t) => {
+    const fromNode = await prep(fakeClient({ id: 'c1', design: { mode: 'explore' } }, notFound, fail).client);
+    assert.match(fromNode, /Design mode: explore/);
+    const dir = repo(t, DESIGN_MD);
+    const fallback = await prep(fakeClient({ id: 'c1' }, async () => ({ available: false, file: 'DESIGN.md', reason: 'missing' }), fail).client, dir);
+    assert.match(fallback, /Design mode: brand/);
+    // Opora said it has no DESIGN.md (available: false): the repo's committed one stands in, with its fingerprint.
+    assert.match(fallback, /repository's committed DESIGN\.md/);
+    assert.match(fallback, /"designMdSha256":"[a-f0-9]{64}"/);
+  });
+}
