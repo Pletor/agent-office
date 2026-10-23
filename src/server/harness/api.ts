@@ -19,6 +19,7 @@ import { documentationRequest } from './documentation-api.js';
 import { runnerProbeRequest } from './runner-probe-api.js';
 import { acceptedKitRequest } from './accepted-kit.js';
 import { recoveryRequest } from './recovery-api.js';
+import { stabilityRequest } from './stability-api.js';
 
 import { measurementsRequest } from './measurements-api.js';
 
@@ -63,6 +64,7 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   if (url.searchParams.has('docs')) return documentationRequest(req, res, JSON.stringify([floor.id, id]));
 
   if (url.searchParams.has('capabilities')) return runnerProbeRequest(req, res, url, me.provider ?? floor.workers.defaultProvider, floor.id + ':' + me.id);
+  if (url.searchParams.has('stability')) return stabilityRequest(ctx, floor, id, req, res, url);
   if (url.searchParams.has('recover')) return recoveryRequest(floor, id, req, res, url);
   if (url.searchParams.has('accepted-kit')) return acceptedKitRequest(floor.opora.executions.controller, id, req, res, url);
 
