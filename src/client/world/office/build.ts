@@ -33,6 +33,7 @@ import { oporaScreen } from '../../features/opora/world';
 import { oporaScopeBoard } from '../../features/oporascope/world';
 import { oporaLiveBoard } from '../../features/oporalive/world';
 import { orchestratorBoards } from '../../features/orchestrator/world';
+import { sessionsScreen } from '../../features/sessions/world';
 import { statusScreen } from '../../features/status/world';
 import { bossAttentionBoard } from '../../features/bossattention/world';
 import { cleanLineBoard } from '../../features/cleanline/world';
@@ -84,6 +85,7 @@ function floorPlan() {
     oporaScopeBoard,
     oporaLiveBoard,
     orchestratorBoards,
+    sessionsScreen,
     elevator,
     garageLift,
     gong,

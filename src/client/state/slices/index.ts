@@ -28,6 +28,7 @@ import { orchestrator } from './orchestrator';
 import { planning } from './planning';
 import { processJournal } from './process';
 import { rea } from './rea';
+import { sessions } from './sessions';
 import { status } from './status';
 import { prompts } from './prompts';
 import { services } from './services';
@@ -73,4 +74,5 @@ export const SLICES: readonly Slice[] = [
   status,
   processJournal,
   orchestrator,
+  sessions,
 ];

@@ -41,6 +41,8 @@ export async function startHookServer(ctx: Ctx): Promise<{ hookServer: http.Serv
     if (!workers) return send(res, 401, {});
     const event = url.searchParams.get('event') ?? '';
     const ok = workers.handleProviderHook(route as AgentProvider, workerId, token, event, payload);
+    // The planning room's third screen reads the session's transcript and what it asks a person (see sessions/).
+    if (ok) ctx.workerFloor(workerId)?.sessions.noteHook(workerId, event, payload);
     send(res, ok ? 200 : 401, {});
   });
   // Workers' terminals outlive a restart of the office (see ptys.ts) with this address in their

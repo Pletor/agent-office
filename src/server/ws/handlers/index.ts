@@ -14,6 +14,7 @@ import { jukeboxHandlers, jukeboxView } from './jukebox.js';
 import { meetingHandlers, meetingView } from './meetings.js';
 import { oporaHandlers, oporaView } from './opora.js';
 import { orchestratorHandlers, orchestratorView } from './orchestrator.js';
+import { sessionsHandlers, sessionsView } from './sessions.js';
 import { planHandlers, planView } from './plan.js';
 import { planningHandlers, planningView } from './planning.js';
 import { presenceHandlers } from './presence.js';
@@ -45,6 +46,7 @@ export const handlers: HandlerMap<ClientMsg> = {
   ...meetingHandlers,
   ...oporaHandlers,
   ...orchestratorHandlers,
+  ...sessionsHandlers,
   ...planHandlers,
   ...planningHandlers,
   ...presenceHandlers,
@@ -87,6 +89,7 @@ export const views: ViewPieces = {
   planning: planningView,
   opora: oporaView,
   orchestrator: orchestratorView,
+  sessions: sessionsView,
   cabinet: cabinetView,
   process: processView,
 };
