@@ -10,6 +10,8 @@ The authenticated worker command derives its floor, project and workspace from O
 
 Outside a worker, `node bin/office-harness.js --project PROJECT --recommend ts.references` uses the local published catalog. Native Office scope/history and persistent inheritance are unavailable and labeled accordingly. A configured worker hook never falls back to local machine discovery.
 
+Use `office-harness --search "words" [--category CATEGORY]` to narrow catalog metadata before loading content, `--read ID` to read one resource, or `--bundle ID...` for a context pack. These also work through authenticated worker hooks. Remote bundles reuse the pinned-kit producer and its 24-resource / 96-KiB limit; they carry resource IDs and exact content digests. No source file is executed by searching, reading or bundling.
+
 ## Publish problem-matched tools
 
 Create and test a resource in an isolated branch, then declare it in `.harness/toolbox.json`:

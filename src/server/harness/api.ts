@@ -50,6 +50,11 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   const active = plan?.workerId === id && (plan.mode === 'opora' || plan.mode === 'router');
   const admin = !!active && (!plan.owner || ctx.accounts.get(plan.owner)?.role === 'admin');
   if (url.searchParams.has('recommend')) return recommendationRequest(ctx, floor, req, res, url, admin);
+  if (req.method === 'GET' && url.searchParams.has('read')) {
+    const library = new HarnessLibrary(harnessSources(floor.dir, admin)); await library.list();
+    const entry = await library.read(url.searchParams.get('read') ?? '');
+    return entry ? send(res, 200, entry) : send(res, 404, { error: 'Resource is unavailable for this worker.' });
+  }
   if (req.method === 'GET' && url.searchParams.has('catalog')) {
     return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin)).list());
   }
