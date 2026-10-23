@@ -52,3 +52,21 @@ Office uses the current controller watch and the existing private execution file
 The returned `harness.recovery-proposal/1` is a candidate kit, with current historical evidence and `requiresAcceptance: true`, `promotionAllowed: false`. Submit it through the existing Canvas specification proposal/review flow; a newly accepted assignment and claim are required to use it. The command neither restores working files nor replaces profiles or a running snapshot. It does not certify stability, invoke tools, accept its own proposal or promote a version.
 
 Tests exercise the real authenticated Office HTTP route and CLI, correct private-bundle binding, poisoned peer responses, JSON-escaped capability reflection, oversized replies, authority loss, and unsupported peers. Full production promotion and rollback remain separate Harness acceptance work.
+
+
+## Discovery in worker sessions
+
+A context-v2 worker whose target accepted document contains a Harness kit receives
+`harness.worker/1` static guidance with its normal execution prompt. It names
+`office-harness --accepted-kit`, explains declared requirements and missing adapters,
+and describes optional invocation receipts and acceptance-required recovery. An explicit
+empty kit gets guidance too; it does not acquire resources automatically. A neighboring
+card's kit, absent target kit, or legacy context does not add the guide. A malformed
+accepted target kit prevents handoff rather than emitting misleading usage guidance.
+
+The immutable execution brief registry calls the Harness-owned module synchronously
+with the accepted lease. It reads no catalog, live profile, network service or private
+capability file and interpolates no resource text into the static guide. Assignment
+bytes and the existing execution protocol remain unchanged. Orchestrators must include
+selected resources in the accepted target specification before seating the worker;
+changing a profile after acceptance does not change a running v2 task.

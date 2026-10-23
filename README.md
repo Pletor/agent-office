@@ -486,3 +486,5 @@ fall out merely because recent history fills up. See [recommendation evidence](d
 
 Harness recommendations expose native experiment capacity when advertised by Opora; missing capacity is explicit and a snapshot never grants execution permission. See [learning evidence](docs/harness-learning.md).
 A worker can request `office-harness --recover RESOURCE --from EXECUTION` to prepare a historical same-card kit proposal. The [recovery command](docs/harness-accepted-runtime.md#historical-recovery) keeps capabilities private and requires ordinary Canvas acceptance.
+
+Workers with an accepted Harness kit receive [usage guidance in their session](docs/harness-accepted-runtime.md#discovery-in-worker-sessions), including the command that reads their exact pinned resources.
