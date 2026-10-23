@@ -277,11 +277,21 @@ test('terminal unchanged polls are bounded and deduplicated; explicit late usage
   const started = await f.call('start', f.input); assert.equal(started.status, 200);
   await f.call('stop', { intentId: started.value.intentId });
   const count = f.observations.length;
-  await new Promise(resolve => setTimeout(resolve, 180));
+  // Make terminal provider reads outlast the old fixed 180ms settling assumption.
+  f.hook(url => url.endsWith('/provider/v1/sessions/sesn_one')
+    ? new Promise(resolve => setTimeout(() => resolve(Response.json(f.session)), 100)) : undefined);
+  const providerReads = () => f.calls.filter(call => call.url.includes('/provider/v1/sessions/')).length;
+  const store = new IsolatedStore(path.join(f.directory, '.agent-office', 'isolated-executions', 'requests'));
+  for (let index = 0; index < 1000 && store.list()[0].terminalPolls < 3; index++)
+    await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(store.list()[0].terminalPolls, 3, 'terminal provider polling should reach its cap');
+  // Reconciliation is queued behind any in-flight tick, so it drains the final provider
+  // read before the unchanged-poll observation count and quiescence window are checked.
+  assert.equal((await f.call('reconcile', {})).status, 200);
   assert.equal(f.observations.length, count);
-  const reads = f.calls.filter(call => call.url.includes('/provider/v1/sessions/')).length;
+  const reads = providerReads();
   await new Promise(resolve => setTimeout(resolve, 100));
-  assert.equal(f.calls.filter(call => call.url.includes('/provider/v1/sessions/')).length, reads);
+  assert.equal(providerReads(), reads);
   f.session.usage.input_tokens = 10; f.session.usage.list_cost.amount = '5';
   assert.equal((await f.call('reconcile', {})).status, 200);
   assert.equal(f.observations.length, count + 1);
