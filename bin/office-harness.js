@@ -4,6 +4,8 @@ import { HarnessLibrary, harnessSources } from '../dist/server/server/harness/ca
 import { harnessBundle } from '../dist/server/shared/harness.js';
 import { remoteHarness } from './harness-remote.js';
 import { buildHarnessKit } from '../dist/server/server/harness/kit.js';
+import { recommendHarness } from '../dist/server/server/harness/recommend.js';
+import { recommendationArgs } from './harness-recommend.js';
 const args = process.argv.slice(2);
 if (process.env.AGENT_OFFICE_HOOK_URL) {
   await remoteHarness(args);
@@ -15,9 +17,12 @@ if (args[0] === '--project') {
   if (!project) throw new Error('--project requires a folder');
 }
 const action = args.shift();
-if (action && !['--read', '--bundle', '--kit'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--read id | --bundle id ... | --kit PROBLEM id ...]');
+if (action && !['--read', '--bundle', '--kit', '--recommend'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--read id | --bundle id ... | --kit PROBLEM id ... | --recommend PROBLEM [--capability ID]...]');
 const library = new HarnessLibrary(harnessSources(project, true));
-if (action === '--kit') {
+if (action === '--recommend') {
+  const input = recommendationArgs(args);
+  console.log(JSON.stringify(await recommendHarness(library, input.problem, input.capabilities), null, 2));
+} else if (action === '--kit') {
   const problem = args.shift() ?? '';
   console.log(JSON.stringify(await buildHarnessKit(library, problem, args), null, 2));
 } else {

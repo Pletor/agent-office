@@ -209,7 +209,21 @@ earlier baseline; all 21 tests of those two files pass when rerun separately. Th
 remains red. Canvas library tests cover trust, rollback, version cohorts, retention, closure
 withdrawal and protocol downgrade; 259 existing event/context/database regression tests pass.
 
-Live invocation evidence, observed runner identity, seven-level editing, autonomous ranking,
-candidate evaluation/promotion, real Context7 queries, verified lesson delivery to OpenViking
-and the production pilot remain outstanding. The native projection measures selection/result
-association; missing invocation/cost/runtime values remain unknown and promotion stays off.
+The subsequent review milestones restore seven-level editing (Office #55) and actual bounded
+Context7 MCP reads (Office #56). Both passed their full Linux build/test/pack/install workflow;
+the initial Office #48 producer did too. Local Windows full-suite baseline failures remain
+documented in PR evidence rather than being called green.
+
+Office #48 now adds [problem-scoped automatic preparation](harness-recommend.md): strict
+project/shared descriptors, exact content/configuration cohorts, count-derived uncertainty,
+inherited policy and bounded candidate additions. It proposes a kit without changing profiles
+or activating tools. Caller-declared capabilities do not become native attestation. The peer
+Canvas #46 also queues immutable native outcome facts and withdrawals for existing enabled
+OpenViking role credentials, with retry/lease fencing and read-only delivery status. Submitted
+content is not a claim of completed indexing or extracted verified lessons. These are still
+review-branch implementations, not deployed production behavior.
+
+Observed invocation and runner identity, finer historical hierarchy cohorts, production
+incident attribution, paired candidate evaluation/global promotion and the complete production
+pilot remain outstanding. Native measurements remain selected-kit associations; missing
+invocation/cost/runtime values are unknown and automatic promotion stays off.

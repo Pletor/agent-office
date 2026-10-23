@@ -1,5 +1,7 @@
 # Harness library
 
+For automatic problem-specific kit preparation, toolbox descriptors and measured ranking, see [Harness recommendations](harness-recommend.md). `office-harness --recommend` proposes context without executing resources or changing accepted assignments.
+
 Back to the [README](../README.md).
 
 The [autonomous learning contract](harness-learning.md) combines the seven-level H01–H24 plan with measured tool selection, versioned experiences, Context7 and OpenViking. It distinguishes planned behavior from the implementation described below.

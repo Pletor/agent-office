@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { recommendationArgs } from './harness-recommend.js';
 
 /** Worker-authenticated access; never fall back to local machine access when credentials exist. */
 export async function remoteHarness(argv) {
@@ -15,7 +16,10 @@ export async function remoteHarness(argv) {
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID ?? '');
   if (task) url.searchParams.set('task', task);
   let body;
-  if (action === '--catalog' && !args.length) url.searchParams.set('catalog', '1');
+  if (action === '--recommend') {
+    const input = recommendationArgs(args); url.searchParams.set('recommend', '1'); url.searchParams.set('problem', input.problem);
+    for (const capability of input.capabilities) url.searchParams.append('capability', capability);
+  } else if (action === '--catalog' && !args.length) url.searchParams.set('catalog', '1');
   else if (action === '--kit' && args.length >= 1) {
     url.searchParams.set('kit', '1');
     url.searchParams.set('problem', args.shift());
