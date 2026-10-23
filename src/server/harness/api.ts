@@ -7,6 +7,7 @@ import { harnessHandoff } from './handoff.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { oporaHarnessTask } from '../../shared/harness-cascade.js';
 import { acceptedKitRequest } from './accepted-kit.js';
+import { recoveryRequest } from './recovery-api.js';
 
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean) {
   try {
@@ -44,6 +45,7 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   const floor = ctx.workerFloor(id);
   const me = floor?.workers.authenticate(id, (req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''));
   if (!floor || !me) return send(res, 401, { error: 'Use your worker ID and hook bearer token.' });
+  if (url.searchParams.has('recover')) return recoveryRequest(floor, id, req, res, url);
   if (url.searchParams.has('accepted-kit')) return acceptedKitRequest(floor.opora.executions.controller, id, req, res, url);
   const plan = floor.planning.state().current;
   // Workers without an identified administrator owner may read only project-published resources.
