@@ -77,6 +77,7 @@ The Harness editor can also show versioned experience by problem: separate repor
 
 Native incident/revert guardrails suppress automatic reuse of affected versions; explicit
 assignments remain visible with warnings. These associations do not establish tool causation.
+The Czech [implementation and gap map](docs/harness-status.md) explains the UI, evidence and remaining production work.
 
 Versioned experience also shows optional incident/revert warnings without changing assignments.
 
