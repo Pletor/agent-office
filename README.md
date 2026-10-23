@@ -67,6 +67,8 @@ There's a lot more (a rooftop bar, an office dog, an arcade, a jukebox that keep
 
 The Harness editor can also show versioned experience by problem: separate reported/human-closed results, sample counts, unknowns and confidence intervals. This optional read-only lookup preserves unsaved checkbox edits; see [hierarchy and experience](docs/harness-hierarchy.md).
 
+Versioned experience also shows optional incident/revert warnings without changing assignments.
+
 On the machine that runs the office:
 
 - **Node.js 20+**

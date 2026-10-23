@@ -1,5 +1,10 @@
 # Seven-level Harness inheritance
 
+Optional native regression guardrails appear beside the percentages: affected runs,
+incident reports and recorded reverts. These are reasons to review the exact version,
+not proof that the tool caused the regression. No recorded association does not imply
+measured production success. Reading a warning never changes a checkbox or saved layer.
+
 The library's **Pracovní výbava** editor configures Global → Repository → Page → Layer → Area → Sector → Card. Select the project using the library toolbar. Check a resource to include it, uncheck to disable its effective slots, or choose **Dědit** to remove its local overrides. Every enabled resource shows its origin. **Uložit výbavu** explicitly saves the complete layer; navigating or reloading discards unsaved edits. A rejected save retains the draft. Advanced JSON supports scalar settings and custom named slots. Exporting an ad-hoc context pack is independent of saved assignments.
 
 **Zkušenosti a úspěšnost nástrojů** optionally reads the installed recommendation endpoint. Enter a problem ID from the toolbox and choose **Načíst zkušenosti**. Rows show the exact content-version prefix, separate human-closed and agent-reported counts, unknown outcomes, different-card count and 95% interval. Percentages describe selected-kit associations in this project/workspace; they do not prove actual invocation, causal benefit or future correctness. Missing data stays unknown. Lookup preserves unsaved assignments; changing scope/problem clears old statistics and ignores late responses. A server without the optional endpoint says the feature is unavailable and keeps editing usable. This panel never declares capabilities, applies a proposed kit or saves profiles.

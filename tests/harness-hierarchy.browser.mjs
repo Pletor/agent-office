@@ -27,7 +27,8 @@ try {
         try { return await route.fulfill({ json: { schema: 'harness.recommendation/1', history: { status: 'available', limited: false }, candidates: [{
           id: 'guide:testing', digest: 'a'.repeat(64), tasks: 3, missing: [],
           verified: { pass: 5, fail: 0, unknown: 1, interval95: [56.55, 100] },
-          reported: { pass: 7, fail: 1, unknown: 0, interval95: [52.9, 97.8] }
+          reported: { pass: 7, fail: 1, unknown: 0, interval95: [52.9, 97.8] },
+          guardrails: { source: 'native-review-eval-cases', affectedExecutions: 1, incidentReportExecutions: 1, revertedExecutions: 1, productionExposure: 'unknown', causalAttribution: false }
         }] } }); } catch { /* A scope change can abort this deliberately delayed fixture. */ }
         finally { experienceDone?.(); }
       }
@@ -75,6 +76,7 @@ try {
     const row = page.locator('.harness-resource-check').filter({ has: page.getByRole('checkbox', { name: title, exact: true }) });
     assert.match(await row.innerText(), /Lidské potvrzení: 100 % · 5\/5/);
     assert.match(await row.innerText(), /Hlášení agenta: 87,5 %/);
+    assert.match(await row.innerText(), /Regrese k prověření · dotčené běhy: 1/);
     assert.equal(await checkbox.isChecked(), true, 'read-only measurements preserve the unsaved checkbox draft');
     await row.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(process.env.HARNESS_SHOTS ?? os.tmpdir(), 'harness-experience-' + width + '.png') });
