@@ -139,10 +139,10 @@ test('a shared machine element has one ID in every project, and one project\'s a
   assert.match(skillA.id, /^el:machine:/);
   const ruleA = (await libA.list()).entries.find((e) => e.path === 'rules/a.md')!;
   const profiles = new HarnessProfiles(data);
-  profiles.save(at('a'), '', 'repository', { 'skills.main': { resource: skillA.id }, 'rules.quality': { resource: ruleA.id } }, 0);
-  profiles.save(at('b'), '', 'repository', { 'skills.main': { resource: skillB.id } }, 1);
+  await profiles.save(at('a'), '', 'repository', { 'skills.main': { resource: skillA.id }, 'rules.quality': { resource: ruleA.id } }, 0);
+  await profiles.save(at('b'), '', 'repository', { 'skills.main': { resource: skillB.id } }, 1);
   // Project A swaps its assignment; project B's layer is untouched and still resolves to the same element.
-  profiles.save(at('a'), '', 'repository', { 'skills.main': null }, 2);
+  await profiles.save(at('a'), '', 'repository', { 'skills.main': null }, 2);
   const b = profiles.view(at('b'));
   assert.deepEqual(b.layers.repository, { 'skills.main': { resource: skillB.id } });
   assert.equal(libB.resolve(skillB.id).status, 'available');
@@ -234,7 +234,7 @@ test('old resource IDs (hash of the absolute path) keep resolving as aliases', a
   assert.equal((await lib.read('guide:testing'))?.id, 'guide:testing', 'guide IDs are unchanged');
   // A profile saved with the old ID still resolves through the handoff path (read by alias).
   const profiles = new HarnessProfiles(data);
-  profiles.save(at('p'), '', 'repository', { 'rules.quality': { resource: old } }, 0);
+  await profiles.save(at('p'), '', 'repository', { 'rules.quality': { resource: old } }, 0);
   assert.deepEqual(profiles.view(at('p')).layers.repository, { 'rules.quality': { resource: old } });
   const handoff = await harnessHandoff(data, at('p'), '', false);
   assert.match(handoff, /review/);
