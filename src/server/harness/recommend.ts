@@ -79,7 +79,8 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
   const selected = candidates.filter(candidate => candidate.mandatory);
   const add = (candidate: typeof candidates[number]) => { if (!selected.some(entry => entry.id === candidate.id) && selected.length < 24) selected.push(candidate); };
   if (auto) {
-    for (const candidate of candidates.filter(entry => entry.baseline && !entry.disabled && !entry.guardrails?.affectedExecutions)) add(candidate);
+    // A correlated incident must not optimize away the baseline instructions/testing policy.
+    for (const candidate of candidates.filter(entry => entry.baseline && !entry.disabled)) add(candidate);
     const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && !entry.missing.length && !entry.metadataMissing && !entry.low && !entry.guardrails?.affectedExecutions);
     optional.sort((a, b) => (b.verified?.interval95?.[0] ?? 0) - (a.verified?.interval95?.[0] ?? 0) || b.priority - a.priority || (a.id < b.id ? -1 : 1));
     for (const candidate of optional.filter(entry => entry.observed).slice(0, 3)) add(candidate);
@@ -109,5 +110,5 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     history: { status: history.status, limited: history.limited, reason: history.reason ?? null },
     capabilityEvidence: 'caller-declared; not native attestation or permission grants',
     association: 'selected-kit outcomes; actual invocation and causal contribution unobserved', promotionAllowed: false,
-    constraints, warnings: selected.filter(entry => entry.guardrails?.affectedExecutions).map(entry => ({ resource: entry.id, reason: 'linked-regression-needs-review; explicit choice preserved' })), selected: selected.map(entry => entry.id), candidates, kit };
+    constraints, warnings: selected.filter(entry => entry.guardrails?.affectedExecutions).map(entry => ({ resource: entry.id, reason: 'linked-regression-needs-review', preserved: entry.mandatory ? 'explicit' : 'baseline-policy' })), selected: selected.map(entry => entry.id), candidates, kit };
 }

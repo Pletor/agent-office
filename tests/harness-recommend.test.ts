@@ -104,6 +104,12 @@ test('linked regression reports suppress automatic reuse and warn without erasin
   assert.equal(candidate.verified!.percent, 100, 'acceptance rates are never rewritten as causal failure');
   const explicit = await recommendHarness(f.library, 'ts.references', ['command:node'], profile({ work: { resource: f.id('a') } }), rows);
   assert.ok(explicit.selected.includes(f.id('a'))); assert.equal(explicit.warnings[0].resource, f.id('a')); assert.ok(explicit.kit);
+  const testing = (await f.library.read('guide:testing'))!;
+  const baseline = { ...cohort(testing.id, testing.text, 5, 0, 'verified', []),
+    versionDigest: toolVersion(testing.id, testing.category, sha(testing.text), []), guardrails };
+  const protectedPolicy = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, history([baseline]));
+  assert.ok(protectedPolicy.selected.includes('guide:testing'), 'a kit association must not remove baseline testing guidance');
+  assert.ok(protectedPolicy.warnings.some(warning => warning.resource === 'guide:testing' && warning.preserved === 'baseline-policy'));
   for (const patch of [{ affectedExecutions: 0 }, { affectedExecutions: 6 }, { incidentReportExecutions: -1 }, { causalAttribution: true }, { productionExposure: 'verified' }]) {
     assert.throws(() => history([{ ...cohort(f.id('a'), content), guardrails: { ...guardrails, ...patch } }]));
   }
