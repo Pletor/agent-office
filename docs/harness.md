@@ -1,5 +1,7 @@
 # Harness library
 
+Catalog aliases preserve inherited selections during resource identity migration. New kit proposals use the canonical catalog ID and reject selecting an alias together with that same canonical resource. Previously accepted kits and historical evidence remain unchanged; evidence for different IDs is not pooled automatically.
+
 For automatic problem-specific kit preparation, toolbox descriptors and measured ranking, see [Harness recommendations](harness-recommend.md). `office-harness --recommend` proposes context without executing resources or changing accepted assignments.
 
 Back to the [README](../README.md).

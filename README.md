@@ -67,6 +67,8 @@ Agents can prepare a versioned kit with `office-harness --kit PROBLEM resource-i
 
 ## Requirements
 
+Harness recommendations preserve legacy catalog aliases and emit canonical resource IDs in new kits. Existing accepted snapshots remain unchanged; see [Harness compatibility](docs/harness.md).
+
 **Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP and memory references. Press **F8** anywhere (or **E** at the shelf) to open it across the whole screen, on a phone too. Save **Global → Repository → Task** assignments, inspect inherited values and export context packs. The Opora orchestrator can assign repository/task profiles with `office-harness`; each Opora card handoff includes the resolved, content-bearing snapshot. Assignments do not install tools or activate MCP/memory servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md).
 
 **Prepare an agent's tools.** `office-harness --recommend PROBLEM` assembles a versioned kit from published project/shared toolboxes, inherited choices and native outcomes. Use `--search "words"`, `--read ID` or `--bundle ID...` to find and inspect accessible resources with the same worker credentials. Recommendations preserve disabled resources, report missing requirements and limit unmeasured additions. [Recommendation, evidence and sharing](docs/harness-recommend.md).
