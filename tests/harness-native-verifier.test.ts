@@ -105,3 +105,20 @@ test('bounded verifier-history fetch uses configured peer scope and handles abse
   assert.equal((await nativeFixtureHistory('http://127.0.0.1', 'p', 'w', async () => new Response(new Uint8Array([0xff])))).reason, 'native-fixture-invalid-or-unreachable');
   assert.equal((await nativeFixtureHistory('http://127.0.0.1', 'p', 'w', async () => new Response(new Uint8Array(1024 * 1024 + 1)))).reason, 'native-fixture-invalid-or-unreachable');
 });
+
+
+test('all-history quarantine survives an empty recent window and validates scope/completeness', () => {
+  const quarantine = { schema: 'harness.fixture-quarantine/1', scope: { project: 'project-a', workspace: 'workspace-a' },
+    complete: true, unboundFailures: 0, cohorts: [{ problem: 'numeric.identity',
+      candidate: { id: 'script:candidate', digest: hash('1') }, verificationId: id }] };
+  const parse = (q: unknown) => parseFixtureHistory({ requests: [], quarantine: q }, 'project-a', 'workspace-a');
+  assert.equal(parse(quarantine).quarantine!.cohorts[0].verificationId, id);
+  assert.equal(parse({ ...quarantine, complete: false, unboundFailures: 1 }).quarantine!.complete, false);
+  for (const bad of [ { ...quarantine, unboundFailures: 1 }, { ...quarantine, complete: 'yes' },
+    { ...quarantine, scope: { project: 'foreign', workspace: 'workspace-a' } },
+    { ...quarantine, cohorts: [...quarantine.cohorts, ...quarantine.cohorts] },
+    { ...quarantine, cohorts: [{ ...quarantine.cohorts[0], candidate: { id: 'script:candidate', digest: 'invalid' } }] } ]) {
+    assert.throws(() => parse(bad));
+  }
+  assert.equal(parseFixtureHistory({ requests: [] }, 'project-a', 'workspace-a').quarantine, undefined);
+});

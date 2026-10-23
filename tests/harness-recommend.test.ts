@@ -235,3 +235,26 @@ test('independent fixture regressions restrain exact candidates without rewritin
   }
 
 });
+
+
+test('persisted quarantine outlives recent fixture history and incomplete coverage cannot clear it', async t => {
+  const f = await fixture(t), id = f.id('a'), content = (await f.library.read(id))!.text;
+  const fixtureHistory = { status: 'available' as const, limited: false, unknown: 0, evaluations: [], quarantine: {
+    complete: true, unboundFailures: 0, cohorts: [{ problem: 'ts.references', candidate: { id, digest: sha(content) }, verificationId: 'old-failure' }] } };
+  const accepted = history([cohort(id, content)]);
+  const invoke = (fixtures = fixtureHistory, assigned?: HarnessProfile) => recommendHarness(f.library, 'ts.references', ['command:node'], assigned, accepted, undefined, fixtures);
+  const result = await invoke();
+  assert.ok(!result.selected.includes(id));
+  assert.deepEqual(result.candidates.find(c => c.id === id)!.fixtureQuarantines, ['old-failure']);
+  assert.equal(result.candidates.find(c => c.id === id)!.verified!.percent, 100);
+  const explicit = await invoke(fixtureHistory, profile({ work: { resource: id } }));
+  assert.ok(explicit.selected.includes(id)); assert.ok(explicit.warnings.some(w => w.resource === id));
+  const incomplete = await invoke({ ...fixtureHistory, quarantine: { complete: false, unboundFailures: 1, cohorts: [] } });
+  assert.ok(!incomplete.selected.includes(id));
+  assert.equal(incomplete.candidates.find(c => c.id === id)!.state, 'fixture-history-incomplete');
+  for (const change of [{ problem: 'other' }, { candidate: { id, digest: 'a'.repeat(64) } }]) {
+    const unrelated = await invoke({ ...fixtureHistory, quarantine: { ...fixtureHistory.quarantine,
+      cohorts: [{ ...fixtureHistory.quarantine.cohorts[0], ...change }] } });
+    assert.ok(unrelated.selected.includes(id));
+  }
+});
