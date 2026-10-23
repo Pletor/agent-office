@@ -1,5 +1,8 @@
 # Harness library
 
+For bounded executable/version/help observations, see [runner probes](harness-probes.md).
+These do not configure a runner or prove a tool is ready in another worker environment.
+
 Back to the [README](../README.md).
 
 ![Harness and Docs on either side of the balcony doors](images/harness-shelves.png)
