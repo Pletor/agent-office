@@ -268,3 +268,20 @@ scheduling. Neither field reserves a slot or authorizes execution. The backend r
 scope, policy, the proposed card and current retained evidence transactionally, so a
 positive generic snapshot can still be refused for a particular task. These counts
 measure nonproduction work allocation, not causal tool benefit or production success.
+## Planner handoff to accepted equipment
+
+The existing Opora planner/router prompt callback includes Harness guidance even
+before any kit exists. When the optional v2 writer and compatible native validator
+are installed, request `office-harness --recommend PROBLEM --kit-schema harness.kit/2 --task KEY`.
+Use the exact namespaced card key from the linked hierarchy/effective profile.
+Declare only capabilities checked in the intended worker runner; the planner's
+host capabilities or model name do not establish worker readiness.
+
+Inspect constraints, warnings and selection provenance. A null kit means blocked;
+an unavailable integration must not silently downgrade the requested format. Submit
+the returned kit unchanged as the target specification's `fields.harness` through
+the existing proposal and acceptance flow, then dispatch a new accepted assignment.
+Changing a profile alone neither equips a context-v2 card nor replaces its running kit.
+The worker reads `--accepted-kit`, checks `--prepare-accepted` when installed, uses
+supported adapters, and returns observations alongside the actual task result.
+Successful invocation is not task completion. File planning remains unchanged.
