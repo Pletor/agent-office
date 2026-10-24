@@ -1,5 +1,7 @@
 # Harness composition contract
 
+Area inheritance follows explicit Canvas `memberOf`. The composed contract verifies that moving a sector on the canvas preserves the inherited kit and path digest. Removing membership must remove the inherited choice and reject a save using the old path digest. Geometry never grants membership.
+
 `tests/harness-night-integration.test.ts` reuses the existing isolated composition proof. It checks hierarchy inheritance, authenticated worker CLI reads, administrator-only writes, scope drift, stale saves, and recommendation behavior against a Canvas without optional verifier endpoints. Missing verifier history and capacity must stay unavailable; they cannot become promotion permission.
 
 Run `node --import tsx --import=#tests/css --test tests/harness-night-integration.test.ts` from the Office checkout. The test uses disposable local HTTP servers and temporary storage, with no live settings, paid agents or production acceptance. It runs fully when the hierarchy, recommendation, runner-probe, paired-history and native-verifier modules are present. Otherwise it reports an explicit skip naming missing modules. A skip is not composition evidence; release validation must run on the composed feature tree.

@@ -14,16 +14,16 @@ import { harnessHandoff } from '../src/server/harness/handoff.js';
 const required = ['http/routes/harness-hierarchy.ts', 'harness/recommend.ts', 'harness/runner-probe-api.ts', 'harness/native-paired.ts', 'harness/native-verifier.ts'];
 const missing = required.filter(file => !existsSync(new URL('../src/server/' + file, import.meta.url)));
 
-test('composed Harness: inherited choices, recommendation, authenticated CLI and geometry drift', {
+test('composed Harness: inherited choices, authenticated CLI and explicit membership', {
   skip: missing.length ? 'Composition modules not installed: ' + missing.join(', ') : false,
 }, async t => {
   // Dynamic import keeps the test runnable on main before the independent feature PRs land.
   const hierarchyModule = '../src/server/http/routes/harness-hierarchy.js';
   const { harnessHierarchyRoute } = await import(hierarchyModule);
   const dir = mkdtempSync(path.join(tmpdir(), 'harness-navigation-'));
-  const n = (id: string, kind: string, parentId: string | null) => ({ id, kind, parentId, name: id, x: 0, y: 0 });
+  const n = (id: string, kind: string, parentId: string | null, memberOf?: string) => ({ id, kind, parentId, ...(memberOf ? { memberOf } : {}), name: id, x: 0, y: 0 });
   const nodes = [n('domain', 'sector', null), n('page', 'node', 'domain'), n('layer', 'node', 'page'),
-    { ...n('area', 'area', 'layer'), size: { w: 800, h: 600 } }, n('sector', 'sector', 'layer'), n('card', 'node', 'sector')];
+    { ...n('area', 'area', 'layer'), size: { w: 800, h: 600 } }, n('sector', 'sector', 'layer', 'area'), n('card', 'node', 'sector')];
   const optionalReads = new Set<string>();
   const optionalPaths = ['/api/oporahub/harness-paired-evaluations', '/api/oporahub/harness-verifier/requests'];
   const canvas = http.createServer((req, res) => {
@@ -97,8 +97,17 @@ test('composed Harness: inherited choices, recommendation, authenticated CLI and
   assert.equal((await call('&node=opora:p:w:missing')).status, 404);
   assert.equal((await call('&scope=typo')).status, 400);
   assert.equal((await call('&node=opora:p:w:card&scope=area')).status, 400);
-  // A geometry move changes effective ownership even though the card and parent IDs remain.
+  // Moving a sector visually must not change its explicit membership or inherited kit.
   nodes.find(node => node.id === 'sector')!.x = 2000;
+  const repositioned = await (await call('&node=opora:p:w:card')).json();
+  assert.equal(repositioned.pathDigest, view.pathDigest);
+  assert.equal(repositioned.effective.quality.scope, 'area');
+  assert.match(await harnessHandoff(dir, dir, 'opora:p:w:card', false), /guide:testing/);
+  const unchanged = JSON.parse(await cli('--recommend', 'ts.references', '--task', 'opora:p:w:card'));
+  assert.equal(unchanged.context.pathDigest, recommendation.context.pathDigest);
+  assert.ok(unchanged.kit.resources.some((resource: { resource: string }) => resource.resource === 'guide:testing'));
+  // Explicit removal changes ownership even though geometry and parent IDs stay unchanged.
+  delete nodes.find(node => node.id === 'sector')!.memberOf;
   assert.equal((await call('&node=opora:p:w:card', { ...save, scope: 'task', revision: view.revision, pathDigest: view.pathDigest })).status, 409);
   assert.doesNotMatch(await harnessHandoff(dir, dir, 'opora:p:w:card', false), /guide:testing/);
   const moved = JSON.parse(await cli('--recommend', 'ts.references', '--task', 'opora:p:w:card'));
