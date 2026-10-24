@@ -517,3 +517,10 @@ provenance after a scoped peer compatibility check; see
 [v2 preparation](docs/harness-recommend.md#opt-into-accepted-selection-provenance).
 Workers can request provenance with `office-harness --recommend PROBLEM --kit-schema harness.kit/2`;
 the connected Office verifies peer compatibility before returning a proposal.
+## Planner equipment handoff
+
+Opora planners and routers receive Harness guidance before a kit is accepted.
+With the optional v2 integrations installed, they request a card-scoped proposal,
+include the returned kit in the target specification's `fields.harness`, and use
+the normal acceptance flow before dispatch. Profile edits do not change a running
+accepted assignment. See [Harness learning](docs/harness-learning.md).
