@@ -4,6 +4,7 @@ import path from 'node:path';
 import { executionOf } from './upkeep-tools.js';
 import { emitProcess } from '../process/hub.js';
 import { selfCheckEvent } from '../process/opora-events.js';
+import { PendingSelfChecks, SELF_CHECK_BACKOFF, selfCheckDelay, type PendingSelfCheck } from './self-check-pending.js';
 
 /**
  * Self-check evidence (Canvas's docs/oporahub-review-jobs.md, "Důkaz vlastních kontrol"): before a
@@ -146,9 +147,15 @@ export class SelfCheckReporter {
   /** Heads whose evidence Canvas refused for now and that are posted again on a timer. */
   private pending = new Set<string>();
   private timers = new Set<NodeJS.Timeout>();
+  /** Evidence Canvas never answered for (a timeout, 5xx), kept on disk and posted again by `retryPending` (self-check-pending.ts). */
+  readonly unsent: PendingSelfChecks;
+  private retrying?: Promise<void>;
   constructor(private base: string, private agent: string, private commands: SelfCheckCommand[], private ledgerFile: string,
     private exec: ExecCheck, private transport: typeof fetch = fetch, private log: (message: string, level: 'info' | 'warn') => void = () => {},
-    private retry: { everyMs: number; attempts: number } = SELF_CHECK_RETRY) {}
+    private retry: { everyMs: number; attempts: number } = SELF_CHECK_RETRY, private backoff = SELF_CHECK_BACKOFF,
+    private now: () => number = Date.now) {
+    this.unsent = new PendingSelfChecks(ledgerFile.replace(/\.json$/, '') + '-unsent.json');
+  }
 
   /** Stops the re-posts still waiting (the office is shutting down). */
   shutdown() {
@@ -172,7 +179,9 @@ export class SelfCheckReporter {
   report(subject: SelfCheckSubject): Promise<SelfCheckOutcome> {
     const key = `${subject.executionId}@${subject.headSha}`;
     const prior = this.ledger()[key];
-    if (prior === 'recorded' || prior === 'conflict' || this.pending.has(key)) return Promise.resolve('skipped');
+    // A new head for the execution: what still waits for an older one no longer counts.
+    for (const gone of this.unsent.supersede(subject.executionId, subject.headSha)) this.pending.delete(gone);
+    if (prior === 'recorded' || prior === 'conflict' || this.pending.has(key) || this.unsent.has(key)) return Promise.resolve('skipped');
     const busy = this.running.get(key);
     if (busy) return busy;
     const job = this.queue.catch(() => undefined).then(() => this.once(key, subject));
@@ -189,16 +198,17 @@ export class SelfCheckReporter {
     const what = failed.length ? `${failed.join(', ')} failed` : 'all passed';
     emitProcess(this.agent, selfCheckEvent(s, failed, outcome));
     this.log(outcome === 'recorded' ? `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)}: ${what}; Canvas recorded them`
-      : `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)} (${what}) were not recorded by Canvas (${outcome})`, outcome === 'recorded' && !failed.length ? 'info' : 'warn');
+      : `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)} (${what}) were not recorded by Canvas (${outcome})${outcome === 'failed' ? '; kept to post again on the next polls' : ''}`, outcome === 'recorded' && !failed.length ? 'info' : 'warn');
     // 409 right after PR upkeep pushed is usually "not the PR's current head" yet: Canvas learns a new
     // head from its next reconciliation read (every few minutes), so the same evidence is posted again
     // for a while before the refusal counts. A different record for this head stays refused anyway.
     if (outcome === 'conflict' && this.retry.attempts > 0) this.postLater(key, s, selfChecks, 1);
-    else if (outcome !== 'failed') this.remember(key, outcome);
+    else if (outcome === 'failed') this.keepUnsent(key, s, selfChecks, 1, this.now());
+    else this.remember(key, outcome);
     return outcome;
   }
 
-  private postLater(key: string, s: SelfCheckSubject, selfChecks: SelfChecks, attempt: number) {
+  private postLater(key: string, s: SelfCheckScope & { executionId: string; headSha: string }, selfChecks: SelfChecks, attempt: number) {
     this.pending.add(key);
     const timer = setTimeout(() => {
       this.timers.delete(timer);
@@ -206,12 +216,59 @@ export class SelfCheckReporter {
         if ((outcome === 'conflict' || outcome === 'failed') && attempt < this.retry.attempts) return this.postLater(key, s, selfChecks, attempt + 1);
         this.pending.delete(key);
         if (outcome === 'recorded') this.log(`🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)}: Canvas recorded them once it saw that head`, 'info');
-        if (outcome !== 'failed') this.remember(key, outcome);
+        if (outcome === 'failed') this.keepUnsent(key, s, selfChecks, attempt + 1, this.now());
+        else this.remember(key, outcome);
       });
     }, this.retry.everyMs);
     timer.unref?.();
     this.timers.add(timer);
   }
+
+  /** Keeps evidence Canvas didn't answer for, to post the same body again later (on the bridge's poll). */
+  private keepUnsent(key: string, s: SelfCheckScope & { executionId: string }, selfChecks: SelfChecks, attempts: number, since: number) {
+    const prior = this.unsent.all()[key];
+    const now = this.now();
+    this.unsent.put(key, { project: s.project, workspace: s.workspace, executionId: s.executionId, selfChecks, attempts,
+      nextAt: now + selfCheckDelay(attempts, this.backoff), since: prior?.since ?? since });
+  }
+
+  /**
+   * Posts again the evidence Canvas never answered for, whose turn has come (backing off 20 s → 10 min),
+   * until Canvas records it, a new head replaces it, or a day has passed. The bridge calls it on every
+   * poll; a call while one runs waits for that one. The body is the stored one, so Canvas's "same content
+   * for the same head is idempotent" holds even if an earlier post did reach it.
+   */
+  retryPending(): Promise<void> {
+    this.retrying ??= this.retryDue().finally(() => (this.retrying = undefined));
+    return this.retrying;
+  }
+
+  private async retryDue() {
+    for (const [key, e] of Object.entries(this.unsent.all())) {
+      const now = this.now();
+      if (e.nextAt > now) continue;
+      const short = `${e.executionId} at ${e.selfChecks.headSha.slice(0, 12)}`;
+      if (now - e.since > this.backoff.giveUpMs) {
+        this.unsent.drop(key);
+        this.log(`🧪 Self-checks for ${short}: gave up posting them to Canvas after ${e.attempts} tries`, 'warn');
+        continue;
+      }
+      const outcome = await postSelfChecks(this.base, this.agent, this.transport, unsentBody(e));
+      if (outcome === 'failed') { this.keepUnsent(key, e, e.selfChecks, e.attempts + 1, e.since); continue; }
+      this.unsent.drop(key);
+      const failed = e.selfChecks.checks.filter((c) => c.status !== 'passed').map((c) => c.name);
+      const subject = { ...unsentBody(e), headSha: e.selfChecks.headSha };
+      if (outcome === 'conflict' && this.retry.attempts > 0 && !this.pending.has(key)) { this.postLater(key, subject, e.selfChecks, 1); continue; }
+      this.remember(key, outcome);
+      emitProcess(this.agent, selfCheckEvent(subject, failed, outcome));
+      this.log(outcome === 'recorded' ? `🧪 Self-checks for ${short}: Canvas recorded them on try ${e.attempts + 1}`
+        : `🧪 Self-checks for ${short} were not recorded by Canvas (${outcome})`, outcome === 'recorded' ? 'info' : 'warn');
+    }
+  }
+}
+
+function unsentBody(e: PendingSelfCheck) {
+  return { project: e.project, workspace: e.workspace, executionId: e.executionId, selfChecks: e.selfChecks };
 }
 
 /** Re-posts of evidence Canvas refused (409): every 30 s for 10 minutes, past Canvas's 5-minute reconciliation of a PR's head. */

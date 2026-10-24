@@ -7,6 +7,8 @@ import { emitProcess } from '../process/hub.js';
 import { heartbeatEvent } from '../process/opora-events.js';
 
 export const EXECUTION_TTL = 900;
+/** The stop reason when Canvas ended an execution because its result is in: a normal end, not a failure. */
+export const EXECUTION_FINISHED = 'Canvas finished the execution after its reported result';
 type Watch = { lease: ExecutionLease; deadline: number; expiry?: ReturnType<typeof setTimeout>; beat?: ReturnType<typeof setTimeout>; stopped: boolean; failing?: boolean };
 export function executionDeadline(lease: Pick<ExecutionLease, 'serverNow' | 'expiresAt'>, started: number) {
   const lifetime = Math.min(EXECUTION_TTL, lease.expiresAt - lease.serverNow) * 1000;
@@ -21,6 +23,8 @@ export class ExecutionController {
   private pending = new Set<string>();
   private watches = new Map<string, Watch>();
   private claims = new Map<string, ExecutionClaim>();
+  /** Whether the execution's result receipt is stored: Canvas then refuses its heartbeat (409) because it is finished, not lost. */
+  ended?: (executionId: string) => boolean;
   constructor(readonly client: ExecutionClient,
     private changed: (workerId: string, lease: ExecutionLease, deadlineUnixMs: number) => void,
     private stopped: (workerId: string, reason: string) => void,
@@ -101,7 +105,7 @@ export class ExecutionController {
   private stop(workerId: string, watch: Watch, reason: string) {
     if (watch.stopped) return;
     this.forget(workerId);
-    emitProcess(this.client.agent, heartbeatEvent(watch.lease, workerId, 'stopped', reason));
+    emitProcess(this.client.agent, heartbeatEvent(watch.lease, workerId, reason === EXECUTION_FINISHED ? 'finished' : 'stopped', reason));
     this.stopped(workerId, reason);
   }
   private arm(workerId: string, watch: Watch) {
@@ -130,7 +134,9 @@ export class ExecutionController {
       this.schedule(workerId, watch, 30_000);
     } catch (error) {
       if (watch.stopped) return;
-      if (error instanceof ExecutionError && error.terminal) this.stop(workerId, watch, error.message);
+      // After a reported result Canvas ends authority, so the next heartbeat's 409 is the run's normal end.
+      if (error instanceof ExecutionError && error.terminal && error.status === 409 && this.ended?.(watch.lease.executionId)) this.stop(workerId, watch, EXECUTION_FINISHED);
+      else if (error instanceof ExecutionError && error.terminal) this.stop(workerId, watch, error.message);
       else if (this.clock() >= watch.deadline) this.stop(workerId, watch, 'Canvas execution deadline expired');
       else { if (!watch.failing) { watch.failing = true; emitProcess(this.client.agent, heartbeatEvent(watch.lease, workerId, 'retrying')); } this.schedule(workerId, watch, 2000); }
     }

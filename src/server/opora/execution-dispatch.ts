@@ -23,6 +23,8 @@ export class ExecutionDispatch {
   /** The last worker info seen per worker, so a worker already sent home still hands its worktree off. */
   private worktrees = new Map<string, WorkerInfo>();
   private seating?: { lease: ExecutionLease; deadline: number; prompt: string; workerId?: string };
+  /** Hand-off outcomes already told to the process wall, per execution, PR and head (or reason), so callers joining one hand-off, and polls finding it done, don't repeat it. */
+  private told = new Set<string>();
   constructor(base: string, private agent: string, private directory: string,
     private runs: () => ExecutionHeld[],
     changed: () => void, private stop: (workerId: string, reason: string) => void, tools?: HandoffTools,
@@ -34,6 +36,8 @@ export class ExecutionDispatch {
       const run = this.runs().find(run => run.workerId === id);
       if (run) { run.execution = lease; run.deadlineUnixMs = deadline; run.leaseUntil = new Date(lease.expiresAt * 1000).toISOString(); changed(); }
     }, stop);
+    // A 409 on the heartbeat once the result's receipt is stored is the run's normal end (execution-controller.ts).
+    this.controller.ended = id => this.pullRequests.hasReceipt(id);
   }
   readonly guard: WorkerLaunchGuard = {
     applies: info => info.via === 'opora' || this.runs().some(run => run.workerId === info.id),
@@ -102,14 +106,19 @@ export class ExecutionDispatch {
     const lease = run.execution, dir = path.join(floorDir, wt.path);
     const handoff = this.pullRequests.handOff({ lease, cardName: run.cardName, dir, baseCommit: wt.base, baseBranch: wt.from }, notify);
     // The evidence runs after the pull request is out, without holding the lease for it.
-    void handoff?.then(out => { emitProcess(this.agent, handoffEvent(lease, out)); if (out.state === 'opened' || out.state === 'reused') return this.selfChecks?.report({
-      project: lease.project, workspace: lease.workspace, executionId: lease.executionId, headSha: out.headSha, dir }); }).catch(() => {});
+    void handoff?.then(out => {
+      const key = [lease.executionId, out.state, 'number' in out ? out.number : '', 'headSha' in out ? out.headSha ?? '' : '', 'reason' in out ? out.reason : ''].join('|');
+      if (!this.told.has(key)) { this.told.add(key); emitProcess(this.agent, handoffEvent(lease, out)); }
+      if (out.state === 'opened' || out.state === 'reused') return this.selfChecks?.report({
+        project: lease.project, workspace: lease.workspace, executionId: lease.executionId, headSha: out.headSha, dir });
+    }).catch(() => {});
     return handoff;
   }
   async release(run: ExecutionHeld) {
     await this.pullRequests.settled(run.execution?.executionId);
     if (run.workerId) this.worktrees.delete(run.workerId);
     if (run.workerId) this.controller.forget(run.workerId);
+    for (const key of this.told) if (key.startsWith(run.execution?.executionId + '|')) this.told.delete(key);
     if (run.execution) emitProcess(this.agent, releaseEvent(run.execution, run.workerId));
     processHub.noteExecution(run.workerId, undefined);
     if (run.execution) await this.client.release(run.execution).catch(() => {});
