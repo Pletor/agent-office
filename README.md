@@ -65,6 +65,11 @@ There's a lot more (a rooftop bar, an office dog, an arcade, a jukebox that keep
 
 **Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP and memory references. Press **F8** anywhere (or **E** at the shelf) to open it across the whole screen, on a phone too. Save **Global → Repository → Task** assignments, inspect inherited values and export context packs. The Opora orchestrator can assign repository/task profiles with `office-harness`; each Opora card handoff includes the resolved, content-bearing snapshot. Assignments do not install tools or activate MCP/memory servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md).
 
+Workers on context protocol 2 can use `office-harness --accepted-kit` to read their current execution's exact accepted kit through the authenticated hook server. Their static worker guide also requests optional `--prepare-accepted` checks before tool use, with missing adapters reported as unavailable. Reading the kit does not install or execute tools; see [accepted kit runtime](docs/harness-accepted-runtime.md).
+
+With native stability assessment and the optional lifecycle store installed, workers can inspect and update scoped recommendation state through [tool lifecycle commands](docs/harness-accepted-runtime.md#tool-recommendation-lifecycle). The server fetches evidence itself and carries a validated native verification reference for later reassessment; accepted assignments remain unchanged.
+The retained-evidence adapter rechecks that scoped reference after the session ends, without sending or restoring execution credentials, for optional automatic recommendation integration.
+
 On the machine that runs the office:
 
 - **Node.js 20+**
@@ -439,3 +444,17 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+A worker can request `office-harness --recover RESOURCE --from EXECUTION` to prepare a historical same-card kit proposal. The [recovery command](docs/harness-accepted-runtime.md#historical-recovery) keeps capabilities private and requires ordinary Canvas acceptance.
+
+Workers with an accepted Harness kit receive [usage guidance in their session](docs/harness-accepted-runtime.md#discovery-in-worker-sessions), including the command that reads their exact pinned resources.
+
+Workers can [recall or publish shared fixture lessons](docs/harness-accepted-runtime.md#shared-fixture-lessons-for-an-accepted-tool) with `office-harness --recall-shared PUBLICATION --resource RESOURCE` or `--publish-shared`. Office checks the exact accepted tool and fresh native evidence; public requests never carry execution tokens.
+
+The worker guide also explains [preparing equipment for the next accepted assignment](docs/harness-accepted-runtime.md#preparing-equipment-for-the-next-accepted-assignment): optional v2 recommendations preserve selection reasons, while the orchestrator accepts the proposal before a new worker assignment uses it.
+
+Workers also receive [accepted Context7 usage guidance](docs/harness-accepted-runtime.md#accepted-context7-documentation), including exact library selection, remote-service limits and the native documentation observation field.
+
+The accepted-kit reader preserves [v2 selection provenance](docs/harness-accepted-runtime.md#reading-accepted-selection-provenance) while retaining strict v1 support. Reading the recorded rationale does not verify the decision or enable newer kits in older execution adapters.
+
+For context-v2 Harness tasks, the optional `AGENT_OFFICE_HARNESS_PREFLIGHT=1` gate validates accepted equipment before claim and compares it again before seating. Deploy the matching Canvas endpoint first; see [accepted runtime](docs/harness-accepted-runtime.md#pre-claim-accepted-content-gate). This is content integrity, not worker runtime readiness.
