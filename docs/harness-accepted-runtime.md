@@ -59,7 +59,13 @@ Tests exercise the real authenticated Office HTTP route and CLI, correct private
 A context-v2 worker whose target accepted document contains a Harness kit receives
 `harness.worker/1` static guidance with its normal execution prompt. It names
 `office-harness --accepted-kit`, explains declared requirements and missing adapters,
-and describes optional invocation receipts and acceptance-required recovery. An explicit
+and requests optional `office-harness --prepare-accepted` before tool use. This separate
+invocation module checks the worker process using a fixed harmless probe, never accepted
+resource contents. Read each resource state: prepared context means readable material,
+not an activated tool. Unsupported resources or an absent command remain unavailable;
+use only authorized fallbacks. Readiness grants no permissions, independent verification
+or promotion, and invocation still checks current execution authority. The guide also
+describes optional invocation receipts and acceptance-required recovery. An explicit
 empty kit gets guidance too; it does not acquire resources automatically. A neighboring
 card's kit, absent target kit, or legacy context does not add the guide. A malformed
 accepted target kit prevents handoff rather than emitting misleading usage guidance.

@@ -61,6 +61,9 @@ test('actual v2 dispatch seats usage guide and its command reads exactly that ac
     prompt = text; return { id: 'worker', via: 'opora', status: 'working' } as WorkerInfo;
   }, () => { throw new Error('must not append live decoration'); });
   assert.match(prompt, /office-harness --accepted-kit/);
+  assert.match(prompt, /office-harness --prepare-accepted before using accepted tools/);
+  assert.match(prompt, /prepared context is readable material, not an activated tool/);
+  assert.match(prompt, /If the command is absent, report preparation unavailable/);
   assert.match(prompt, /immutable Canvas assignment/);
   assert.doesNotMatch(prompt, /PRIVATE-token|RESOURCE_CONTENT_NOT_INLINE/);
   assert.equal(JSON.stringify(JSON.parse(readFileSync(path.join(root, 'opora-executions', grant.executionId + '-assignment.json'), 'utf8'))), assignment);
