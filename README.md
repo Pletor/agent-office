@@ -476,3 +476,5 @@ Harness recommendations explain [why each resource was selected](docs/harness-re
 Harness recommendation HTTP callers can explicitly request accepted selection
 provenance after a scoped peer compatibility check; see
 [v2 preparation](docs/harness-recommend.md#opt-into-accepted-selection-provenance).
+Workers can request provenance with `office-harness --recommend PROBLEM --kit-schema harness.kit/2`;
+the connected Office verifies peer compatibility before returning a proposal.

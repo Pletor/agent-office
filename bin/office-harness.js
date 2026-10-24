@@ -23,6 +23,7 @@ const library = new HarnessLibrary(harnessSources(project, true));
 if (action === '--search') console.log(JSON.stringify(searchCatalog(await library.list(), args), null, 2));
 else if (action === '--recommend') {
   const input = recommendationArgs(args);
+  if (input.kitSchema === 'harness.kit/2') throw new Error('Kit v2 preparation requires a connected worker Office to verify the linked Opora format.');
   console.log(JSON.stringify(await recommendHarness(library, input.problem, input.capabilities), null, 2));
 } else if (action === '--kit') {
   const problem = args.shift() ?? '';
