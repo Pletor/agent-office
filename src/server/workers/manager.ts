@@ -221,7 +221,7 @@ export class WorkerManager {
    * other floors' repositories a worker in its own worktree works in too (see WorkerTrees.makeWorkspace).
    */
   spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = [], via?: WorkerInfo['via']): WorkerInfo | string {
-    // Nobody picked (a board agent, say): the office's default worker, model and effort included.
+    if (this.closing) return 'Office is shutting down'; // No new allocations once shutdown begins.
     if (kind === 'agent' && provider === undefined) ({ provider, model, effort } = this.officeDefault);
     const selectedProvider = kind === 'agent' ? provider : undefined;
     const modelError = validateWorkerModel(kind, selectedProvider, model);
@@ -306,7 +306,7 @@ export class WorkerManager {
 
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
   resume(id: string, prompt?: string): string | undefined {
-    const w = this.workers.get(id);
+    if (this.closing) return 'Office is shutting down'; const w = this.workers.get(id);
     if (!w) return 'No such worker';
     if (w.pty || w.dsh) return 'Worker is already running';
     const denied = this.launchGuards.check(w.info); if (denied) return denied;
@@ -634,7 +634,7 @@ export class WorkerManager {
   // ---------------------------------------------------------------------------
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
-    const { info } = w;
+    if (this.closing) return; const { info } = w; // A pending preparation may finish after shutdown.
     const denied = this.launchGuards.check(info); if (denied) { info.status = 'exited'; info.activity = denied; this.emitUpdate(w); return; }
     // Its folder was deleted meanwhile: it waits, marked lost, for someone to rebuild it or send it home.
     if (this.worktrees.checkLost(w)) {
