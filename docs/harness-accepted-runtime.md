@@ -103,6 +103,12 @@ for reassessment after this session ends. Negative or incomplete evidence cannot
 mint a new source reference. The reference is not proof of current eligibility;
 future selection must ask the native retained-evidence endpoint again.
 
+The optional `retained-stability` adapter performs that bounded project-scoped read
+using only the saved verification ID. It validates the exact stored version and
+report digest, native policy and source membership; no worker lease or credential
+is sent. Recommendation integration can use it after the evaluation session ends.
+Redirects, malformed or oversized responses and mismatched scope/source fail closed.
+
 The result concerns project recommendation state only. It does not change manual
 checkboxes or the running accepted kit, prove causal task benefit, or grant production
 permission. New work still requires an accepted specification. Automatic consumption
