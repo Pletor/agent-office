@@ -1,8 +1,9 @@
 import './ui.css';
 import { HARNESS_CATEGORIES, harnessBundle, type HarnessCatalog, type HarnessText } from '../../../shared/harness';
 import { h, openModal, toast, type Modal } from '../../ui/dom';
-import { cascadePanel } from './cascade';
+import { hierarchyPanel } from './hierarchy/editor';
 import { libraryKeys } from './keyboard';
+import type { HarnessProjectChoice } from '../../../shared/harness-navigation';
 
 let active: Modal | undefined;
 export function openHarness(floor: string) {
@@ -11,10 +12,12 @@ export function openHarness(floor: string) {
   let selected = new Set<string>();
   let current: HarnessText | undefined;
   let request = 0;
+  let catalogRequest = 0;
   let closed = false;
   let busy = false;
   const abort = new AbortController();
-  const cascade = cascadePanel(floor, abort.signal);
+  let cascade = hierarchyPanel(floor, abort.signal);
+  const project = h('select', { 'aria-label': 'Projekt knihovny' }, h('option', { value: floor }, floor));
   const assign = h('button.btn', { type: 'button', onclick: () => { if (current) cascade.assign(current); } }, 'Assign resource');
   const filter = h('input', { type: 'search', placeholder: 'Search resources…', 'aria-label': 'Search harness resources' });
   const category = h('select', { 'aria-label': 'Resource category' }, h('option', { value: '' }, 'All categories'), ...HARNESS_CATEGORIES.map((c) => h('option', { value: c }, c)));
@@ -36,7 +39,7 @@ export function openHarness(floor: string) {
   const el = h('div.modal.harness-window', { role: 'dialog', 'aria-label': 'Harness library', 'aria-modal': 'true', tabindex: -1, 'data-pane': 'list' },
     h('header', {}, h('h2', {}, '📚 Harness'), h('span.harness-tag', {}, 'Model context library')),
     h('p.harness-intro', {}, 'Instructions, skills, tools and memory references. Select what your model needs for this task.'),
-    h('div.harness-toolbar', {}, filter, category, source, refresh),
+    h('div.harness-toolbar', {}, project, filter, category, source, refresh),
     h('div.body.harness-body', {}, cascade.el, h('aside', {}, status, list, sources), h('section.harness-reader', { 'aria-live': 'polite' }, back, title, origin, h('div.harness-actions', {}, add, assign), retryRead, text)),
     h('footer', {}, count, clear, download, copy),
   );
@@ -58,6 +61,7 @@ export function openHarness(floor: string) {
     return response.json();
   }
   function update() {
+    project.disabled = busy;
     count.textContent = selected.size + ' selected / 24';
     add.disabled = !current || busy || (!selected.has(current.id) && selected.size >= 24);
     add.textContent = current && selected.has(current.id) ? 'Remove from pack' : 'Add to pack';
@@ -103,14 +107,16 @@ export function openHarness(floor: string) {
     } finally { if (ticket === request) text.removeAttribute('aria-busy'); }
   }
   async function load() {
+    const sequence = ++catalogRequest;
     refresh.disabled = true;
     status.textContent = 'Loading resources…';
     list.setAttribute('aria-busy', 'true');
     list.replaceChildren(...Array.from({ length: 6 }, () => h('div.harness-skeleton', { 'aria-hidden': 'true' })));
     try {
       const result = await get<HarnessCatalog>('');
-      if (closed) return;
+      if (closed || sequence !== catalogRequest) return;
       catalog = result;
+      cascade.catalog(result);
       selected = new Set([...selected].filter((id) => result.entries.some((e) => e.id === id)));
       source.replaceChildren(h('option', { value: '' }, 'All sources'), ...[...new Set(result.entries.map((e) => e.source))].map((s) => h('option', { value: s }, s)));
       sources.replaceChildren(h('summary', {}, 'Sources and availability'), ...result.sources.map((s) => h('p', {}, (s.available ? '✓ ' : '— ') + s.name + (s.available ? '' : ' · not found'))),
@@ -118,12 +124,12 @@ export function openHarness(floor: string) {
       render();
       if (!current && result.entries.some((e) => e.id === 'guide:instructions')) await read('guide:instructions');
     } catch (err) {
-      if (closed) return;
+      if (closed || sequence !== catalogRequest) return;
       status.textContent = 'Library unavailable';
       list.removeAttribute('aria-busy');
       list.replaceChildren(note((err as Error).message, h('button.btn.primary', { type: 'button', onclick: () => void load() }, 'Try again')));
     }
-    finally { refresh.disabled = false; }
+    finally { if (sequence === catalogRequest) refresh.disabled = false; }
   }
   async function exportPack(clipboard: boolean) {
     if (busy || !selected.size) return;
@@ -153,8 +159,22 @@ export function openHarness(floor: string) {
   clear.onclick = () => { if (!busy) { selected.clear(); render(); } };
   filter.oninput = category.onchange = source.onchange = render;
   refresh.onclick = () => void load();
+  project.onchange = () => {
+    if (busy) return;
+    floor = project.value; request++;
+    current = catalog = undefined; selected.clear();
+    const next = hierarchyPanel(floor, abort.signal);
+    cascade.el.replaceWith(next.el); cascade = next;
+    title.textContent = 'Choose a resource'; text.textContent = ''; origin.textContent = '';
+    showList(); update(); void load();
+  };
   copy.onclick = () => void exportPack(true);
   download.onclick = () => void exportPack(false);
   update();
   void load();
+  void get<{ projects: HarnessProjectChoice[] }>('/projects').then(result => {
+    if (closed || !Array.isArray(result.projects)) return;
+    project.replaceChildren(...result.projects.map(item => h('option', { value: item.floor }, item.name + (item.projectName ? ' · ' + item.projectName : ''))));
+    project.value = floor;
+  }).catch(() => { /* The current floor remains usable on an older server. */ });
 }

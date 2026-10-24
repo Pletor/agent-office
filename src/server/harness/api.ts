@@ -6,13 +6,19 @@ import { HarnessProfiles, HarnessError, parseHarnessLayer } from './profiles.js'
 import { harnessHandoff } from './handoff.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { oporaHarnessTask } from '../../shared/harness-cascade.js';
+import { harnessHierarchyRequest } from './hierarchy-api.js';
+import { HarnessBindings } from './bindings.js';
+import { parseOporaKey } from '../../shared/opora-identity.js';
+import { boundHarnessProfile } from './bound-profile.js';
 
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean) {
   try {
     const store = new HarnessProfiles(ctx.cfg.dataDir);
     const task = url.searchParams.get('task') ?? '';
+    const bound = !!parseOporaKey(task) && !!new HarnessBindings(ctx.cfg.dataDir).forRepo(floor.dir);
     if (req.method === 'POST') {
       if (!writable) return send(res, 403, { error: 'Only administrators and their active orchestrator can assign harness profiles.' });
+      if (bound) throw new HarnessError('This task uses the seven-level hierarchy. Read --hierarchy --task KEY, then --configure LEVEL with its pathDigest.', 409);
       const body = JSON.parse(await readBody(req, 300_000));
       if (!body || typeof body !== 'object') throw new HarnessError('Expected a JSON object');
       if (body.scope === 'global' && !globalWrite) return send(res, 403, { error: 'Global settings require the administrator UI.' });
@@ -23,9 +29,9 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
         const catalog = await lib.list();
         for (const id of ids) if (!catalog.entries.some((entry) => entry.id === id)) throw new HarnessError('Unknown or inaccessible resource: ' + id);
       }
-      store.save(floor.dir, task, body.scope, layer, body.revision);
+      await store.save(floor.dir, task, body.scope, layer, body.revision);
     } else if (req.method !== 'GET') return send(res, 405, { error: 'Use GET or POST' });
-    const view = store.view(floor.dir, task);
+    const view = bound ? await boundHarnessProfile(ctx.cfg.dataDir, floor.dir, task) : store.view(floor.dir, task);
     const opora = floor.opora.view();
     const tasks = opora.project && opora.workspace ? opora.cards.map((card) => ({ id: oporaHarnessTask(opora.project!.id, opora.workspace!, card.id), title: card.name })) : [];
     let preview = '', warning = '';
@@ -47,6 +53,8 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   // Workers without an identified administrator owner may read only project-published resources.
   const active = plan?.workerId === id && (plan.mode === 'opora' || plan.mode === 'router');
   const admin = !!active && (!plan.owner || ctx.accounts.get(plan.owner)?.role === 'admin');
+  if (url.searchParams.has('hierarchy')) return harnessHierarchyRequest(ctx, floor, req, res, url,
+    { local: admin, writable: admin, globalWrite: false, actor: 'worker:' + id });
   if (req.method === 'GET' && url.searchParams.has('catalog')) {
     return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin)).list());
   }

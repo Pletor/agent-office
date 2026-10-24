@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { hierarchyCommand } from './harness-hierarchy.js';
 
 /** Worker-authenticated access; never fall back to local machine access when credentials exist. */
 export async function remoteHarness(argv) {
@@ -15,7 +16,8 @@ export async function remoteHarness(argv) {
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID ?? '');
   if (task) url.searchParams.set('task', task);
   let body;
-  if (action === '--catalog' && !args.length) url.searchParams.set('catalog', '1');
+  if (['--hierarchy', '--origin-history', '--configure', '--bind'].includes(action)) body = hierarchyCommand(action, args, task, url);
+  else if (action === '--catalog' && !args.length) url.searchParams.set('catalog', '1');
   else if (action === '--assign' && args.length === 2 && ['repository', 'task'].includes(args[0])) {
     const data = JSON.parse(readFileSync(args[1], 'utf8'));
     body = JSON.stringify({ scope: args[0], revision: data.revision, layer: data.layer });
