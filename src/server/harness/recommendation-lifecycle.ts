@@ -7,7 +7,7 @@ interface Scope { peer: string; project: string; workspace: string; problem: str
 export interface ManagedVersion { id: string; digest: string; category: string; requires: string[] }
 interface Source { verificationId: string; reportDigest: string }
 interface State { scope: Scope; active: ManagedVersion; previous: ManagedVersion | null;
-  source?: Source; previousSource?: Source; status: 'stable' | 'suspended' }
+  source?: Source; previousSource?: Source; withdrawn?: ManagedVersion[]; status: 'stable' | 'suspended' }
 interface Evidence { scope: Scope; version: ManagedVersion; eligible: boolean; source?: Source }
 interface Store {
   toolLifecycleProtocol: 1;
@@ -34,7 +34,7 @@ export async function recommendationLifecycle(dataDir: string, repo: string, sco
   const initial = store.lifecycle(repo, scope);
   if (initial.revision !== revision) throw new HarnessError('Profiles changed before lifecycle assessment. Retry.', 409);
   if (!initial.state) return { status: 'unmanaged', revision, blocked: [] };
-  const before = initial.state, managed = [before.active, ...(before.previous ? [before.previous] : [])];
+  const before = initial.state, managed = [before.active, ...(before.previous ? [before.previous] : []), ...(before.withdrawn ?? [])];
   const unavailable = (reason: string): RecommendationLifecycle => ({ status: 'unavailable', revision, blocked: managed, reason });
   if (!before.source) return unavailable('native-source-missing');
   const module = new URL('./retained-stability.js', import.meta.url);
@@ -52,6 +52,8 @@ export async function recommendationLifecycle(dataDir: string, repo: string, sco
     assertCurrent();
     return { status: result.state.status, revision: result.revision,
       ...(result.state.status === 'stable' ? { active: result.state.active } : {}),
-      blocked: managed.filter(v => result.state.status !== 'stable' || !same(v, result.state.active)) };
+      blocked: [...managed, ...(result.state.withdrawn ?? [])]
+        .filter((v, i, all) => !all.slice(0, i).some(other => same(v, other)))
+        .filter(v => result.state.status !== 'stable' || !same(v, result.state.active)) };
   } catch { return unavailable('native-reassessment-unavailable'); }
 }

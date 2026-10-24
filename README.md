@@ -497,3 +497,5 @@ Harness recommendations preserve the native [nonproduction exploration allocatio
 On Windows, worker commands such as `office-harness` remain available when Git Bash starts a login shell with an inherited `ORIGINAL_PATH`. Office preserves that path and prepends its own command directory; see [configuration](docs/configuration.md#worker-commands-in-git-bash).
 
 With the optional lifecycle store and native retained-evidence adapter installed, recommendations [reassess managed versions before automatic selection](docs/harness-recommend.md#fresh-lifecycle-evidence-in-automatic-selection), including compatible fallback, while preserving manual choices and accepted kits.
+
+Automatic Harness recommendations preserve stored exact-version withdrawals across rollback and later refreshes; see [lifecycle evidence](docs/harness-recommend.md#fresh-lifecycle-evidence-in-automatic-selection).
