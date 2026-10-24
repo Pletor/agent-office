@@ -15,7 +15,7 @@ import { requestExecutionStop } from './execution-stop.js';
 import { prepareDesignBrief } from './design-brief.js';
 import { createReviewRunner, type ReviewJobRunner } from './review-runner.js';
 import { createOporaUpkeep, type OporaUpkeep } from './upkeep-runner.js';
-import { createSelfCheckReporter, upkeepSelfChecks } from './self-checks.js';
+import { createSelfCheckReporter, upkeepSelfChecks, type SelfCheckReporter } from './self-checks.js';
 import { floorCheckEnv } from './floor-checks.js';
 import { WorktreeSetup } from '../workers/worktree-setup.js';
 import { upkeepTap } from '../process/taps.js';
@@ -101,6 +101,8 @@ export class OporaBridge {
   readonly upkeep?: OporaUpkeep;
   /** The read under way, which another call to poll waits for rather than starting a second. */
   private polling?: Promise<void>;
+  /** Self-check evidence for the heads the office hands off, while AGENT_OFFICE_OPORA_SELF_CHECKS names checks (self-checks.ts). */
+  private selfChecks?: SelfCheckReporter;
   private stopped = false;
   /** Says once that the autopilot and the hand-out hold off while claims wait on a person. */
   private waitNotice = new HumanWaitNotice((text) => this.events.toast(text, 'warn'));
@@ -118,7 +120,7 @@ export class OporaBridge {
     // The floor's own checks (`.agent-office/opora-checks.json`) win over the env vars (floor-checks.ts).
     const env = floorCheckEnv(dataDir, log);
     // Self-check evidence for every head the office hands off or upkeep pushes, while AGENT_OFFICE_OPORA_SELF_CHECKS names checks (self-checks.ts).
-    const selfChecks = createSelfCheckReporter(url, `office-${floor.id}`, dataDir, log, env);
+    const selfChecks = this.selfChecks = createSelfCheckReporter(url, `office-${floor.id}`, dataDir, log, env);
     // A worktree its setup never ran in (worktree-setup.ts) gets it first, so the checks don't fail on missing dependencies.
     if (selfChecks) { const setup = new WorktreeSetup(floor.dir); selfChecks.prepare = dir => setup.ensure(dir); }
     this.executions = new ExecutionDispatch(url, `office-${floor.id}`, dataDir, () => this.runs,
@@ -232,6 +234,8 @@ export class OporaBridge {
         run.state = 'gone';
         void this.letGo(run);
       }
+      // Evidence Canvas didn't answer for, posted again as it was (never the checks again).
+      void this.selfChecks?.retryPending();
       await this.read();
       if (this.state.connected && this.state.project && this.state.workspace) void this.reviews?.tick({ project: this.state.project.id, workspace: this.state.workspace });
       if (this.state.handOut) await this.handOut();

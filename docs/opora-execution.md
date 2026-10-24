@@ -137,8 +137,14 @@ requirement in the card text to write agent-output, propose or confirm done, or
 change card state is legacy and is fulfilled by the result helper, and a plan step's
 acceptance item that mentions `agent-output`, `done.proposed` or `done.confirmed`
 is marked as such in the checklist. A successful result
-ends Canvas authority; the next Office heartbeat stops that worker. Its authority
-warning does not invalidate an already stored successful receipt.
+ends Canvas authority; the next Office heartbeat stops that worker. When that
+heartbeat is refused with 409 and the receipt is stored, it is the run's normal end:
+the process wall shows "Běh … dokončen" (`run.release`, ok), the run is kept without
+an error and nothing is toasted. Any other refusal, or a 409 without a stored
+receipt, stays an error. Either way the warning does not invalidate an already
+stored successful receipt. One hand-off is told to the process wall once
+(`pr.opened`/`pr.handoff` per execution, PR, head and reason), however many callers
+join it or polls find it done.
 
 The result may carry `decisions`: at most 20 non-empty texts or objects
 `{text, why?, alternatives?, evidence?}` that Canvas stores as the card's decisions
