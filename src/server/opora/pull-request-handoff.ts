@@ -81,6 +81,14 @@ export class PullRequestHandoff {
     } catch { return undefined; }
   }
 
+  /** Whether the worker's result helper stored Canvas's receipt for this execution (its result is in). */
+  hasReceipt(executionId: string): boolean {
+    try {
+      const saved = JSON.parse(readFileSync(this.file(executionId, 'reported'), 'utf8')) as { receiptId?: unknown };
+      return typeof saved.receiptId === 'string' && saved.receiptId.length > 0;
+    } catch { return false; }
+  }
+
   /** Hands the execution's work off once (per head commit); a second call while one runs waits for it. */
   handOff(subject: HandoffSubject, notify: Notify): Promise<HandoffOutcome> | undefined {
     const id = subject.lease.executionId;
