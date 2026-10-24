@@ -1,5 +1,29 @@
 # Measured use of accepted Node scripts
 
+## Prepare the current accepted kit
+
+Run `office-harness --prepare-accepted` from the worker shell before using the kit.
+The command reads the authenticated immutable assignment, validates every resource's
+content digest and declared requirements, and returns `harness.preparation/1` with
+per-resource states. It runs in the worker process, unlike the Office-host `--probe`.
+No resource contents run during preparation. Only a fixed harmless Node program is
+started, using the existing bounded, minimal-environment, read-only invocation adapter.
+The probe has a five-second process limit; authenticated reads have two-second limits.
+Execution identity is checked before launch, during the probe and after scratch cleanup.
+
+Instructions, skills, rules, memory, testing and operations with no requirements
+can be `prepared` for context reading. This does not activate tools described in
+their text. Scripts declaring exactly `command:node` can be prepared for the
+`node-readonly/1` adapter after the fixed probe passes. Other executable categories
+or requirements remain `unsupported`; failed probes or lost authority are
+`unavailable`. An unsupported row makes overall `ready` false and exits nonzero.
+The command does not install software, configure MCP, grant permissions, edit
+profiles or change the accepted kit. A subsequent invocation rechecks authority;
+this report is an observation, not a durable execution grant or independent proof
+that the selected resource itself works.
+
+## Invoke a pinned script
+
 Workers can explicitly execute a trusted script from their **current accepted kit**:
 
 ```sh
