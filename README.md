@@ -499,3 +499,5 @@ On Windows, worker commands such as `office-harness` remain available when Git B
 With the optional lifecycle store and native retained-evidence adapter installed, recommendations [reassess managed versions before automatic selection](docs/harness-recommend.md#fresh-lifecycle-evidence-in-automatic-selection), including compatible fallback, while preserving manual choices and accepted kits.
 
 Automatic Harness recommendations preserve stored exact-version withdrawals across rollback and later refreshes; see [lifecycle evidence](docs/harness-recommend.md#fresh-lifecycle-evidence-in-automatic-selection).
+
+Shared Harness toolboxes can optionally declare native publication references. Recommendations use fresh three-project fixture evidence to prioritize one candidate for local verification, without borrowing task success rates or overriding local failures. See [shared evidence](docs/harness-recommend.md#shared-fixture-evidence-in-automatic-selection).

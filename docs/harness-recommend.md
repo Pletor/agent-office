@@ -129,3 +129,40 @@ proposal behavior and explicitly report lifecycle support unavailable.
 With current lifecycle storage, withdrawn exact versions stay excluded from
 automatic selection after rollback and later refreshes, even when their audit
 entry has aged out. Fresh eligible re-promotion can clear the exact withdrawal.
+
+## Shared fixture evidence in automatic selection
+
+An intentionally published `Shared harness` toolbox may opt into
+`harness.toolbox/2`. Each resource retains `path`, `problems`, `requires` and
+`priority`, and adds a required `publication` ID from the native server's explicit
+transfer policy. Project toolboxes cannot declare publications. Version 1 remains
+unchanged; version 2 is optional and older Office versions reject it. For rollback,
+restore the previous manifest, rather than silently stripping its evidence policy.
+
+For example, a shared manifest can contain:
+
+```json
+{"schema":"harness.toolbox/2","resources":[{"path":"scripts/check.mjs","problems":["ts.references"],"requires":["command:node"],"priority":0,"publication":"shared-check-v1"}]}
+```
+
+The configured Canvas peer must publish that exact catalog resource ID, content
+digest and problem. Office reads `/api/oporahub/harness-verifier/eligibility/shared`
+with only the publication ID, at most eight distinct publications within one
+8-second deadline, with a 256-KiB response limit and no redirects or credentials.
+An eligible assessment must retain the native three-project/two-pinned-image
+thresholds and explicitly grant neither execution nor promotion authority.
+
+Fresh shared evidence prioritizes one exploratory Node candidate within the
+existing one-unmeasured-addition limit. It does not create local task outcomes,
+raise success percentages or mark the candidate stable. Local native history must
+be available and untruncated, with a complete fixture quarantine projection.
+Local failures, capability limits, lifecycle withdrawals, disabled choices and
+automatic-selection-off still win. Missing, withdrawn or incompatible declared
+shared evidence excludes automatic addition. Explicit choices remain visible with
+`shared-revalidation-needed`; missing capabilities still block kit preparation.
+
+Each recommendation exposes normalized evidence on `candidates[].shared`, including
+source references, project/image counts and the evidence digest. This is evidence
+about approved fixture cases, not independent production environments or proof of
+causal benefit. The target project must accept and verify its own assignment.
+No private memory is pooled and this read does not publish an OpenViking lesson.

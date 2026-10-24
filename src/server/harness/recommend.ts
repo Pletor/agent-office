@@ -9,6 +9,7 @@ import { HarnessError } from './profiles.js';
 import { noHistory, type NativeHistory, type NativeGuardrails } from './native-outcomes.js';
 import { noPairedHistory, type PairedHistory, type PairedEvidence } from './native-paired.js';
 import { noFixtureHistory, type FixtureHistory, type FixtureEvidence } from './native-verifier.js';
+import type { SharedEvidence, SharedReader } from './native-shared.js';
 import { toolbox, toolId } from './toolbox.js';
 import { managedVersionStatus, type RecommendationLifecycle } from './recommendation-lifecycle.js';
 
@@ -22,6 +23,7 @@ interface Candidate {
   fixtureEvidence: FixtureEvidence[]; fixtureRegression: boolean; fixtureFailure: boolean;
   fixtureQuarantines: string[]; fixtureHistoryIncomplete: boolean;
   lifecycle: 'stable' | 'blocked' | null;
+  shared: SharedEvidence | null;
 }
 /** Same sorted metadata keys as Canvas's version digest; content has its own UTF-8 hash. */
 export function toolVersion(resource: string, category: string, digest: string, requires: string[]) {
@@ -51,7 +53,7 @@ export function validateRecommendation(problem: string, capabilities: string[]) 
 export async function recommendHarness(library: HarnessLibrary, problem: string, capabilities: string[],
   profile?: HarnessProfile, history: NativeHistory = noHistory('no-native-peer'),
   paired: PairedHistory = noPairedHistory('no-native-peer'),
-  fixtures: FixtureHistory = noFixtureHistory('no-native-peer'), lifecycle?: RecommendationLifecycle) {
+  fixtures: FixtureHistory = noFixtureHistory('no-native-peer'), lifecycle?: RecommendationLifecycle, readShared?: SharedReader) {
   validateRecommendation(problem, capabilities);
   const catalog = await library.list(), policy = await toolbox(library, catalog.entries, problem), descriptors = policy.descriptors;
   const canonical = new Map(catalog.entries.flatMap(entry => [entry.id, ...((entry as { aliases?: string[] }).aliases ?? [])].map(id => [id, entry.id] as const)));
@@ -91,6 +93,15 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     const guardrails = verified?.guardrails ?? reported?.guardrails ?? null, flagged = !!guardrails?.affectedExecutions || pairedRegression || fixtureFailure || fixtureHistoryIncomplete;
     const missing = requires.filter(requirement => !capabilities.includes(requirement));
     const metadataMissing = !descriptor && !id.startsWith('guide:') && ['scripts', 'tools', 'commands', 'hooks', 'mcp', 'plugins'].includes(entry.category);
+    let shared: SharedEvidence | null = descriptor?.publication
+      ? nodeScript && readShared
+        ? await readShared(descriptor.publication, { id, digest }, problem)
+        : { status: 'unavailable', publication: descriptor.publication, reason: nodeScript ? 'shared-native-peer-unavailable' : 'shared-adapter-requirements-unsupported' }
+      : null;
+    if (shared?.status === 'eligible' && (history.status !== 'available' || history.limited
+      || fixtures.status !== 'available' || fixtures.quarantine?.complete !== true))
+      shared = { ...shared, status: 'unavailable', reason: 'target-history-unavailable' };
+    const sharedBlocked = shared !== null && shared.status !== 'eligible';
     const mandatory = explicit.has(id);
     const observed = !flagged && !!verified && verified.rate.pass + verified.rate.fail >= 5 && verified.tasks >= 3
       && (verified.rate.coverage ?? 0) >= .8 && (verified.rate.interval95?.[0] ?? 0) >= 50;
@@ -98,20 +109,21 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     if (mandatory && (missing.length || metadataMissing)) constraints.push({ resource: id, reason: metadataMissing ? 'tool-metadata-needed' : 'missing-declared-capabilities', missing });
     candidates.push({ id, title: entry.title, category: entry.category, digest, versionDigest: version, requires,
       mandatory, baseline: baseline.includes(id), disabled: blocked.has(id), missing, metadataMissing,
-      lifecycle: managed,
+      lifecycle: managed, shared,
       priority: descriptor?.priority ?? 0, observed, low, guardrails, pairedEvidence, pairedRegression, fixtureEvidence, fixtureRegression, fixtureFailure, fixtureQuarantines, fixtureHistoryIncomplete,
       reported: reported?.rate ?? null, verified: verified?.rate ?? null, tasks: verified?.tasks ?? 0,
-      state: blocked.has(id) ? 'disabled' : managed === 'blocked' ? 'lifecycle-revalidation-needed' : fixtureHistoryIncomplete ? 'fixture-history-incomplete' : fixtureFailure && !fixtureRegression ? 'fixture-failure-review-needed' : flagged ? 'regression-review-needed' : missing.length || metadataMissing ? 'needs-capabilities' : low ? 'low-observed-success' : managed === 'stable' ? 'native-stable' : observed ? 'observed-success' : 'candidate' });
+      state: blocked.has(id) ? 'disabled' : managed === 'blocked' ? 'lifecycle-revalidation-needed' : sharedBlocked ? 'shared-revalidation-needed' : fixtureHistoryIncomplete ? 'fixture-history-incomplete' : fixtureFailure && !fixtureRegression ? 'fixture-failure-review-needed' : flagged ? 'regression-review-needed' : missing.length || metadataMissing ? 'needs-capabilities' : low ? 'low-observed-success' : managed === 'stable' ? 'native-stable' : observed ? 'observed-success' : shared?.status === 'eligible' ? 'shared-fixture-candidate' : 'candidate' });
   }
   const selected = candidates.filter(candidate => candidate.mandatory);
   const add = (candidate: typeof candidates[number]) => { if (!selected.some(entry => entry.id === candidate.id) && selected.length < 24) selected.push(candidate); };
   if (auto) {
     // A correlated incident must not optimize away the baseline instructions/testing policy.
     for (const candidate of candidates.filter(entry => entry.baseline && !entry.disabled)) add(candidate);
-    const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && entry.lifecycle !== 'blocked' && !entry.missing.length && !entry.metadataMissing && !entry.low && !entry.guardrails?.affectedExecutions && !entry.pairedRegression && !entry.fixtureFailure && !entry.fixtureHistoryIncomplete);
+    const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && entry.lifecycle !== 'blocked' && (!entry.shared || entry.shared.status === 'eligible') && !entry.missing.length && !entry.metadataMissing && !entry.low && !entry.guardrails?.affectedExecutions && !entry.pairedRegression && !entry.fixtureFailure && !entry.fixtureHistoryIncomplete);
     optional.sort((a, b) => Number(b.lifecycle === 'stable') - Number(a.lifecycle === 'stable') || (b.verified?.interval95?.[0] ?? 0) - (a.verified?.interval95?.[0] ?? 0) || b.priority - a.priority || (a.id < b.id ? -1 : 1));
     for (const candidate of optional.filter(entry => entry.observed || entry.lifecycle === 'stable').slice(0, 3)) add(candidate);
-    const exploration = optional.find(entry => !entry.observed && entry.lifecycle !== 'stable');
+    const unknown = optional.filter(entry => !entry.observed && entry.lifecycle !== 'stable');
+    const exploration = unknown.find(entry => entry.shared?.status === 'eligible') ?? unknown[0];
     if (exploration) add(exploration); // At most one insufficiently measured addition per preparation.
   }
   let kit: HarnessKit | null = null;
@@ -145,7 +157,7 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
       evidence: 'server-observed fixture outputs; not production success or promotion' },
     capabilityEvidence: 'caller-declared; not native attestation or permission grants',
     association: 'selected-kit outcomes; actual invocation and causal contribution unobserved', promotionAllowed: false,
-    constraints, warnings: selected.filter(entry => entry.lifecycle === 'blocked' || entry.guardrails?.affectedExecutions || entry.pairedRegression || entry.fixtureFailure || entry.fixtureHistoryIncomplete)
-      .map(entry => ({ resource: entry.id, reason: entry.lifecycle === 'blocked' ? 'lifecycle-revalidation-needed' : entry.fixtureHistoryIncomplete ? 'fixture-history-incomplete' : entry.fixtureRegression ? 'verified-fixture-regression-needs-review' : entry.fixtureFailure ? 'verified-fixture-failure-needs-review' : entry.pairedRegression ? 'paired-fixture-regression-needs-review' : 'linked-regression-needs-review',
+    constraints, warnings: selected.filter(entry => entry.lifecycle === 'blocked' || (entry.shared && entry.shared.status !== 'eligible') || entry.guardrails?.affectedExecutions || entry.pairedRegression || entry.fixtureFailure || entry.fixtureHistoryIncomplete)
+      .map(entry => ({ resource: entry.id, reason: entry.lifecycle === 'blocked' ? 'lifecycle-revalidation-needed' : entry.shared && entry.shared.status !== 'eligible' ? 'shared-revalidation-needed' : entry.fixtureHistoryIncomplete ? 'fixture-history-incomplete' : entry.fixtureRegression ? 'verified-fixture-regression-needs-review' : entry.fixtureFailure ? 'verified-fixture-failure-needs-review' : entry.pairedRegression ? 'paired-fixture-regression-needs-review' : 'linked-regression-needs-review',
         preserved: entry.mandatory ? 'explicit' : 'baseline-policy' })), selected: selected.map(entry => entry.id), candidates, kit };
 }
