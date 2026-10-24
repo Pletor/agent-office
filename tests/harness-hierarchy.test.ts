@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canvasArea, parseHarnessCanvas, type GeometryNode } from '../src/shared/harness-canvas.js';
+import { parseHarnessCanvas, type GeometryNode } from '../src/shared/harness-canvas.js';
 import { harnessPath } from '../src/shared/harness-hierarchy.js';
 import { HarnessProfiles } from '../src/server/harness/profiles.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ const node = (id: string, kind: GeometryNode['kind'], parentId: string | null, e
 const place = { project: 'p', workspace: 'w' };
 function graph() {
   return [node('domain', 'sector', null), node('page', 'node', 'domain'), node('layer', 'node', 'page'),
-    node('area', 'area', 'layer', { size: { w: 800, h: 600 } }), node('sector', 'sector', 'layer'), node('card', 'node', 'sector')];
+    node('area', 'area', 'layer', { size: { w: 800, h: 600 } }), node('sector', 'sector', 'layer', { memberOf: 'area' }), node('card', 'node', 'sector')];
 }
 test('the original seven-level resolver uses current canonical Canvas area membership', () => {
   const nodes = parseHarnessCanvas({ graph: { nodes: graph() } });
@@ -19,16 +19,25 @@ test('the original seven-level resolver uses current canonical Canvas area membe
   assert.deepEqual(chain.map(n => n.level), ['page', 'layer', 'area', 'sector', 'task']);
   assert.deepEqual(chain.map(n => n.node), ['page', 'layer', 'area', 'sector', 'card'].map(id => 'opora:p:w:' + id));
 });
-test('area ownership matches centre, smallest area, equal-size order and same-parent boundaries', () => {
-  const card = node('card', 'node', 'layer');
-  const large = node('large', 'area', 'layer', { size: { w: 1000, h: 800 } });
-  const small = node('small', 'area', 'layer', { size: { w: 400, h: 300 } });
-  const tie = { ...small, id: 'tie' };
-  assert.equal(canvasArea(card, [large, small, tie]), 'small');
-  assert.equal(canvasArea(card, [large, tie, small]), 'tie');
-  assert.equal(canvasArea(card, [{ ...small, parentId: 'other' }]), undefined);
-  assert.equal(canvasArea({ ...card, x: 221 }, [small]), undefined);
-  assert.equal(canvasArea({ ...card, x: 220, y: 180 }, [small]), 'small');
+test('explicit membership survives layout changes and missing membership never guesses from geometry', () => {
+  const rows = graph();
+  rows.find(n => n.id === 'sector')!.x = 9000;
+  assert.equal(parseHarnessCanvas({ graph: { nodes: rows } }).find(n => n.id === 'sector')!.memberOf, 'area');
+  delete rows.find(n => n.id === 'sector')!.memberOf;
+  rows.find(n => n.id === 'sector')!.x = 0;
+  assert.equal(parseHarnessCanvas({ graph: { nodes: rows } }).find(n => n.id === 'sector')!.memberOf, undefined);
+  assert.equal(harnessPath(parseHarnessCanvas({ graph: { nodes: rows } }), place, 'card').some(n => n.level === 'area'), false);
+});
+test('invalid explicit memberships fail closed instead of falling back to geometry', () => {
+  for (const target of ['missing', 'card', 'sector', null, 3, '']) {
+    const rows = graph();
+    (rows.find(n => n.id === 'sector')! as unknown as Record<string, unknown>).memberOf = target;
+    assert.throws(() => parseHarnessCanvas({ graph: { nodes: rows } }));
+  }
+  const rows = graph(); rows.find(n => n.id === 'area')!.parentId = 'page';
+  assert.throws(() => parseHarnessCanvas({ graph: { nodes: rows } }));
+  const areas = graph(); areas.find(n => n.id === 'area')!.memberOf = 'area';
+  assert.throws(() => parseHarnessCanvas({ graph: { nodes: areas } }));
 });
 test('comments do not reclassify a task; broken parents, cycles and duplicate IDs fail closed', () => {
   const single = node('task', 'node', null);
