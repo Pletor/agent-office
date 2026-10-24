@@ -69,7 +69,7 @@ Harness checkboxes preserve catalog aliases during resource identity migrations.
 
 The Harness editor can also show versioned experience by problem: separate reported/human-closed results, sample counts, unknowns and confidence intervals. This optional read-only lookup preserves unsaved checkbox edits; see [hierarchy and experience](docs/harness-hierarchy.md).
 
-The profile store also supports [durable recommendation lifecycle state](docs/harness-hierarchy.md#recommendation-lifecycle-storage), with fresh evidence checks and compatible rollback in the same revision transaction. This internal seam is not yet connected to an autonomous worker command or the recommendation selector.
+The profile store also supports [durable recommendation lifecycle state](docs/harness-hierarchy.md#recommendation-lifecycle-storage), with fresh evidence checks, native verification references and compatible rollback in the same revision transaction. The optional worker bridge supplies current assessments; automatic recommendation-selector integration remains pending.
 
 Versioned experience also shows optional incident/revert warnings without changing assignments.
 

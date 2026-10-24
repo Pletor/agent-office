@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { HarnessProfiles } from '../src/server/harness/profiles.js';
-import { advanceLifecycle, type LifecycleEvidence, type ToolVersion } from '../src/server/harness/lifecycle.js';
+import { advanceLifecycle, parseLifecycle, type LifecycleEvidence, type ToolVersion } from '../src/server/harness/lifecycle.js';
 
 const scope = { peer: 'http://127.0.0.1:8740', project: 'p', workspace: 'w', problem: 'testing:node' };
 const version = (name: string): ToolVersion => ({ id: 'script:' + name, digest: name.repeat(64), category: 'scripts', requires: ['command:node'] });
@@ -94,4 +94,36 @@ test('foreign evidence, baseline drift, capability expansion and unrelated rollb
   const second = advanceLifecycle(scope, first, { current: proof(b) }, 'promote');
   assert.throws(() => advanceLifecycle(scope, second, { current: proof(b, a, false), fallback: proof(c) }, 'reconcile'));
   assert.throws(() => advanceLifecycle(scope, second, { current: proof(a) }, 'reconcile'));
+});
+
+test('native verification sources survive restart, suspension and exact predecessor rollback', async t => {
+  const { dir, store } = setup(t);
+  const sourceA = { verificationId: 'native-a', reportDigest: 'a'.repeat(64) };
+  const sourceB = { verificationId: 'native-b', reportDigest: 'b'.repeat(64) };
+  await store.advanceTool('/repo', scope, 0, 'promote', async () => ({ current: { ...proof(a), source: sourceA } }));
+  await store.advanceTool('/repo', scope, 1, 'promote', async () => ({ current: { ...proof(b), source: sourceB } }));
+  const stored = new HarnessProfiles(dir).lifecycle('/repo', scope).state!;
+  assert.deepEqual(stored.source, sourceB); assert.deepEqual(stored.previousSource, sourceA);
+  await store.advanceTool('/repo', scope, 2, 'reconcile', async () => ({ current: proof(b, a, false) }));
+  const suspended = store.lifecycle('/repo', scope).state!;
+  assert.equal(suspended.status, 'suspended'); assert.deepEqual(suspended.source, sourceB);
+  assert.deepEqual(suspended.previousSource, sourceA);
+  const refreshedSourceA = { ...sourceA, reportDigest: 'c'.repeat(64) };
+  const result = await store.advanceTool('/repo', scope, 3, 'reconcile', async () => ({ current: proof(b, a, false),
+    fallback: { ...proof(a), source: refreshedSourceA } }));
+  assert.deepEqual(result.state.source, refreshedSourceA); assert.equal(result.state.previousSource, undefined);
+  assert.equal(result.state.audit.at(-1)?.action, 'rollback');
+  sourceA.reportDigest = 'd'.repeat(64);
+  assert.deepEqual(new HarnessProfiles(dir).lifecycle('/repo', scope).state?.source, refreshedSourceA);
+});
+
+test('legacy lifecycle remains readable but malformed or orphaned sources are refused', () => {
+  const legacy = advanceLifecycle(scope, undefined, { current: proof(a) }, 'promote');
+  assert.equal(parseLifecycle(legacy).source, undefined);
+  for (const source of [{ verificationId: 'ok\n', reportDigest: 'a'.repeat(64) },
+    { verificationId: 'ok', reportDigest: 'a'.repeat(64) + '\n' },
+    { verificationId: 'ok', reportDigest: 'a'.repeat(64), token: 'private' }, null]) {
+    assert.throws(() => advanceLifecycle(scope, undefined, { current: { ...proof(a), source } as LifecycleEvidence }, 'promote'));
+  }
+  assert.throws(() => parseLifecycle({ ...legacy, previousSource: { verificationId: 'orphan', reportDigest: 'a'.repeat(64) } }));
 });
