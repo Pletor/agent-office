@@ -39,11 +39,31 @@ aniž by přepsal původní historii potvrzení.
 | Stabilní doporučení | Čerstvé nativní posouzení přesné verze před výběrem, pozastavení a kompatibilní návrat; odmítnuté verze zůstávají vyřazené i po dalších doporučeních a zkrácení auditu | Produkční ověření; dostupná způsobilost pro deterministické Node zkoušky není obecná atestace všech kategorií |
 | Context7 | Skutečné MCP initialize/list/call, verzované ID knihovny, čas a hash dokumentace, omezený přenos a rozpočet | Dokumentace není ověření vytvořeného kódu |
 | OpenViking | Nativní výsledky a nezávisle ověřené zkoušky vstupují do trvalé fronty; skutečné doručení a přesné načtení byly ověřeny v izolovaném pilotu s existujícím klíčem role | Produkční pilot; doručení nebo přesné načtení samo nepotvrzuje dokončenou vektorovou indexaci |
-| Globální sdílení | Výslovně publikovaný shared adresář je dostupný agentům více pater; osobní adresáře se takto nezveřejní | Automatické globální publikování a sdílení výsledků mezi projekty nejsou zapnuté |
+| Globální sdílení | Výslovný shared katalog a přenosná identita; volitelná nativní politika ověřuje stejnou verzi/problém nejméně ve třech projektech a dvou připnutých obrazech Node. Doporučení může kandidáta nabídnout jinému projektu; přijatý pracovník může načíst jeho aktuální zkušenost z OpenVikingu | Není nasazeno jako celek. Historie z cizího projektu se nepřičítá k místní úspěšnosti; zkoušky samy nepovolují globální produkční povýšení |
 | Náklady a odolnost | Neměřené tokeny, ceny, runner a doby běhů se nevymýšlejí; testy pokrývají rollback, opakování, souběh, ztracenou odpověď a změny kontextu | Úplná provozní telemetrie, opakované nezávislé zkoušky a kalibrace experimentální politiky |
 
 Paměť uchovává zkušenost s původem. Před opětovným použitím musí agent ověřit
 aktuální nativní výsledky **i varovné signály regresí** pro přesnou verzi.
+
+## Kde se knihovna propisuje
+
+| Příjemce | Co dostane | Hranice |
+| --- | --- | --- |
+| Člověk v Office | F8, kategorie, hierarchii, checkboxy, původ voleb a zkušenosti | Uložený profil nemění již běžící zadání |
+| Orchestrátor | Doporučený kit pro typ problému, požadavky, důvody a dostupnou nativní evidenci | Návrh prochází existujícím přijetím zadání v Opoře |
+| Karta v Opoře | Přesný obsah a digest prostředků v přijatém `fields.harness` | Aktualizace knihovny nemění neměnnou výbavu běhu |
+| Pracovník | `--accepted-kit`, volitelné `--prepare-accepted` a podporované `--invoke-node` | Příprava ověřuje čitelnost kontextu a dostupnost omezeného Node runneru; jiné adaptéry zůstávají nedostupné |
+| Další úkol | Aktualizovaná doporučení, nejistotu, varování a potlačení regresí | Výsledek celé výbavy neprokazuje přínos každé položky |
+| OpenViking | Zkušenost s původem a přesnými odkazy na důkazy | Historický zápis může zůstat uložený, ale odvolaný důkaz nelze použít jako aktuálně způsobilý |
+
+Pracovník s odpovídajícím přijatým Node prostředkem může použít
+`office-harness --recall-shared PUBLICATION --resource RESOURCE`.
+`--publish-shared` používá stejnou identitu publikace a prostředku; potvrzení
+fronty ještě není potvrzené načtení. ID publikace pochází z volitelného
+`candidates[].shared.publication` v doporučení. Příkazy vyžadují modul
+z Office #62 a odpovídající nativní moduly Canvas #46/#78. Veřejný požadavek
+neposílá token pracovního běhu. Důkazy se kontrolují před operací i po ní
+a přijatá výbava zůstává beze změny.
 
 ## Kde je změna k revizi
 
@@ -66,11 +86,19 @@ odmítnutého nástroje. Historická lidská potvrzení a vazby na sloučené PR
 pro vzorek jsou stále simulované. Výsledek konkrétní zkoušky není produkční přijetí
 ani statistický důkaz příčinného přínosu. Přesné commity, příkazy a výstupy jsou u PR.
 
+Další izolovaný pilot ověřil 18 skutečných kontejnerových pokusů ve třech
+projektech a doporučení do čtvrtého. Přijatý pracovník přes skutečné CLI načetl
+sdílenou zkušenost z živého OpenVikingu, zopakoval publikování bez duplicity,
+odmítl načtení po odvolání zdrojových důkazů a uspěl po jejich obnovení.
+Historická lidská uzavření a identita aktéra v testovacím HTTP serveru byly
+simulované; nešlo o autonomní LLM řešení produkčního úkolu.
+
 Při předání orchestrátoru je třeba rozlišovat tři věci: katalog říká, co lze najít,
 doporučení navrhuje výbavu pro problém a přijatý kit určuje neměnnou výbavu konkrétního
 běhu. Úspěšné čtení katalogu ani doporučení nepotvrzuje připravenost všech schopností
-runneru. Globální dostupnost sdíleného prostředku také nepřenáší automaticky jeho
-ověřené výsledky mezi projekty.
+runneru. Globální dostupnost sdíleného prostředku nepřenáší automaticky jeho
+úspěšnost mezi projekty. Výslovně publikovaná nativní evidence může být podkladem
+pro místní ověření v jiném projektu, zatímco místní výsledky zůstanou neznámé.
 
 Větve se slučují přes lidskou frontu podle [Čisté linie](cista-linie.md), po jednom,
 s přeložením dalších větví na nový main. Nasazení musí ověřit server i klienta.
