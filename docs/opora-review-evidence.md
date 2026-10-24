@@ -23,6 +23,16 @@ Canvas's merge gate wants evidence that the agent ran the required checks (by de
 | `AGENT_OFFICE_OPORA_SELF_CHECKS` | off | The checks: a JSON object (`{"tests":"npm test","build":"npm run build"}`) or one `name=command` per line. Names are Canvas's (`[a-z0-9][a-z0-9_.:-]{0,63}`); use the names in Canvas's `self_checks.required`. |
 | `AGENT_OFFICE_OPORA_SELF_CHECK_TIMEOUT_MIN` | `20` | Minutes one check may run (1–120). |
 
+### A floor's own checks
+
+The office serves several floors (projects) at once, and the env var is the same for all of them. A floor whose tests and build differ names its own in `opora-checks.json` in its data dir (`<floor checkout>/.agent-office/`, beside `opora.json`), which wins over the env vars:
+
+```json
+{"selfChecks": {"tests": "npx vitest run", "build": "npm run build"}, "checkCommand": "npx vitest run && npm run build"}
+```
+
+`selfChecks` takes what `AGENT_OFFICE_OPORA_SELF_CHECKS` takes (a JSON object, or `name=command` lines as one string) and `checkCommand` what `AGENT_OFFICE_OPORA_CHECK_COMMAND` takes ([PR upkeep](opora-pr-upkeep.md)). A key left out keeps the env var's value; `{}` or `""` turns it off on that floor. The file is read when the floor opens (restart the office after changing it) and the server log says which checks the floor uses. A file that can't be read, isn't valid JSON, has another key or a check Canvas wouldn't take is ignored as a whole, with one warning in the log, and the env vars apply. Code: `src/server/opora/floor-checks.ts`.
+
 They run, one at a time, in the platform shell:
 
 - **When the office hands off a pull request** (a card worker's, from its worktree, after the PR is opened or reused; the lease isn't held for it), and for an isolated run's PR (below), in its throwaway worktree.
@@ -32,7 +42,7 @@ Each (execution, head) is run and posted once; `.agent-office/opora-self-checks.
 
 A worker may also put `selfChecks` into its own result (`POST …/executions/{id}/results`), and the prompt says how. The result helper passes it on only if it matches the same shape; anything else is left out of the result (with a note on stderr), never the whole result refused.
 
-Code: `src/server/opora/self-checks.ts`, wired in `execution-dispatch.ts`, `pr-upkeep.ts` (`pushed`), `isolated-pull-request.ts` and `execution-worker.ts`.
+Code: `src/server/opora/self-checks.ts` and `floor-checks.ts`, wired in `execution-dispatch.ts`, `pr-upkeep.ts` (`pushed`), `isolated-pull-request.ts` and `execution-worker.ts`.
 
 ## PR Lens diagrams
 

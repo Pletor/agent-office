@@ -40,7 +40,7 @@ Each step is a server log line (`[opora] …`), a toast in the office and a line
 | --- | --- | --- |
 | `AGENT_OFFICE_OPORA_UPKEEP` | off | `on` turns PR upkeep on. |
 | `AGENT_OFFICE_OPORA_GUARD` | off | `on` turns the post-merge guard on. |
-| `AGENT_OFFICE_OPORA_CHECK_COMMAND` | none | The shell line that gates a push and probes a commit CI has no result for. |
+| `AGENT_OFFICE_OPORA_CHECK_COMMAND` | none | The shell line that gates a push and probes a commit CI has no result for. A floor can set its own as `checkCommand` in `.agent-office/opora-checks.json`, which wins ([a floor's own checks](opora-review-evidence.md#a-floors-own-checks)). |
 | `AGENT_OFFICE_OPORA_CHECK_TIMEOUT_MIN` | 20 | How long one check run may take. |
 | `AGENT_OFFICE_OPORA_RESOLVE` | on | `off` leaves every textual conflict to a human. |
 | `AGENT_OFFICE_OPORA_RESOLVE_PER_HOUR` | 4 | Resolver runs started per rolling hour. |
