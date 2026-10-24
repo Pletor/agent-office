@@ -4,6 +4,7 @@
 
 import type { GhPull, ProcessToolAction, QueueTask, WorkerInfo, WorkerStatus } from '../../shared/protocol.js';
 import type { ProcessInput } from './journal.js';
+import { pauseCz } from '../../shared/usage-limit.js';
 
 const actorOf = (w: Pick<WorkerInfo, 'id' | 'name'>): ProcessInput['actor'] => ({ kind: 'worker', id: w.id, name: w.name });
 const workerRefs = (w: WorkerInfo): ProcessInput['refs'] => ({
@@ -40,6 +41,11 @@ export function workerEvents(prev: WorkerInfo | undefined, next: WorkerInfo): Pr
   }
   if (next.action === 'failing' && prev.action !== 'failing')
     out.push({ ...base, kind: 'tool.use', phase: 'checks', state: 'fail', title: `${next.name}: testy nebo build opakovaně selhávají`, tool: { name: 'tests', action: 'failing' } });
+  // Stopped on its provider's usage limit while its status still says working (see shared/usage-limit.ts).
+  if (next.paused && (!prev.paused || prev.paused.resetsAt !== next.paused.resetsAt || prev.paused.kind !== next.paused.kind))
+    out.push({ ...base, kind: 'worker.status', phase: 'work', state: 'wait', title: `${next.name} ${pauseCz(next.paused)}`, detail: `Limit poskytovatele (${next.paused.kind}): ${next.paused.line}` });
+  else if (prev.paused && !next.paused && next.status !== 'exited' && next.status !== 'offline')
+    out.push({ ...base, kind: 'worker.status', phase: 'work', state: 'progress', title: `${next.name} pokračuje po limitu`, detail: `${STATUS_CZ[next.status]}` });
   if (next.lost && !prev.lost)
     out.push({ ...base, kind: 'worker.status', phase: 'work', state: 'blocked', title: `${next.name} přišel o worktree`, detail: 'Čeká, až ho někdo obnoví' });
   return out;

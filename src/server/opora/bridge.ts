@@ -313,6 +313,7 @@ export class OporaBridge {
     const run = this.runs.find((r) => r.workerId === info.id && r.state !== 'gone');
     if (!run) return;
     this.handOff(run, info);
+    this.executions.onWorker(info);
     const state = info.status === 'done' || info.status === 'exited' ? 'done' : 'working';
     if (run.state === state) return;
     run.state = state;

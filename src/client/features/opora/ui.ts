@@ -7,6 +7,7 @@ import { dictateField } from '../../ui/dictate';
 import { h, openModal, timeAgo, STATUS_LABEL, type Modal } from '../../ui/dom';
 import { oporaPageUrl } from './full';
 import { humanWaitNotice } from './human-wait';
+import { workerStatusText } from '../../../shared/usage-limit';
 
 export interface OporaActions {
   openTerminal(workerId: string): void;
@@ -131,7 +132,7 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
               { class: r.group },
               h('b', {}, r.cardName),
               h('span.muted', {}, [r.sectorName, r.group === 'design' ? '🎨 design' : '💻 dev', r.workerName, r.workspace && r.workspace !== s.workspace ? `in ${workspaceName(s, r.workspace)}` : ''].filter(Boolean).join(' · ')),
-              w ? h('span.pill', { class: w.status }, STATUS_LABEL[w.status]) : null,
+              w ? h('span.pill', { class: w.paused ? 'paused' : w.status, ...(w.paused ? { title: w.paused.line } : {}) }, workerStatusText(w, STATUS_LABEL)) : null,
               r.error ? h('span.opora-error', { title: r.error }, '⚠️ lease') : null,
               w ? h('button.btn.small', { type: 'button', onclick: () => actions.openTerminal(w.id) }, '🖥️ Terminal') : null,
             );

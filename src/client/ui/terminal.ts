@@ -6,6 +6,7 @@ import type { Net } from '../net';
 import { store } from '../state';
 import { TERM_THEME } from './termtheme';
 import { h, openModal, STATUS_LABEL, timeAgo, toast, type Modal } from './dom';
+import { workerStatusText } from '../../shared/usage-limit';
 import { usageLabel, usageTitle } from './usage';
 import type { ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
@@ -254,8 +255,8 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       return;
     }
     title.textContent = [w.kind === 'agent' ? engineLabel(w, store.project) : null, w.name, w.title, w.worktree && `🌿 ${w.worktree.branch}`, w.repos?.length && `🗂️ ${[w.worktree?.path.split(/[\\/]/).pop(), ...w.repos.map((r) => r.name)].join(' + ')}`].filter(Boolean).join(' · ');
-    pill.className = `pill ${w.status}`;
-    pill.textContent = STATUS_LABEL[w.status] ?? w.status;
+    pill.className = `pill ${w.paused ? 'paused' : w.status}`;
+    pill.textContent = workerStatusText(w, STATUS_LABEL);
     const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
     const usageState = w.kind === 'agent' ? providerUsageState(w.provider, store.project, w.usage) : undefined;
     const waiting = usageState === 'waiting' ? providerWaitingLabel(workerProvider, store.project) : '';

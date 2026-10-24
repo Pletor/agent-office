@@ -91,6 +91,25 @@ export class ExecutionController {
     const watch = this.watches.get(workerId);
     if (watch) { watch.stopped = true; clearTimeout(watch.expiry); clearTimeout(watch.beat); this.watches.delete(workerId); }
   }
+  /**
+   * Its worker stopped on the provider's usage limit until `resetsAt` (wall-clock ms; undefined: it
+   * didn't say). Heartbeats go on only while it can resume before the execution's fixed run deadline
+   * (budget v2); one that can't (or won't say when) is stopped now as at that deadline, worktree kept.
+   * Without a fixed deadline (v1) there is nothing it would overrun: authority stays, the pause is shown.
+   */
+  usageLimit(workerId: string, resetsAt: number | undefined, wallNow = Date.now()): 'kept' | 'stopped' | undefined {
+    const watch = this.watches.get(workerId);
+    if (!watch || watch.stopped) return undefined;
+    const fixed = this.caps.fixed(watch.lease.executionId);
+    const keep = !Number.isFinite(fixed) || (resetsAt !== undefined && this.clock() + (resetsAt - wallNow) < fixed);
+    if (keep) {
+      emitProcess(this.client.agent, heartbeatEvent(watch.lease, workerId, 'paused', Number.isFinite(fixed) ? 'limit se obnoví před pevným termínem běhu' : 'běh nemá pevný termín'));
+      return 'kept';
+    }
+    const when = resetsAt === undefined ? 'an unstated time' : new Date(resetsAt).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+    this.stop(workerId, watch, `Provider usage limit until ${when} is past the execution's fixed deadline: authority released, worktree kept`);
+    return 'stopped';
+  }
   shutdown() {
     this.closed = true;
     for (const [id, watch] of this.watches) {
