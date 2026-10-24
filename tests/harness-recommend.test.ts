@@ -47,11 +47,40 @@ test('fresh native stable version is preferred without bypassing capabilities or
   assert.ok(result.selected.includes(id));
   assert.equal(result.candidates.find(c => c.id === id)?.state, 'native-stable');
   assert.equal(result.candidates.find(c => c.id === id)?.observed, false, 'stable evidence does not invent acceptance history');
+  assert.equal(result.selection.find(s => s.resource === id)?.reason, 'native-stable');
   const incapable = await recommendHarness(f.library, 'ts.references', [], undefined, undefined, undefined, undefined, lifecycle);
   assert.equal(incapable.selected.includes(id), false);
   const manual = await recommendHarness(f.library, 'ts.references', ['command:node'],
     profile({ 'settings.harness.auto': { value: false } }), undefined, undefined, undefined, lifecycle);
   assert.equal(manual.selected.includes(id), false);
+  assert.equal(manual.selection.some(s => s.resource === id), false);
+});
+
+test('selection reasons describe actual branches and exact versions without changing the accepted kit', async t => {
+  const f = await fixture(t), id = f.id('a'), content = (await f.library.read(id))!.text;
+  const automatic = await recommendHarness(f.library, 'ts.references', ['command:node']);
+  assert.deepEqual(automatic.selection.map(s => s.resource), automatic.selected);
+  assert.deepEqual(automatic.selection.map(s => s.order), automatic.selected.map((_, i) => i));
+  assert.ok(automatic.selection.filter(s => s.resource.startsWith('guide:')).every(s => s.reason === 'baseline-policy'));
+  assert.equal(automatic.selection.find(s => s.resource === id)?.reason, 'unknown-exploration');
+  for (const selected of automatic.selection) {
+    const pinned = automatic.kit!.resources.find(r => r.resource === selected.resource)!;
+    assert.equal(selected.digest, pinned.digest);
+    assert.equal(selected.versionDigest, toolVersion(pinned.resource, pinned.category, pinned.digest, pinned.requires));
+  }
+  assert.deepEqual(Object.keys(automatic.kit!).sort(), ['problems', 'resources', 'schema']);
+  const assigned = profile({ work: { resource: f.id('b') } }, {}, { work: { resource: id }, 'settings.harness.auto': { value: false } });
+  const explicit = await recommendHarness(f.library, 'ts.references', ['command:node'], assigned, history([cohort(id, content)]));
+  assert.deepEqual(explicit.selection.map(s => s.reason), ['explicit-assignment']);
+  assert.deepEqual(explicit.selection[0].assignments, [{ slot: 'work', scope: 'task' }]);
+  const blocked = await recommendHarness(f.library, 'ts.references', [], assigned);
+  assert.equal(blocked.kit, null);
+  assert.equal(blocked.selection[0].reason, 'explicit-assignment', 'reason explains requested choice even when preparation is blocked');
+  const observed = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, history([cohort(id, content)]));
+  assert.equal(observed.selection.find(s => s.resource === id)?.reason, 'observed-outcomes');
+  const overlapping = await recommendHarness(f.library, 'ts.references', ['command:node'], profile({ guide: { resource: 'guide:instructions' } }));
+  assert.equal(overlapping.selection.find(s => s.resource === 'guide:instructions')?.reason, 'explicit-assignment');
+  assert.equal(overlapping.selection.filter(s => s.resource === 'guide:instructions').length, 1);
 });
 
 test('unavailable managed evidence blocks exact automatic versions but preserves explicit choices with warning', async t => {
@@ -123,6 +152,8 @@ test('catalog aliases preserve explicit and disabled choices and cannot duplicat
   assert.ok(explicit.selected.includes(canonical));
   assert.equal(explicit.selected.includes(alias), false);
   assert.ok(explicit.kit!.resources.some(resource => resource.resource === canonical));
+  assert.deepEqual(explicit.selection.find(s => s.resource === canonical)?.assignments, [{ slot: 'work', scope: 'global' }]);
+  assert.equal(explicit.selection.find(s => s.resource === canonical)?.reason, 'explicit-assignment');
   const disabled = await recommendHarness(f.library, 'ts.references', ['command:node'], profile({ work: { resource: alias } }, {}, { work: null }));
   assert.equal(disabled.selected.includes(canonical), false);
   assert.equal(disabled.candidates.find(candidate => candidate.id === canonical)!.state, 'disabled');

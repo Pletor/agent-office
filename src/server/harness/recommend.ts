@@ -25,6 +25,8 @@ interface Candidate {
   lifecycle: 'stable' | 'blocked' | null;
   shared: SharedEvidence | null;
 }
+type SelectionReason = 'explicit-assignment' | 'baseline-policy' | 'native-stable'
+  | 'observed-outcomes' | 'shared-fixture-exploration' | 'unknown-exploration';
 /** Same sorted metadata keys as Canvas's version digest; content has its own UTF-8 hash. */
 export function toolVersion(resource: string, category: string, digest: string, requires: string[]) {
   return hash(JSON.stringify({ category, digest, requires, resource }));
@@ -115,16 +117,22 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
       state: blocked.has(id) ? 'disabled' : managed === 'blocked' ? 'lifecycle-revalidation-needed' : sharedBlocked ? 'shared-revalidation-needed' : fixtureHistoryIncomplete ? 'fixture-history-incomplete' : fixtureFailure && !fixtureRegression ? 'fixture-failure-review-needed' : flagged ? 'regression-review-needed' : missing.length || metadataMissing ? 'needs-capabilities' : low ? 'low-observed-success' : managed === 'stable' ? 'native-stable' : observed ? 'observed-success' : shared?.status === 'eligible' ? 'shared-fixture-candidate' : 'candidate' });
   }
   const selected = candidates.filter(candidate => candidate.mandatory);
-  const add = (candidate: typeof candidates[number]) => { if (!selected.some(entry => entry.id === candidate.id) && selected.length < 24) selected.push(candidate); };
+  const reasons = new Map<string, SelectionReason>(selected.map(candidate => [candidate.id, 'explicit-assignment']));
+  const add = (candidate: typeof candidates[number], reason: SelectionReason) => {
+    if (!selected.some(entry => entry.id === candidate.id) && selected.length < 24) {
+      selected.push(candidate); reasons.set(candidate.id, reason);
+    }
+  };
   if (auto) {
     // A correlated incident must not optimize away the baseline instructions/testing policy.
-    for (const candidate of candidates.filter(entry => entry.baseline && !entry.disabled)) add(candidate);
+    for (const candidate of candidates.filter(entry => entry.baseline && !entry.disabled)) add(candidate, 'baseline-policy');
     const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && entry.lifecycle !== 'blocked' && (!entry.shared || entry.shared.status === 'eligible') && !entry.missing.length && !entry.metadataMissing && !entry.low && !entry.guardrails?.affectedExecutions && !entry.pairedRegression && !entry.fixtureFailure && !entry.fixtureHistoryIncomplete);
     optional.sort((a, b) => Number(b.lifecycle === 'stable') - Number(a.lifecycle === 'stable') || (b.verified?.interval95?.[0] ?? 0) - (a.verified?.interval95?.[0] ?? 0) || b.priority - a.priority || (a.id < b.id ? -1 : 1));
-    for (const candidate of optional.filter(entry => entry.observed || entry.lifecycle === 'stable').slice(0, 3)) add(candidate);
+    for (const candidate of optional.filter(entry => entry.observed || entry.lifecycle === 'stable').slice(0, 3))
+      add(candidate, candidate.lifecycle === 'stable' ? 'native-stable' : 'observed-outcomes');
     const unknown = optional.filter(entry => !entry.observed && entry.lifecycle !== 'stable');
     const exploration = unknown.find(entry => entry.shared?.status === 'eligible') ?? unknown[0];
-    if (exploration) add(exploration); // At most one insufficiently measured addition per preparation.
+    if (exploration) add(exploration, exploration.shared?.status === 'eligible' ? 'shared-fixture-exploration' : 'unknown-exploration'); // At most one insufficiently measured addition per preparation.
   }
   let kit: HarnessKit | null = null;
   if (!constraints.length) {
@@ -143,7 +151,13 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     if (kit.resources.length > 24 || kitBytes(kit) > 96 * 1024) throw new HarnessError('Recommended kit exceeds 24 resources or 96 KiB. Narrow the inherited context.');
   }
   await policy.verify();
+  const selection = selected.map((candidate, index) => ({ resource: candidate.id, digest: candidate.digest,
+    versionDigest: candidate.versionDigest, order: index, reason: reasons.get(candidate.id)!,
+    assignments: candidate.mandatory ? Object.entries(profile?.effective ?? {})
+      .filter(([, value]) => value.binding && 'resource' in value.binding && normalize(value.binding.resource) === candidate.id)
+      .map(([slot, value]) => ({ slot, scope: value.scope })).sort((a, b) => a.slot < b.slot ? -1 : a.slot > b.slot ? 1 : 0) : [] }));
   return { schema: 'harness.recommendation/1', problem, profileRevision: profile?.revision ?? null, automatic: auto,
+    selection, selectionEvidence: 'recommendation-decision; not accepted provenance or execution authority',
     lifecycle: lifecycle ?? { status: 'unavailable', reason: 'no-lifecycle-assessment' },
     proposalStatus: constraints.length ? 'blocked' : selected.some(entry => !entry.id.startsWith('guide:')) ? 'tools-proposed' : 'reference-only',
     unresolvedCandidateRequirements: [...new Set(candidates.filter(entry => !entry.disabled).flatMap(entry => entry.missing))],

@@ -471,3 +471,5 @@ Automatic Harness recommendations preserve stored exact-version withdrawals acro
 Shared Harness toolboxes can optionally declare native publication references. Recommendations use fresh three-project fixture evidence to prioritize one candidate for local verification, without borrowing task success rates or overriding local failures. See [shared evidence](docs/harness-recommend.md#shared-fixture-evidence-in-automatic-selection).
 
 The [Harness capability map](docs/harness-status.md#kde-se-knihovna-propisuje) explains what reaches the human UI, orchestrator, accepted card, worker and OpenViking, including optional shared-lesson commands and the remaining production evidence.
+
+Harness recommendations explain [why each resource was selected](docs/harness-recommend.md#why-each-proposed-resource-was-selected), with exact versions and effective assignment sources. These reasons describe the proposal; they do not yet become accepted execution provenance.
