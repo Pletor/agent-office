@@ -127,3 +127,32 @@ test('legacy lifecycle remains readable but malformed or orphaned sources are re
   }
   assert.throws(() => parseLifecycle({ ...legacy, previousSource: { verificationId: 'orphan', reportDigest: 'a'.repeat(64) } }));
 });
+
+test('withdrawn versions survive rollback, restart and audit rotation until freshly promoted', async t => {
+  const { dir, store } = setup(t);
+  await store.advanceTool('/repo', scope, 0, 'promote', async () => ({ current: proof(a) }));
+  await store.advanceTool('/repo', scope, 1, 'promote', async () => ({ current: proof(b) }));
+  let result = await store.advanceTool('/repo', scope, 2, 'reconcile', async () => ({
+    current: proof(b, a, false), fallback: proof(a) }));
+  assert.deepEqual(result.state.withdrawn, [b]);
+  for (let i = 0; i < 25; i++) result = await store.advanceTool('/repo', scope, result.revision,
+    'reconcile', async () => ({ current: proof(a) }));
+  const restarted = new HarnessProfiles(dir);
+  assert.deepEqual(restarted.lifecycle('/repo', scope).state?.withdrawn, [b]);
+  assert.ok(result.state.audit.every(row => row.action === 'refresh'));
+  const changed = { ...b, digest: 'd'.repeat(64) };
+  result = await restarted.advanceTool('/repo', scope, result.revision, 'promote', async () => ({ current: proof(changed) }));
+  assert.deepEqual(result.state.withdrawn, [b], 'a new digest cannot clear the rejected old version');
+  result = await restarted.advanceTool('/repo', scope, result.revision, 'promote', async () => ({ current: proof(b, changed) }));
+  assert.deepEqual(result.state.withdrawn, [], 'fresh exact-version eligibility permits explicit re-promotion');
+});
+
+test('withdrawal records are bounded and malformed or duplicate versions fail closed', () => {
+  const state = advanceLifecycle(scope, undefined, { current: proof(a) }, 'promote');
+  for (const withdrawn of [null, [b, b], [{ ...b, digest: 'bad' }],
+    Array.from({ length: 257 }, (_, i) => ({ ...b, id: 'script:' + i }))])
+    assert.throws(() => parseLifecycle({ ...state, withdrawn }));
+  const full = { ...state, active: b, previous: a,
+    withdrawn: Array.from({ length: 256 }, (_, i) => ({ ...b, id: 'script:' + i })) };
+  assert.throws(() => advanceLifecycle(scope, full, { current: proof(b, a, false), fallback: proof(a) }, 'reconcile'));
+});

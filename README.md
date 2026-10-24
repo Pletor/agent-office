@@ -88,7 +88,7 @@ The Harness editor can also show versioned experience by problem: separate repor
 Native incident/revert guardrails suppress automatic reuse of affected versions; explicit
 assignments remain visible with warnings. These associations do not establish tool causation.
 The Czech [implementation and gap map](docs/harness-status.md) explains the UI, evidence and remaining production work.
-The profile store also supports [durable recommendation lifecycle state](docs/harness-hierarchy.md#recommendation-lifecycle-storage), with fresh evidence checks, native verification references and compatible rollback in the same revision transaction. The optional worker bridge supplies current assessments; automatic recommendation-selector integration remains pending.
+The profile store also supports [durable recommendation lifecycle state](docs/harness-hierarchy.md#recommendation-lifecycle-storage), with fresh evidence checks, native verification references and compatible rollback in the same revision transaction. The optional worker bridge supplies current assessments; the optional recommendation selector revalidates these records before selection. Withdrawn exact versions remain excluded across rollback and audit rotation until freshly re-promoted.
 
 Versioned experience also shows optional incident/revert warnings without changing assignments.
 
