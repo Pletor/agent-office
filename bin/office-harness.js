@@ -32,6 +32,7 @@ while (args[0] === '--project' || args[0] === '--data-dir') {
   else dataDir = value;
 }
 const action = args.shift();
+if (action === '--docs-accepted') throw new Error('Accepted documentation requires a connected worker Office and current accepted kit.');
 if (action === '--probe') console.log(JSON.stringify(await probeRunner(probeArgs(args)), null, 2));
 else if (['--docs-resolve', '--docs'].includes(action)) {
   console.log(JSON.stringify(await context7(docsQuery(action, args), { apiKey: process.env.CONTEXT7_API_KEY }), null, 2));

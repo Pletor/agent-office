@@ -38,7 +38,7 @@ export async function remoteHarness(argv) {
     url.searchParams.set('recover', args[0]); url.searchParams.set('from', args[2]);
   }
   else if (action === '--probe' && !args.length && !task) url.searchParams.set('capabilities', '1');
-  else if (['--docs-resolve', '--docs'].includes(action)) {
+  else if (['--docs-resolve', '--docs', '--docs-accepted'].includes(action)) {
     url.searchParams.set('docs', '1'); body = JSON.stringify(docsQuery(action, args));
   } else if (['--hierarchy', '--configure', '--bind'].includes(action)) body = hierarchyCommand(action, args, task, url);
   else if (action === '--read' && args.length === 1) url.searchParams.set('read', args[0]);
