@@ -16,6 +16,7 @@ if (args[0] === '--project') {
   if (!project) throw new Error('--project requires a folder');
 }
 const action = args.shift();
+if (action === '--docs-accepted') throw new Error('Accepted documentation requires a connected worker Office and current accepted kit.');
 if (['--docs-resolve', '--docs'].includes(action)) {
   console.log(JSON.stringify(await context7(docsQuery(action, args), { apiKey: process.env.CONTEXT7_API_KEY }), null, 2));
 } else {

@@ -23,6 +23,35 @@ Office limits calls to two in flight, eight per worker per minute and forty tota
 
 ## Validation
 
+With the optional accepted-runtime module installed, a worker can use
+`office-harness --docs-accepted RESOURCE "public question"`. This requires a current
+context-v2 execution and an exact target resource of category `mcp`, with
+`requires: ["mcp:context7"]`. Its pinned UTF-8 JSON content must be exactly:
+
+```json
+{"schema":"harness.context7/1","library":"/nodejs/node/v22.17.0"}
+```
+
+Resolve a suitable library/version with `--docs-resolve` before preparing and
+accepting this resource. The descriptor is an explicit specialized format, not a
+generic MCP configuration. Extra keys, endpoints, credentials and unsupported
+requirements are refused. The adapter never rewrites the library to latest.
+
+The command reuses the authenticated documentation budget and fixed Context7
+transport. It validates the complete v1/v2 accepted kit through the optional runtime
+and rechecks the current execution and assignment after the read. Missing runtime,
+invalid target, changed assignment or expired authority refuse the result. Omit
+`--task`: this operation belongs exclusively to the current accepted target. Local
+mode cannot supply a substitute kit or silently perform an unbound lookup.
+
+The result adds accepted execution identity and resource digest to the document
+digest, retrieval time and duration. It remains an external reference read, not
+independent task verification or production success. Do not submit it as Node
+invocation metadata. It does not automatically increase learning rates or publish
+a lesson to OpenViking. Ordinary `--docs` and `--docs-resolve` remain unchanged.
+
+## Tests
+
 Run `npm run typecheck`, `npm test`, and `npm run build`. `tests/harness-context7.test.ts` checks protocol/session identity, still-open chunked SSE, version preservation, exact digests, oversized/error results, no retry, worker authentication, token separation and request limits. Live CLI smoke tests resolve Node.js and read a published v22 documentation ID; public responses remain external evidence. No LLM API, paid agent or OpenViking write is involved.
 
 Protocol/reference: [Context7 MCP clients and tools](https://context7.com/docs/resources/all-clients), [API guide](https://context7.com/docs/api-guide). The existing Harness library remains a catalog; these two commands provide an actual read tool rather than treating a catalog declaration as a live MCP connection. Native runner registration is optional and separate.
