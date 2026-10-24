@@ -15,4 +15,8 @@ export class ExecutionBudgetClock {
     this.pins.set(lease.executionId, pin);
     return pin.deadline;
   }
+  /** The pinned fixed run deadline (monotonic), or Infinity for an execution without one (v1). */
+  fixed(executionId: string): number {
+    return this.pins.get(executionId)?.deadline ?? Infinity;
+  }
 }

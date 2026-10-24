@@ -4,6 +4,7 @@ import { store } from '../../state';
 import { h, openModal } from '../../ui/dom';
 import type { AttentionController } from './controller';
 import { itemCard, workerCard } from './card';
+import { pausedCard, pausedWorkers } from './pause';
 
 export function openBossAttention(controller: AttentionController, answerWorker: (id: string) => void) {
   let tab: 'human' | 'system' = 'human';
@@ -34,8 +35,9 @@ export function openBossAttention(controller: AttentionController, answerWorker:
       loading ? 'Načítám…' : data ? `Načteno ${new Date(data.checkedAt).toLocaleTimeString('cs-CZ')}` : 'Stav neověřen'].filter(Boolean).join(' · ');
     const workers = needingYou(store.workers.values());
     const cards = data?.items ?? [];
+    const paused = pausedWorkers(store.workers.values());
     mine.textContent = `Moje úkoly (${cards.length + workers.length})`;
-    agents.textContent = `Stav agentů (${data?.system.length ?? 0})`;
+    agents.textContent = `Stav agentů (${(data?.system.length ?? 0) + paused.length})`;
     mine.setAttribute('aria-selected', String(tab === 'human'));
     agents.setAttribute('aria-selected', String(tab === 'system'));
     content.setAttribute('aria-labelledby', tab === 'human' ? mine.id : agents.id);
@@ -48,8 +50,8 @@ export function openBossAttention(controller: AttentionController, answerWorker:
     if (!cards.length && !workers.length && data?.system.length) human.append(h('p', {}, 'Informace o nedokončené práci najdeš v záložce „Stav agentů“. Nejsou to tvoje úkoly k potvrzení.'));
     const system = h('section.boss-attention-system', {}, h('h3', {}, 'Stav agentů — pouze informace'),
       h('p.muted', {}, 'Tady nemáš nic potvrzovat. Tabule sama nezadává opravu ani nespouští agenty; aktivní běh uvádí jen podle údajů mostu.'),
-      ...(data?.system.map(itemCard) ?? []));
-    if (!data?.system.length) system.append(h('p.muted', {}, loading ? 'Načítám stav…' : error || data?.error ? 'Stav agentů se nepodařilo ověřit.' : 'Nejsou hlášeny problémy systému.'));
+      ...paused.map((w) => pausedCard(w, () => { modal.close(); answerWorker(w.id); })), ...(data?.system.map(itemCard) ?? []));
+    if (!data?.system.length && !paused.length) system.append(h('p.muted', {}, loading ? 'Načítám stav…' : error || data?.error ? 'Stav agentů se nepodařilo ověřit.' : 'Nejsou hlášeny problémy systému.'));
     content.replaceChildren(...(error || data?.error ? [h('p.boss-attention-error', { role: 'alert' }, error || data?.error)] : []), tab === 'human' ? human : system);
     if (focus) ([...content.querySelectorAll<HTMLElement>('[data-attention-key]')].find((node) => node.dataset.attentionKey === focus) ?? close).focus({ preventScroll: true });
   };
