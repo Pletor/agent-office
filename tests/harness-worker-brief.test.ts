@@ -62,6 +62,10 @@ test('actual v2 dispatch seats usage guide and its command reads exactly that ac
   }, () => { throw new Error('must not append live decoration'); });
   assert.match(prompt, /office-harness --accepted-kit/);
   assert.match(prompt, /office-harness --prepare-accepted before using accepted tools/);
+  assert.match(prompt, /office-harness --recommend PROBLEM --kit-schema harness.kit\/2/);
+  assert.match(prompt, /--capability ID only for capabilities actually checked in this runner/);
+  assert.match(prompt, /kit: null means blocked/);
+  assert.match(prompt, /normal specification acceptance and a new assignment before using newly selected resources/);
   assert.match(prompt, /office-harness --recall-shared PUBLICATION --resource RESOURCE/);
   assert.match(prompt, /--publish-shared PUBLICATION --resource RESOURCE queues only the server's public fixture lesson/);
   assert.match(prompt, /prepared context is readable material, not an activated tool/);

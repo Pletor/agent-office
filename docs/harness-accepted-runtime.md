@@ -79,6 +79,32 @@ changing a profile after acceptance does not change a running v2 task.
 
 ## Tool recommendation lifecycle
 
+### Preparing equipment for the next accepted assignment
+
+With the optional recommendation CLI, compatible Office writer and native kit
+validator installed, workers can request selection provenance:
+
+```sh
+office-harness --recommend PROBLEM --kit-schema harness.kit/2
+```
+
+Add `--capability ID` only for capabilities checked in the actual runner. For a
+card-specific proposal, pass `--task` with the exact namespaced Opora task ID from
+the effective profile. Omitting it asks for the current default scope, not an
+implicit rewrite of the running assignment. Inspect constraints, warnings and
+selection reasons; `kit: null` is blocked. An unavailable integration or incompatible
+peer cannot be treated as a successful v2 preparation or silently downgraded.
+
+The orchestrator submits the returned kit with the target specification through
+normal acceptance, then dispatches a new assignment. Workers use `--accepted-kit`
+and `--prepare-accepted` for that assignment. Neither a recommendation nor a profile
+edit replaces tools already pinned in a running task. Selection provenance explains
+the proposal; independent verification and production outcomes remain separate.
+This procedure is included in the static worker guide without reading live profiles
+or inserting mutable catalog content into the execution handoff.
+
+### Updating recommendation state
+
 These commands require the optional native stability endpoint and Office lifecycle store
 protocol 1. Missing integrations return unavailable; there is no local fallback.
 
