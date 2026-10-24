@@ -6,6 +6,7 @@ import type { Floor } from '../floor.js';
 import { send } from '../http/util.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { HarnessProfiles, HarnessError } from './profiles.js';
+import { sharedReader } from './native-shared.js';
 import { nativeHistory, noHistory } from './native-outcomes.js';
 import { nativePairedHistory, noPairedHistory } from './native-paired.js';
 import { nativeFixtureHistory, noFixtureHistory } from './native-verifier.js';
@@ -42,7 +43,8 @@ export async function recommendationRequest(ctx: Ctx, floor: Floor, req: http.In
         { peer: new URL(view.url).origin, project: view.project.id, workspace: view.workspace, problem }, before.view.revision,
         () => { if (peerKey(floor) !== peer) throw new HarnessError('Native scope changed during assessment.', 409); }) : undefined;
     const result = await recommendHarness(new HarnessLibrary(harnessSources(floor.dir, local)),
-      problem, capabilities, { ...before.view, revision: lifecycle?.revision ?? before.view.revision }, history, paired, fixtures, lifecycle);
+      problem, capabilities, { ...before.view, revision: lifecycle?.revision ?? before.view.revision }, history, paired, fixtures, lifecycle,
+      view.connected && view.project && view.workspace ? sharedReader(view.url) : undefined);
     const after = await profile(ctx.cfg.dataDir, floor, task);
     if (peerKey(floor) !== peer || (lifecycle?.revision ?? before.view.revision) !== after.view.revision || before.pathDigest !== after.pathDigest) throw new HarnessError('Scope or profiles changed during preparation. Retry.', 409);
     return send(res, 200, { ...result, context: { task, project: view.project?.id ?? null, workspace: view.workspace, pathDigest: before.pathDigest } });
