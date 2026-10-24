@@ -451,4 +451,6 @@ Workers with an accepted Harness kit receive [usage guidance in their session](d
 
 Workers can [recall or publish shared fixture lessons](docs/harness-accepted-runtime.md#shared-fixture-lessons-for-an-accepted-tool) with `office-harness --recall-shared PUBLICATION --resource RESOURCE` or `--publish-shared`. Office checks the exact accepted tool and fresh native evidence; public requests never carry execution tokens.
 
+The worker guide also explains [preparing equipment for the next accepted assignment](docs/harness-accepted-runtime.md#preparing-equipment-for-the-next-accepted-assignment): optional v2 recommendations preserve selection reasons, while the orchestrator accepts the proposal before a new worker assignment uses it.
+
 The accepted-kit reader preserves [v2 selection provenance](docs/harness-accepted-runtime.md#reading-accepted-selection-provenance) while retaining strict v1 support. Reading the recorded rationale does not verify the decision or enable newer kits in older execution adapters.
