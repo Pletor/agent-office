@@ -456,3 +456,5 @@ The worker guide also explains [preparing equipment for the next accepted assign
 Workers also receive [accepted Context7 usage guidance](docs/harness-accepted-runtime.md#accepted-context7-documentation), including exact library selection, remote-service limits and the native documentation observation field.
 
 The accepted-kit reader preserves [v2 selection provenance](docs/harness-accepted-runtime.md#reading-accepted-selection-provenance) while retaining strict v1 support. Reading the recorded rationale does not verify the decision or enable newer kits in older execution adapters.
+
+For context-v2 Harness tasks, the optional `AGENT_OFFICE_HARNESS_PREFLIGHT=1` gate validates accepted equipment before claim and compares it again before seating. Deploy the matching Canvas endpoint first; see [accepted runtime](docs/harness-accepted-runtime.md#pre-claim-accepted-content-gate). This is content integrity, not worker runtime readiness.
