@@ -182,7 +182,40 @@ no selection entry.
 Reasons explain the proposal, including an explicit choice whose missing
 requirements block kit creation. They do not certify safety, grant permission or
 override `constraints`/`warnings`. `selectionEvidence` explicitly marks this as
-recommendation evidence. The strict accepted `harness.kit/1` stays unchanged;
-persisting this rationale through acceptance and historical replay remains a
-separate schema migration. Generated inherited settings are context, not an
-additional selected catalog tool.
+recommendation evidence. Default and manual kits retain `harness.kit/1`.
+Generated inherited settings are context, not an additional selected catalog tool.
+
+### Opt into accepted selection provenance
+
+For the authenticated recommendation HTTP endpoint, add
+`kitSchema=harness.kit/2`. Office checks a fresh, scoped
+`/api/oporahub/harness-kit-capabilities` response from the linked Opora and requires
+the optional complete local accepted-kit validator. Missing or older peers or
+validators refuse the explicit request; there is no silent downgrade.
+
+An authenticated worker can use the same preparation through its existing CLI:
+
+```sh
+office-harness --recommend build --capability command:node --kit-schema harness.kit/2 --task opora:PROJECT:WORKSPACE:CARD
+```
+
+Use the actual namespaced task ID from the effective profile. The CLI sends the
+request to the worker's configured Office, which checks its linked Opora. An older
+Office returning v1 is refused. A blocked recommendation with `kit: null` remains
+a blocked proposal, never an accepted empty kit. Without a connected worker Office,
+an explicit v2 request fails. Omit the flag for existing v1 behavior; manual
+`--kit` output is unchanged. The result still needs normal specification acceptance.
+
+The v2 proposal pins every actual resource in order, its content/configuration
+digests, selection reason, declared capabilities and profile revision. Explicit
+assignments use the effective scope and node supplied by the installed hierarchy
+resolver, across all seven levels; missing origins below the repository refuse
+preparation. The synthetic settings resource gets an `inherited-settings` entry,
+with its existing context and origins pinned in its content. Full-kit limits
+include this metadata. Profile, linked-peer and ancestry changes during preparation
+still refuse the stale proposal.
+
+The returned kit requires normal Opora acceptance. Format compatibility does not
+attest executable adapters, grant permissions or turn selection claims into
+independent outcome evidence. Worker preparation and native verification remain
+necessary. Restart workers/servers after installing the compatible modules.

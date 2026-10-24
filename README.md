@@ -508,3 +508,8 @@ The accepted-kit reader preserves [v2 selection provenance](docs/harness-accepte
 The [Harness capability map](docs/harness-status.md#kde-se-knihovna-propisuje) explains what reaches the human UI, orchestrator, accepted card, worker and OpenViking, including optional shared-lesson commands and the remaining production evidence.
 
 Harness recommendations explain [why each resource was selected](docs/harness-recommend.md#why-each-proposed-resource-was-selected), with exact versions and effective assignment sources. These reasons describe the proposal; they do not yet become accepted execution provenance.
+Harness recommendation HTTP callers can explicitly request accepted selection
+provenance after a scoped peer compatibility check; see
+[v2 preparation](docs/harness-recommend.md#opt-into-accepted-selection-provenance).
+Workers can request provenance with `office-harness --recommend PROBLEM --kit-schema harness.kit/2`;
+the connected Office verifies peer compatibility before returning a proposal.

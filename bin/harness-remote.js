@@ -20,7 +20,7 @@ export async function remoteHarness(argv) {
   const url = new URL('/office/harness', process.env.AGENT_OFFICE_HOOK_URL);
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID ?? '');
   if (task) url.searchParams.set('task', task);
-  let body;
+  let body, requestedKitSchema;
   if (['--recall-shared', '--publish-shared'].includes(action) && args.length === 3 && args[1] === '--resource' && !task) {
     url.searchParams.set('shared-memory', args[0]); url.searchParams.set('resource', args[2]);
     body = JSON.stringify({ operation: action === '--publish-shared' ? 'publish' : 'recall' });
@@ -48,6 +48,8 @@ export async function remoteHarness(argv) {
     for (const id of args) url.searchParams.append('resource', id);
   } else if (action === '--recommend') {
     const input = recommendationArgs(args); url.searchParams.set('recommend', '1'); url.searchParams.set('problem', input.problem);
+    requestedKitSchema = input.kitSchema;
+    if (requestedKitSchema === 'harness.kit/2') url.searchParams.set('kitSchema', requestedKitSchema);
     for (const capability of input.capabilities) url.searchParams.append('capability', capability);
   } else if (action === '--catalog' && !args.length) url.searchParams.set('catalog', '1');
   else if (action === '--kit' && args.length >= 1) {
@@ -71,6 +73,8 @@ export async function remoteHarness(argv) {
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error ?? 'Harness request failed');
+  if (requestedKitSchema === 'harness.kit/2' && result.kit !== null && result.kit?.schema !== requestedKitSchema)
+    throw new Error('Office did not return the explicitly requested kit v2. Update the connected Office; no downgrade is allowed.');
   if (action === '--read') console.log(result.text);
   else if (action === '--search') console.log(JSON.stringify(searchCatalog(result, args), null, 2));
   else if (action === '--bundle') console.log(harnessBundle(result.resources.map(entry => ({ id: entry.resource, title: entry.resource,
