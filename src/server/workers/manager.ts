@@ -19,6 +19,9 @@ import { PROVIDERS, providerAdapter, titleNoise, type LaunchPlan, type ProviderF
 import { launchAcp } from './acp.js';
 import { clockWork } from './clock.js';
 import { WorkerLaunchGuards } from './launch-guards.js';
+import { STAGED_START, stagedWorker, stageTimeout, stopPreparations, type WorkerStageOptions } from './staged-start.js';
+import { occupiedDesk, serviceOwners } from './queries.js';
+import { prepareTaskWorker } from './prepared-task.js';
 import { childEnv } from './env.js';
 import { midTurn } from './lifecycle.js';
 import { restoreWorkers, saveWorkers } from './persist.js';
@@ -191,15 +194,16 @@ export class WorkerManager {
   }
 
   /** Each worker's terminal process and directory, to tell whose servers are whose. */
-  owners(): ServiceOwner[] {
-    return [...this.workers.values()].map((w) => ({
-      workerId: w.info.id,
-      pid: w.pty?.pid,
-      agent: w.info.kind === 'agent',
-      cwd: this.cwd(w.info),
-      root: this.dir,
-    }));
+  owners(): ServiceOwner[] { return serviceOwners(this.ctx); }
+
+  /** Allocates the normal worker/worktree now; its handle starts it only after preparation and claim. */
+  stage(o: WorkerStageOptions) {
+    if (this.closing) return 'Office is shutting down'; const timeout = stageTimeout(o.timeoutMs);
+    const info = this.spawn(o.deskId, o.by, undefined, !!o.worktree, 'agent', o.provider, o.model, o.effort, undefined, o.owner, [], o.via, STAGED_START);
+    if (typeof info === 'string') return info; const w = this.workers.get(info.id)!;
+    return stagedWorker(w, this.cwd(info), timeout, { current: () => !this.closing && this.workers.get(info.id) === w && !!w.preparing, start: p => this.resume(info.id, p), cancel: () => this.kill(info.id), persist: () => this.persist() });
   }
+  stageForTask(o: WorkerStageOptions) { return prepareTaskWorker(() => this.stage({ timeoutMs: 120 * 60_000, ...o }), this.worktrees, this.dir); }
 
   /**
    * Fetches the branch the project is on, so a worktree made next starts from what's on GitHub now
@@ -210,16 +214,14 @@ export class WorkerManager {
   }
 
   deskOccupied(deskId: string): boolean {
-    for (const w of this.workers.values()) if (w.info.deskId === deskId) return true;
-    return false;
+    return occupiedDesk(this.workers.values(), deskId);
   }
-
   /**
    * Hires a worker at a desk. `meeting` seats one at the meeting room's table instead, for that meeting
    * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares. `repos` are
-   * other floors' repositories a worker in its own worktree works in too (see makeWorkspace).
+   * other floors' repositories a worker in its own worktree works in too (see WorkerTrees.makeWorkspace).
    */
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = [], via?: WorkerInfo['via']): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = [], via?: WorkerInfo['via'], stage?: typeof STAGED_START): WorkerInfo | string {
     // Nobody picked (a board agent, say): the office's default worker, model and effort included.
     if (kind === 'agent' && provider === undefined) ({ provider, model, effort } = this.officeDefault);
     const selectedProvider = kind === 'agent' ? provider : undefined;
@@ -291,22 +293,20 @@ export class WorkerManager {
       meeting: meeting?.id,
     };
     const w = newWorker(info, newTracker());
-    w.owner = owner;
+    w.owner = owner; w.preparing = stage === STAGED_START || undefined;
     this.workers.set(id, w);
     if (info.prompt) this.tasks.notePrompt(w, info.prompt);
     // A board agent is told what it's there for ahead of its first request (which is what shows).
-    this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt, undefined);
+    if (w.preparing) { info.status = 'exited'; info.activity = 'Preparing worker environment'; } else this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt, undefined);
     this.persist();
     return info;
   }
 
-  private makeWorkspace(slug: string, repos: RepoSource[]) {
-    return this.worktrees.makeWorkspace(slug, repos);
-  }
+  private makeWorkspace(slug: string, repos: RepoSource[]) { return this.worktrees.makeWorkspace(slug, repos); }
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
   resume(id: string, prompt?: string): string | undefined {
     const w = this.workers.get(id);
-    if (!w) return 'No such worker';
+    if (!w) return 'No such worker'; if (w.preparing) return 'Worker preparation has not been committed; cancel it or finish preparation';
     if (w.pty || w.dsh) return 'Worker is already running';
     const denied = this.launchGuards.check(w.info); if (denied) return denied;
     if (this.worktrees.checkLost(w, true)) return lostMessage(w.info);
@@ -369,7 +369,7 @@ export class WorkerManager {
    */
   async kill(id: string, cleanup?: WorktreeCleanup, landed?: string, landedRepos?: Record<string, string | undefined>): Promise<{ note?: string; error?: string }> {
     const w = this.workers.get(id);
-    if (!w) return {};
+    if (!w) return {}; if (w.preparing) { cleanup = 'keep'; w.stopPreparation?.(); }
     this.workers.delete(id);
     this.tasks.forget(id);
     clearTimeout(w.scanTimer);
@@ -594,7 +594,7 @@ export class WorkerManager {
    * office to pick back up; otherwise every worker stops.
    */
   shutdown(keep = false) {
-    this.closing = true;
+    this.closing = true; stopPreparations(this.workers.values());
     this.stopping = !keep;
     clearInterval(this.screenTimer);
     clearInterval(this.usageTimer);
@@ -633,7 +633,7 @@ export class WorkerManager {
   // ---------------------------------------------------------------------------
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
-    const { info } = w;
+    if (w.preparing) return; const { info } = w;
     const denied = this.launchGuards.check(info); if (denied) { info.status = 'exited'; info.activity = denied; this.emitUpdate(w); return; }
     // Its folder was deleted meanwhile: it waits, marked lost, for someone to rebuild it or send it home.
     if (this.worktrees.checkLost(w)) {

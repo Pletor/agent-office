@@ -439,3 +439,8 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+### Worker preparation API
+
+Server integrations can reserve a worker and its optional worktree with `WorkerManager.stage`, prepare files in its actual directory, then consume the handle once to start a task through the existing launch guards. Reservations expire and cancellation preserves modified worktrees. Set `AGENT_OFFICE_OPORA_PREPARE_WORKER=1` to reserve and prepare card workers before Canvas claim. Configured dependency setup must succeed; this does not certify the full provider environment or Harness readiness. See [staged worker preparation](docs/how-it-works.md#staged-worker-preparation).
+Use the staged handle's `prepare` method for asynchronous installers: start waits for preparation, and cancellation waits for its writes to settle before cleaning up the worktree.

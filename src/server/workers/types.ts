@@ -53,6 +53,10 @@ export interface RunAs {
 
 export interface Worker {
   info: WorkerInfo;
+  /** Allocated but not committed to a task; must never auto-resume after a crash. */
+  preparing?: boolean;
+  /** Detaches preparation timers when this manager closes; retained work is recovered by its successor. */
+  stopPreparation?: () => void;
   /** The account that hired it, whose sign-ins it runs on. None: the office's own. */
   owner?: string;
   pty?: Pty;
