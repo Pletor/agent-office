@@ -506,6 +506,8 @@ Workers can [recall or publish shared fixture lessons](docs/harness-accepted-run
 
 The worker guide also explains [preparing equipment for the next accepted assignment](docs/harness-accepted-runtime.md#preparing-equipment-for-the-next-accepted-assignment): optional v2 recommendations preserve selection reasons, while the orchestrator accepts the proposal before a new worker assignment uses it.
 
+Workers also receive [accepted Context7 usage guidance](docs/harness-accepted-runtime.md#accepted-context7-documentation), including exact library selection, remote-service limits and the native documentation observation field.
+
 The accepted-kit reader preserves [v2 selection provenance](docs/harness-accepted-runtime.md#reading-accepted-selection-provenance) while retaining strict v1 support. Reading the recorded rationale does not verify the decision or enable newer kits in older execution adapters.
 The [Harness capability map](docs/harness-status.md#kde-se-knihovna-propisuje) explains what reaches the human UI, orchestrator, accepted card, worker and OpenViking, including optional shared-lesson commands and the remaining production evidence.
 
