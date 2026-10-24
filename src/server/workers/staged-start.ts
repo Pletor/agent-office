@@ -11,6 +11,8 @@ export interface StagedWorker {
   readonly worker: Readonly<WorkerInfo>;
   readonly cwd: string;
   readonly signal: AbortSignal;
+  /** Tracks a bounded preparation operation so cancellation cannot remove its directory mid-write. */
+  prepare<T>(operation: (cwd: string, signal: AbortSignal) => Promise<T>): Promise<T>;
   /** Consumes this preparation once. Existing launch guards still decide whether work may start. */
   start(prompt: string): WorkerInfo | string;
   /** Releases the desk and uses the normal worktree preservation policy. Idempotent. */
@@ -36,12 +38,13 @@ export function stagedWorker(w: Worker, cwd: string, timeoutMs: number, host: St
   const abort = new AbortController();
   let state: 'pending' | 'started' | 'failed' | 'cancelled' = 'pending';
   let cancellation: ReturnType<StageHost['cancel']> | undefined;
+  let preparation: Promise<unknown> | undefined;
   const deadline = performance.now() + timeoutMs;
   const cancel = () => {
     if (state === 'started') return Promise.resolve({ error: 'Worker already started; preparation cannot cancel execution' });
     if (cancellation) return cancellation;
     state = 'cancelled'; clearTimeout(timer); abort.abort();
-    cancellation = Promise.resolve().then(() => host.current() ? host.cancel() : { note: 'Preparation owner no longer active; worktree retained' });
+    cancellation = (preparation ?? Promise.resolve()).catch(() => {}).then(() => host.current() ? host.cancel() : { note: 'Preparation owner no longer active; worktree retained' });
     return cancellation;
   };
   const timer = setTimeout(() => { void cancel().catch(() => {}); }, timeoutMs);
@@ -52,8 +55,23 @@ export function stagedWorker(w: Worker, cwd: string, timeoutMs: number, host: St
   };
   return {
     worker: structuredClone(w.info), cwd, signal: abort.signal, cancel,
+    async prepare(operation) {
+      if (state !== 'pending' || preparation) throw new Error('Worker preparation is unavailable or already running');
+      const task = Promise.resolve().then(() => {
+        if (abort.signal.aborted || performance.now() >= deadline || !host.current()) throw new Error('Worker preparation was cancelled');
+        return operation(cwd, abort.signal);
+      });
+      preparation = task;
+      try {
+        const result = await task;
+        if (abort.signal.aborted || performance.now() >= deadline || !host.current()) throw new Error('Worker preparation was cancelled');
+        return result;
+      } catch (error) { void cancel().catch(() => {}); throw error; }
+      finally { if (preparation === task) preparation = undefined; }
+    },
     start(prompt) {
       if (state !== 'pending') return 'Worker preparation was already consumed or cancelled';
+      if (preparation) return 'Worker preparation is still running';
       if (performance.now() >= deadline || !host.current()) {
         void cancel().catch(() => {}); return 'Worker preparation expired or the office is shutting down';
       }

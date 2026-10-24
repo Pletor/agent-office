@@ -95,3 +95,36 @@ test('cancellation rechecks ownership before cleanup and failed starts restore t
   await failed.cancel(); assert.equal(cancels, 1);
   assert.match(String(failed.start('retry')), /consumed|cancelled/);
 });
+
+test('cancel waits for tracked installer writes and preserves their changes before releasing the desk', async t => {
+  const f = fixture(t), m = f.create();
+  const stage = m.stage({ deskId: 'desk-1', by: 'test', worktree: true, provider: 'custom' });
+  if (typeof stage === 'string') throw new Error(stage);
+  let finish!: () => void;
+  const gate = new Promise<void>(resolve => { finish = resolve; });
+  const preparation = stage.prepare(async (cwd, signal) => {
+    assert.equal(signal.aborted, false); await gate;
+    writeFileSync(path.join(cwd, 'source.txt'), 'installer finishing after cancellation');
+  });
+  const rejected = assert.rejects(preparation, /cancelled/);
+  await Promise.resolve();
+  assert.match(String(stage.start('task')), /still running/);
+  await assert.rejects(stage.prepare(async () => {}), /already running/);
+  const cancelled = stage.cancel();
+  await Promise.resolve();
+  assert.equal(stage.signal.aborted, true); assert.equal(m.deskOccupied('desk-1'), true);
+  assert.ok(existsSync(stage.cwd));
+  finish(); await rejected; await cancelled;
+  assert.equal(m.deskOccupied('desk-1'), false);
+  assert.equal(readFileSync(path.join(stage.cwd, 'source.txt'), 'utf8'), 'installer finishing after cancellation');
+});
+
+test('tracked preparation failure cancels the allocation without starting a worker', async t => {
+  const f = fixture(t), m = f.create();
+  const stage = m.stage({ deskId: 'desk-1', by: 'test', worktree: true, provider: 'custom' });
+  if (typeof stage === 'string') throw new Error(stage);
+  await assert.rejects(stage.prepare(async () => { throw new Error('setup failed'); }), /setup failed/);
+  await stage.cancel(); assert.equal(m.get(stage.worker.id), undefined);
+  assert.equal(existsSync(stage.cwd), false);
+  assert.match(String(stage.start('task')), /consumed|cancelled/);
+});
