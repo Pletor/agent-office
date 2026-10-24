@@ -5,6 +5,7 @@ export interface StabilityScope { peer: string; project: string; workspace: stri
 export interface StabilityEvidence {
   scope: StabilityScope; version: { id: string; digest: string; category: 'scripts'; requires: string[] };
   baseline: { id: string; digest: string }; eligible: boolean; evidenceDigest: string; policyDigest: string;
+  source?: { verificationId: string; reportDigest: string };
 }
 const obj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const hex = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}(?![\s\S])/.test(v);
@@ -61,10 +62,13 @@ export function validateStability(value: unknown, current: Record<string, any>, 
       || cohort.coverage !== cohort.verifiedPasses / cohort.executions || cohort.versionDigest !== version || !hex(cohort.sourceDigest)
       || !obj(guardrails) || guardrails.affectedExecutions !== 0 || !obj(comparison) || comparison.complete !== true
       || comparison.reason !== null || !Array.isArray(comparison.reports) || !comparison.reports.length || comparison.reports.length > 1000
-      || !comparison.reports.every((r: unknown) => obj(r) && id(r.verificationId) && hex(r.reportDigest))
+      || !comparison.reports.every((r: unknown) => obj(r) && typeof r.verificationId === 'string'
+        && /^[A-Za-z0-9_-]{1,80}(?![\s\S])/.test(r.verificationId) && hex(r.reportDigest))
       || new Set(comparison.reports.map((r: any) => r.verificationId)).size !== comparison.reports.length) fail();
   }
   return { scope: { peer, project: current.project, workspace: current.workspace, problem: pinned.problem },
     version: pinned.candidate, baseline: { id: pinned.baseline.id, digest: pinned.baseline.digest },
-    eligible: value.eligible, evidenceDigest: value.evidenceDigest, policyDigest: value.policyDigest };
+    eligible: value.eligible, evidenceDigest: value.evidenceDigest, policyDigest: value.policyDigest,
+    ...(value.eligible ? { source: { verificationId: value.comparison.reports[0].verificationId,
+      reportDigest: value.comparison.reports[0].reportDigest } } : {}) };
 }

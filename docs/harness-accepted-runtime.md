@@ -96,6 +96,13 @@ Transport errors or changed authority publish nothing and must not be interprete
 a usable older stable assessment. The native verifier must be configured by its operator;
 these commands neither configure it nor run an experiment.
 
+A positive assessment supplies a `source` reference selected from its validated
+native comparison reports (`verificationId` and `reportDigest`). The optional
+lifecycle store can retain it with the exact active version and its predecessor
+for reassessment after this session ends. Negative or incomplete evidence cannot
+mint a new source reference. The reference is not proof of current eligibility;
+future selection must ask the native retained-evidence endpoint again.
+
 The result concerns project recommendation state only. It does not change manual
 checkboxes or the running accepted kit, prove causal task benefit, or grant production
 permission. New work still requires an accepted specification. Automatic consumption

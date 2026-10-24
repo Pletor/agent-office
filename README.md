@@ -100,7 +100,7 @@ MCP/permission verification. See [runner probes](docs/harness-probes.md).
 Workers on context protocol 2 can use `office-harness --accepted-kit` to read their current execution's exact accepted kit through the authenticated hook server. This does not install or execute tools; see [accepted kit runtime](docs/harness-accepted-runtime.md).
 
 For explicit measured use of an accepted script, workers can call `office-harness --invoke-node RESOURCE -- ARGS`. It requires the accepted-kit endpoint and supports trusted read-only Node scripts, with bounded execution and worker-observed receipts. Attach only `receipt.observation` to the final task result's `harnessInvocations` when Canvas supports native invocation metadata. See [Harness invocation](docs/harness-invocation.md).
-With native stability assessment and the optional lifecycle store installed, workers can inspect and update scoped recommendation state through [tool lifecycle commands](docs/harness-accepted-runtime.md#tool-recommendation-lifecycle). The server fetches evidence itself; accepted assignments remain unchanged.
+With native stability assessment and the optional lifecycle store installed, workers can inspect and update scoped recommendation state through [tool lifecycle commands](docs/harness-accepted-runtime.md#tool-recommendation-lifecycle). The server fetches evidence itself and carries a validated native verification reference for later reassessment; accepted assignments remain unchanged.
 
 On the machine that runs the office:
 

@@ -68,6 +68,7 @@ test('worker lifecycle uses native current evidence and optional store, never ca
     assert.equal(revision, writes);
     const checks = await read(); checks.assertCurrent();
     assert.equal(checks.current.eligible, true); writes++;
+    assert.deepEqual(checks.current.source, { verificationId: 'check', reportDigest: 'c'.repeat(64) });
     return { revision: writes, state: { active: checks.current.version } };
   };
   const policy = { project: lease.project, workspace: lease.workspace, approvedPlanDigests: [plan.digest],
@@ -83,7 +84,9 @@ test('worker lifecycle uses native current evidence and optional store, never ca
     evidenceBasis: { taskOutcomes: 'selected-kit-association', taskInvocationVerified: false, causalBenefitEstablished: false, directObservation: 'approved-fixture-cases-only' } };
   responseValue = valid;
   const status = await call(); assert.equal(status.status, 200);
-  assert.equal((await status.json()).assessment.eligible, true);
+  const assessment = (await status.json()).assessment;
+  assert.equal(assessment.eligible, true);
+  assert.deepEqual(assessment.source, { verificationId: 'check', reportDigest: 'c'.repeat(64) });
   assert.equal((await call({ operation: 'promote', revision: 0, eligible: true })).status, 400);
   const cli = await promisify(execFile)(process.execPath, ['bin/office-harness.js', '--promote-tool', 'testing:plan', '--revision', '0'], {
     env: { ...process.env, AGENT_OFFICE_HOOK_URL: base, AGENT_OFFICE_WORKER_ID: 'worker', AGENT_OFFICE_HOOK_TOKEN: 'hook-key' }, timeout: 20_000 });
@@ -95,10 +98,15 @@ test('worker lifecycle uses native current evidence and optional store, never ca
     (v: any) => { v.guardrails.affectedExecutions = 1; }, (v: any) => { v.policyDigest = '0'.repeat(64); },
     (v: any) => { v.evidenceBasis.causalBenefitEstablished = true; }, (v: any) => { v.promotionAllowed = true; },
     (v: any) => { v.debug = 'PRIVATE-token'; },
+    (v: any) => { v.comparison.reports[0].verificationId = 'foreign/path'; },
+    (v: any) => { v.comparison.reports[0].reportDigest += '\n'; },
   ]) {
     responseValue = structuredClone(valid); poison(responseValue);
     assert.equal((await call({ operation: 'promote', revision: 1 })).status, 409); assert.equal(writes, 1);
   }
+  responseValue = { ...valid, eligible: false, reasons: ['linked-regression'], guardrails: { affectedExecutions: 1 } };
+  const denied = await call(); assert.equal(denied.status, 200);
+  assert.equal((await denied.json()).assessment.source, undefined);
   responseValue = valid; beforeReply = () => controller.forget('worker');
   assert.equal((await call({ operation: 'promote', revision: 1 })).status, 409); assert.equal(writes, 1);
   assert.deepEqual(lease.assignment.documents, [{ nodeId: 'card', fields: { harness: kit } }]);
