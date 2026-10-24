@@ -30,13 +30,12 @@ export function nativeHarnessGrant(controller: ExecutionController, dataDir: str
     const after = controller.assignmentFor(worker);
     if (!after || !isDeepStrictEqual(binding(after), binding(current))) throw failure();
   };
-  const request = async (endpoint: '/api/oporahub/harness-recovery' | '/api/oporahub/harness-verifier/eligibility', fields: Record<string, unknown>) => {
+  const post = async (endpoint: string, fields: Record<string, unknown>) => {
     assertCurrent();
     const response = await transport(new URL(endpoint, base), {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(8000),
+      method: 'POST', redirect: 'error', credentials: 'omit', signal: AbortSignal.timeout(8000),
       headers: { 'content-type': 'application/json', origin: base.origin, 'X-Opora-Actor': `agent; name=${controller.client.agent}` },
-      body: JSON.stringify({ ...fields, project: current.project, workspace: current.workspace, executionId: current.executionId,
-        epoch: current.epoch, token: lease.token }),
+      body: JSON.stringify(fields),
     });
     if (!response.ok || !response.body) { await response.body?.cancel(); throw failure(); }
     const reader = response.body.getReader(), chunks: Uint8Array[] = []; let bytes = 0;
@@ -50,5 +49,10 @@ export function nativeHarnessGrant(controller: ExecutionController, dataDir: str
     assertCurrent();
     return value as unknown;
   };
-  return { current, kit, peer: base.origin, assertCurrent, request };
+  const request = (endpoint: '/api/oporahub/harness-recovery' | '/api/oporahub/harness-verifier/eligibility', fields: Record<string, unknown>) =>
+    post(endpoint, { ...fields, project: current.project, workspace: current.workspace, executionId: current.executionId,
+      epoch: current.epoch, token: lease.token });
+  const publicationRequest = (endpoint: '/api/oporahub/harness-verifier/eligibility/shared' | '/api/oporahub/harness-shared-memory/publish' | '/api/oporahub/harness-shared-memory/recall', publication: string) =>
+    post(endpoint, { publication });
+  return { current, kit, peer: base.origin, assertCurrent, request, publicationRequest };
 }

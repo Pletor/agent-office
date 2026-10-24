@@ -501,3 +501,5 @@ With the optional lifecycle store and native retained-evidence adapter installed
 Automatic Harness recommendations preserve stored exact-version withdrawals across rollback and later refreshes; see [lifecycle evidence](docs/harness-recommend.md#fresh-lifecycle-evidence-in-automatic-selection).
 
 Shared Harness toolboxes can optionally declare native publication references. Recommendations use fresh three-project fixture evidence to prioritize one candidate for local verification, without borrowing task success rates or overriding local failures. See [shared evidence](docs/harness-recommend.md#shared-fixture-evidence-in-automatic-selection).
+
+Workers can [recall or publish shared fixture lessons](docs/harness-accepted-runtime.md#shared-fixture-lessons-for-an-accepted-tool) with `office-harness --recall-shared PUBLICATION --resource RESOURCE` or `--publish-shared`. Office checks the exact accepted tool and fresh native evidence; public requests never carry execution tokens.
