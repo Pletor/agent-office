@@ -39,6 +39,36 @@ function profile(global = {}, repository = {}, task = {}): HarnessProfile {
   const layers = { global, repository, task }; return { revision: 3, layers, effective: resolveHarness(layers) };
 }
 
+test('fresh native stable version is preferred without bypassing capabilities or manual auto-off', async t => {
+  const f = await fixture(t), id = f.id('b'), content = (await f.library.read(id))!.text;
+  const active = { id, digest: sha(content), category: 'scripts', requires: ['command:node'] };
+  const lifecycle = { status: 'stable' as const, revision: 4, active, blocked: [] };
+  const result = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, undefined, undefined, undefined, lifecycle);
+  assert.ok(result.selected.includes(id));
+  assert.equal(result.candidates.find(c => c.id === id)?.state, 'native-stable');
+  assert.equal(result.candidates.find(c => c.id === id)?.observed, false, 'stable evidence does not invent acceptance history');
+  const incapable = await recommendHarness(f.library, 'ts.references', [], undefined, undefined, undefined, undefined, lifecycle);
+  assert.equal(incapable.selected.includes(id), false);
+  const manual = await recommendHarness(f.library, 'ts.references', ['command:node'],
+    profile({ 'settings.harness.auto': { value: false } }), undefined, undefined, undefined, lifecycle);
+  assert.equal(manual.selected.includes(id), false);
+});
+
+test('unavailable managed evidence blocks exact automatic versions but preserves explicit choices with warning', async t => {
+  const f = await fixture(t), id = f.id('a'), content = (await f.library.read(id))!.text;
+  const blocked = { id, digest: sha(content), category: 'scripts', requires: ['command:node'] };
+  const lifecycle = { status: 'unavailable' as const, revision: 3, blocked: [blocked], reason: 'native-reassessment-unavailable' };
+  const verified = history([cohort(id, content)]);
+  const result = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, verified, undefined, undefined, lifecycle);
+  assert.equal(result.selected.includes(id), false, 'old observed history cannot bypass a failed lifecycle assessment');
+  const explicit = await recommendHarness(f.library, 'ts.references', ['command:node'], profile({ work: { resource: id } }), verified, undefined, undefined, lifecycle);
+  assert.ok(explicit.selected.includes(id));
+  assert.ok(explicit.warnings.some(w => w.resource === id && w.reason === 'lifecycle-revalidation-needed' && w.preserved === 'explicit'));
+  writeFileSync(path.join(f.dir, 'scripts/a.mjs'), 'export const name = "new version"');
+  const changed = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined, verified, undefined, undefined, lifecycle);
+  assert.equal(changed.candidates.find(c => c.id === id)?.lifecycle, null, 'old version state is never assigned to changed content');
+});
+
 function paired(resource: string, content: string, regressions: number, problem = 'ts.references'): PairedHistory {
   return { status: 'available', limited: false, invalidReceipts: 0, conflictingEvaluations: 0, evaluations: [{
     executionId: 'exec-1', evaluationId: '12345678-1234-4234-8234-123456789abc', sourceReceipt: 'receipt-1', problem,

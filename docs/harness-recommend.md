@@ -14,7 +14,7 @@ An agent can assemble a problem-specific kit with one read-only command:
 office-harness --recommend ts.references --task 'opora:PROJECT:WORKSPACE:CARD' --capability command:node
 ```
 
-The authenticated worker command derives its floor, project and workspace from Office. Ordinary workers see project and explicitly shared resources; the active administrator-owned planner also sees permitted machine sources. The browser endpoint is `GET /api/harness/recommend?floor=F&problem=ts.references`; workers use `/office/harness?recommend=1`. Both return `harness.recommendation/1`: candidates, reasons, missing requirements, history availability, profile revision and a complete `kit` proposal. They never save profiles, claim cards, execute tools or promote resources.
+The authenticated worker command derives its floor, project and workspace from Office. Ordinary workers see project and explicitly shared resources; the active administrator-owned planner also sees permitted machine sources. The browser endpoint is `GET /api/harness/recommend?floor=F&problem=ts.references`; workers use `/office/harness?recommend=1`. Both return `harness.recommendation/1`: candidates, reasons, missing requirements, history availability, profile revision and a complete `kit` proposal. They preserve manual profile choices and accepted assignments, never claim cards, execute tools or promote new resources. When lifecycle support is installed, preparation can refresh, suspend or roll back existing recommendation state under the profile revision transaction.
 
 Outside a worker, `node bin/office-harness.js --project PROJECT --recommend ts.references` uses the local published catalog. Native Office scope/history and persistent inheritance are unavailable and labeled accordingly. A configured worker hook never falls back to local machine discovery.
 
@@ -106,3 +106,22 @@ with `fixture-history-incomplete`. Missing legacy support or an unavailable peer
 as unavailable evidence, not a declaration of health. Existing human task outcomes and
 policy choices remain separate. This is version restraint, not global publication or a
 complete experiment/promotion/rollback lifecycle.
+
+## Fresh lifecycle evidence in automatic selection
+
+With lifecycle storage and the retained-native adapter installed, preparation reads
+the managed version's saved verification reference and asks the configured native
+peer for a fresh assessment. This works after the evaluation session ends; it does
+not revive its authority. The existing profile CAS rechecks revision and peer binding
+before publishing refreshed or suspended state. If current evidence fails, the exact
+retained predecessor is considered only with its own fresh positive assessment and
+compatible requirements. Transport failures publish nothing.
+
+The response exposes `lifecycle.status`, its resulting revision and managed versions
+excluded from automatic selection. Missing source/adapter or unavailable evidence
+cannot use the stored stable label. Fresh stable versions are preferred within the
+existing resource/capability limits; manual auto-off and explicit disables still win.
+Explicitly assigned blocked versions remain visible with `lifecycle-revalidation-needed`
+warnings. Content or requirement changes are different versions, never inherited proof.
+Legacy installations without lifecycle storage retain their existing evidence-based
+proposal behavior and explicitly report lifecycle support unavailable.
