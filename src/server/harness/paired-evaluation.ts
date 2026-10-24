@@ -19,12 +19,12 @@ const reasons = new Set(['completed', 'nonzero-exit', 'timeout', 'output-limit',
 
 /** Uses the existing accepted-script adapter only; quality is a local fixture observation, never review authority. */
 export async function evaluatePair(read: () => Promise<PairReceipt>, invoke: PairAdapter, resourceId: string, cwd: string) {
-  const pinned = preparePair(await read(), resourceId), signature = JSON.stringify(pinned);
+  const pinned = await preparePair(await read(), resourceId), signature = JSON.stringify(pinned);
   const started = performance.now(), trials: Trial[] = [], observations: Observation[] = [];
   let stopped = '', order = 0;
   const current = async () => {
     const value = await read();
-    if (JSON.stringify(preparePair(value, resourceId)) !== signature) throw new Error('Paired execution changed.');
+    if (JSON.stringify(await preparePair(value, resourceId)) !== signature) throw new Error('Paired execution changed.');
     return value;
   };
   for (const [index, example] of pinned.plan.cases.entries()) {

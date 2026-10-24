@@ -80,3 +80,17 @@ fixtures cannot establish production reliability or statistical causation. Use
 the existing review and verified-outcome workflow before recommending or publishing
 a new version. This command does not rewrite profiles, globally promote candidates,
 grant permissions, or write directly to memory.
+# Accepted selection provenance
+
+Paired evaluation accepts kit v2 only when the existing invocation adapter and
+its full accepted-kit validator are installed. Missing or older modules fail
+before any trial; malformed provenance is rejected even with a custom reader.
+V1 retains its existing paired-plan checks. `preparePair` is asynchronous and
+callers must await it.
+
+The evaluator pins a detached snapshot and an internal digest of v2 selection
+metadata. A change in selection during execution stops the comparison even if
+the supplied execution identity is unchanged. This digest grants no authority
+and is not added to the result protocol. Results remain worker observations;
+native v2 ingestion and independent verification require compatible backend
+modules. Restart workers after updating the installed modules.

@@ -441,3 +441,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+Paired Harness evaluation supports accepted selection provenance through the
+optional installed validators; see [compatibility and async preparation](docs/harness-paired-evaluation.md#accepted-selection-provenance).
