@@ -104,6 +104,25 @@ export interface WorkerInfo {
    * a card off the Opora canvas, so it fetches the card from the planning room's board first.
    */
   via?: 'herald' | 'planning' | 'opora';
+  /**
+   * Its agent CLI stopped on the provider's usage limit ("You've hit your session limit · resets 6am"),
+   * read off its terminal (see shared/usage-limit.ts). Its status stays what the agent says; this says
+   * it isn't actually doing anything until the limit resets. Gone once its output moves on.
+   */
+  paused?: WorkerPause;
+}
+
+/** A worker stopped on its provider's usage limit (see WorkerInfo.paused). */
+export interface WorkerPause {
+  reason: 'usage-limit';
+  /** Which limit, as the provider named it: session, weekly, usage, opus, 5-hour… */
+  kind: string;
+  /** When the provider said it resets (ms since the epoch), when it said so in a form the office reads. */
+  resetsAt?: number;
+  /** When the office saw it. */
+  since: number;
+  /** The provider's own line, as it was on screen. */
+  line: string;
 }
 
 /** Where the branch of a worker whose worktree was deleted still is (see WorkerInfo.lost). */

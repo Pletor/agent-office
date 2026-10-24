@@ -11,7 +11,7 @@ The default **Moje úkoly** tab contains only human actions. Cards explain respo
 - **A decision only a person can make in Opora:** when Opora's agent-state says a `human_only` decision holds the workspace up (accepting the baseline, a changeset of plan steps), the board shows it as *Opora čeká na člověka: Přijmout výchozí zadání — 57 karet do té doby nikdo nepřevezme*, with the stages it blocks and **Otevřít projekt v Opoře**. It comes from the bridge's own agent-state read (no extra request) and goes once Opora no longer waits; until the baseline is accepted, the office's autopilot, hand-out and ▶ Take hold off (see [Opora execution](opora-execution.md#when-opora-waits-on-a-person)).
 - **A worker waiting for input:** the current question/permission summary and **Otevřít terminál**, using existing terminal navigation. A finished/idle worker alone is not a human task.
 
-**K dořešení systémem / agentem** is separate. Bridge/run errors and premature completion proposals are not requests for your approval. The board explains the next repair step but does not start repair workers, change leases, dismiss errors, reset proposals, or resume autopilot.
+**K dořešení systémem / agentem** is separate. Bridge/run errors, premature completion proposals and workers paused on their provider's usage limit (*Ada: čeká na limit do 06:00*, with the provider's line and what happened to its Opora authority, see [usage-limit pauses](opora-execution.md#usage-limit-pauses)) are not requests for your approval. The board explains the next repair step but does not start repair workers, change leases, dismiss errors, reset proposals, or resume autopilot.
 
 ## Scope and freshness
 
@@ -39,6 +39,6 @@ This feature does not repair the independent Harness orchestrator identity/lifec
 
 [North oblique view](shots/boss-attention/boss-board-north.png) and [south oblique view](shots/boss-attention/boss-board-south.png) show the opaque panel covering the window and sill, with the footer above the couch backrest.
 
-[Agent status tab](shots/boss-attention/boss-agent-state.png) shows blockers and responsibility without a human confirmation action. Focused guidance tests: `node --import tsx --import=#tests/css --test tests/boss*.test.ts tests/size.test.ts`.
+[Usage-limit pause](shots/usage-limit/paused.png) shows the sidebar pill, the 🛰️ Opora run row and the **Stav agentů** cards for workers paused on a limit (stubbed worker data, the real renderers). [Agent status tab](shots/boss-attention/boss-agent-state.png) shows blockers and responsibility without a human confirmation action. Focused guidance tests: `node --import tsx --import=#tests/css --test tests/boss*.test.ts tests/size.test.ts`.
 
 [Physical board](shots/boss-attention/boss-board.png), [desktop](shots/boss-attention/boss-dialog-desktop.png), [mobile](shots/boss-attention/boss-dialog-mobile.png), [empty](shots/boss-attention/boss-empty.png), [unavailable](shots/boss-attention/boss-error.png) use explicitly labeled UI fixtures. [Live Harness workspace](shots/boss-attention/boss-live-harness.png) shows actual read-only Opora data: H05 is a premature proposal for agents to finish, not a request for the boss to approve.
