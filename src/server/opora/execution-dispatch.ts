@@ -23,6 +23,13 @@ export class ExecutionDispatch {
   /** The last worker info seen per worker, so a worker already sent home still hands its worktree off. */
   private worktrees = new Map<string, WorkerInfo>();
   private seating?: { lease: ExecutionLease; deadline: number; prompt: string; workerId?: string };
+  /** Claims of different cards go to Opora one at a time: a Take made while another claims waits its turn. */
+  private turn: Promise<unknown> = Promise.resolve();
+  private inTurn<T>(run: () => Promise<T>): Promise<T> {
+    const mine = this.turn.then(run, run);
+    this.turn = mine.catch(() => {});
+    return mine;
+  }
   constructor(base: string, private agent: string, private directory: string,
     private runs: () => ExecutionHeld[],
     changed: () => void, private stop: (workerId: string, reason: string) => void, tools?: HandoffTools,
@@ -72,7 +79,7 @@ export class ExecutionDispatch {
     return this.controller.guarded(scope, async () => {
       const context = this.contextVersion === 2 ? '' : await prepare();
       const brief = await design().catch(() => '');
-      const grant = await this.controller.claim(scope, this.contextVersion).catch((e: Error) => { emitProcess(this.agent, claimEvent(scope, { error: e.message })); throw e; });
+      const grant = await this.inTurn(() => this.controller.claim(scope, this.contextVersion)).catch((e: Error) => { emitProcess(this.agent, claimEvent(scope, { error: e.message })); throw e; });
       let seatedId: string | undefined;
       try {
         const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief);

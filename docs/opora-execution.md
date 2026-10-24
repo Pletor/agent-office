@@ -38,6 +38,31 @@ fields (the digest stands for the assignment) and keeps the assignment it read. 
 Canvas that ignores `omit` and still sends the whole lease is checked as before. Code:
 `src/server/opora/execution-client.ts`.
 
+### When a Take fails
+
+Every request to Opora has a timeout: 20 s for reading the card's context, the claim,
+the assignment read and the release (`AGENT_OFFICE_OPORA_EXECUTION_TIMEOUT_S`), and
+15 s for a heartbeat (`AGENT_OFFICE_OPORA_HEARTBEAT_TIMEOUT_S`), both 1 to 120 s (see
+[configuration](configuration.md#opora-canvas)). A heartbeat never waits longer than
+what is left of the authority's monotonic deadline, and a slow or failed one never
+moves that deadline; it is retried every 2 s until it passes or the deadline stops the
+worker. The toast and Opora's process log say which of three things went wrong, and on
+which step (reading the card's context, claiming the card, reading the assignment,
+renewing the lease, releasing the card):
+
+- **Opora didn't answer within N s**: Opora is up but busy. Nothing is wrong with the
+  card; take it again. Raise the timeout if Opora is often this slow.
+- **Opora couldn't be reached (`ECONNREFUSED`, …)**: the network failed, with the
+  error's code only. Check that Opora runs at `AGENT_OFFICE_OPORA_URL`.
+- **Opora refused … (HTTP status): detail**: Canvas answered no, with its `detail`
+  (one line, at most 200 characters, the request's token blanked out).
+
+None of them carries the request body, the token or a raw error text. A timeout or
+network failure while claiming keeps the claim's request ID, so taking the card again
+replays the same claim. Takes of different cards made in quick succession queue for the
+claim: one claim goes to Opora at a time and the next waits its turn instead of failing,
+and each worker's desk is picked when it sits down, so two Takes never pick the same desk.
+
 ## Handoff and resume
 
 Canvas puts what the work before the card left behind into the assignment as

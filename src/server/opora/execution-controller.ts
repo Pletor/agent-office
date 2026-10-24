@@ -120,7 +120,8 @@ export class ExecutionController {
   private async beat(workerId: string, watch: Watch) {
     const started = this.clock();
     try {
-      const lease = await this.client.heartbeat(watch.lease, EXECUTION_TTL);
+      // A slow Opora gets at most what is left before the deadline; the deadline itself never moves for it.
+      const lease = await this.client.heartbeat(watch.lease, EXECUTION_TTL, watch.deadline - started);
       if (watch.stopped) return;
       if (this.clock() >= watch.deadline) { this.stop(workerId, watch, 'Canvas execution deadline expired'); return; }
       watch.lease = lease;
