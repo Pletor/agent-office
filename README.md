@@ -439,3 +439,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+The [Harness composition contract](docs/harness-composed-contract.md) checks inherited choices, authenticated worker commands and unavailable optional verification services when the independent Harness modules are installed.
