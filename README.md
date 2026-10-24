@@ -441,3 +441,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+Accepted documentation receipts also provide bounded metadata for the native `harnessDocumentation` result extension; [reporting guidance](docs/harness-context7.md#reporting-accepted-documentation-use) explains coverage and evidence limits.

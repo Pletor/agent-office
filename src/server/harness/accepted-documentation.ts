@@ -1,4 +1,5 @@
 import { context7, documentationQuery, DocumentationError } from './context7.js';
+import { documentationObservation } from './documentation-observation.js';
 
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const fail = () => new DocumentationError('Accepted Context7 resource or current execution is unavailable.', 409);
@@ -38,5 +39,6 @@ export async function acceptedDocumentation(input: unknown, controller: unknown,
   if (snapshot().identity !== before.identity) throw fail();
   return { ...documentation, accepted: { execution: before.execution, resource: before.resource,
     adapter: 'context7-documentation/1', authorityCurrentAtCompletion: true },
+    observation: documentationObservation(before.execution, before.resource, documentation),
     independentlyVerified: false, causalContribution: false, promotionAllowed: false };
 }

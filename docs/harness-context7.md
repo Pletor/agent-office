@@ -55,3 +55,20 @@ a lesson to OpenViking. Ordinary `--docs` and `--docs-resolve` remain unchanged.
 Run `npm run typecheck`, `npm test`, and `npm run build`. `tests/harness-context7.test.ts` checks protocol/session identity, still-open chunked SSE, version preservation, exact digests, oversized/error results, no retry, worker authentication, token separation and request limits. Live CLI smoke tests resolve Node.js and read a published v22 documentation ID; public responses remain external evidence. No LLM API, paid agent or OpenViking write is involved.
 
 Protocol/reference: [Context7 MCP clients and tools](https://context7.com/docs/resources/all-clients), [API guide](https://context7.com/docs/api-guide). The existing Harness library remains a catalog; these two commands provide an actual read tool rather than treating a catalog declaration as a live MCP connection. Native runner registration is optional and separate.
+
+## Reporting accepted documentation use
+
+`--docs-accepted` includes a bounded `observation` alongside the reference text.
+When the native documentation extension is installed, include only that object in
+`result.harnessDocumentation` with the normal final task result. Preserve `readId`
+on retries. It contains execution/resource binding, library/document digests,
+retrieval time, duration and byte count; no question, retrieved text or credentials.
+It is `worker-reported`, since the worker transports it. Do not use the Node
+`harnessInvocations` field or claim independent task verification.
+
+The native `/api/oporahub/harness-documentation` endpoint can read validated metadata
+from durable result receipts. Old peers may ignore unknown result fields; an HTTP
+success alone does not establish support. Missing or failed lookups are not counted,
+so these observations provide no success-rate denominator. Reporting still requires
+the actual task outcome and its checks; one successful reference read is not task
+completion, production evidence or an automatic OpenViking lesson.
