@@ -132,6 +132,26 @@ Readiness follows Canvas, not the old desktop-v3 pipeline: on each read the offi
 no unfinished predecessor over a `next` edge), and the 🤖 autopilot takes those as well as routed
 cards. A Canvas without agent-state leaves the autopilot on routed cards only.
 
+### When Opora waits on a person
+
+The same agent-state read (one request per poll) also says what only a person can unblock: a
+`decision` whose action Canvas marks `blockReason: "human_only"` (accepting the baseline, a
+changeset of plan steps), the `stages` that are `blocking` or `waiting` with their reason and count,
+and how many cards Canvas holds back for those reasons (`57+` when its card list is cut short).
+The floor's Opora state carries it as `humanWait` (at most 4 decisions and 6 stages; nothing when no
+decision waits, or on a Canvas without agent-state). The 🛰️ Opora window shows it as one line,
+*⏸️ Opora waits on a person: Přijmout výchozí zadání — until then nobody can take any card (57+
+cards held back)*, with the stages under it and **↗ Decide in Opora** to the project there.
+
+While there's no accepted baseline, no card can be claimed at all, so the office doesn't try:
+▶ Take is off on every card (and a take sent anyway is refused with the same reason, before any
+claim), and the 🤖 autopilot and the 🧭 hand-out hold off with one toast each, said again only after
+the wait clears and comes back, instead of failing at claim card by card every poll. A changeset
+wait leaves claims open: the line shows, and the cards Canvas offers stay takeable. The boss board
+lists each decision as a request for the boss ([Boss Office](boss-attention.md)). Code:
+`src/server/opora/agent-state.ts`, `src/client/features/opora/human-wait.ts`;
+[screenshot](shots/opora/opora-human-wait.png) (labeled fixture state, `tests/opora-human-wait.browser.mjs`).
+
 A card without steps (an older Canvas, or a legacy accepted spec) gets the old prompt,
 and any `stepResults` in its result are left out. Code: `src/server/opora/plan-steps.ts`,
 used by `execution-prompt.ts`, `execution-worker.ts`, `pull-request-body.ts` and, for the

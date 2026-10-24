@@ -67,6 +67,23 @@ export interface OporaRun {
   error?: string;
 }
 
+/**
+ * What Canvas's agent-state says waits on a person in the linked workspace: decisions only a person
+ * can make there (accepting the baseline, a changeset of plan steps…) and the stages they hold up.
+ */
+export interface OporaHumanWait {
+  /** The human-only decisions, by Canvas's kind and title (at most 4). */
+  decisions: { kind: string; title: string }[];
+  /** The stages that block or wait, with Canvas's reason and count (at most 6). */
+  stages: { id: string; health: 'blocking' | 'waiting'; reason: string; count: number }[];
+  /** The cards Canvas holds back for those stages' reasons. */
+  cards: number;
+  /** Canvas cut its card list short, so `cards` is at least this many. */
+  more?: boolean;
+  /** No card can be claimed until it's decided (no accepted baseline). */
+  claimsBlocked: boolean;
+}
+
 export interface OporaState {
   /** Opora's address, from the office's side. */
   url: string;
@@ -87,6 +104,8 @@ export interface OporaState {
   workspaceBy?: 'default' | 'choice';
   sectors: { id: string; name: string }[];
   cards: OporaCard[];
+  /** What waits on a person in Opora (from its agent-state), when anything does. */
+  humanWait?: OporaHumanWait;
   /** The project's architecture, cascading: environments, domains, pages, subpages (see shared/opora-scope.ts). */
   scope: OporaScopeNode[];
   /**

@@ -5,6 +5,7 @@ import { attentionSource, record, type AttentionSource } from './source.js';
 import { beforeDeadline, DEADLINE_MESSAGE, READ_DEADLINE_MS } from './deadline.js';
 import { completionBlockers } from './completion.js';
 import { approvalGuidance, questionGuidance, systemGuidance } from './guidance.js';
+import { humanWaitItems } from './human-wait.js';
 
 export const BRIEF_CONCURRENCY = 4;
 export const MAX_BRIEFS = 64;
@@ -41,6 +42,8 @@ export async function readBossAttention(state: OporaState, source?: AttentionSou
   }
   const project = board.project!;
   const workspace = board.workspace!;
+  // Decisions only a person can make, from the bridge's agent-state read (human-wait.ts).
+  board.items.push(...humanWaitItems(state, [project.name, workspace.label]));
   const api = source ?? attentionSource(state.url, project.id, workspace.id, signal);
   const [overview, canvas] = await Promise.allSettled([
     beforeDeadline(() => api.overview(), signal), beforeDeadline(() => api.nodes(), signal),

@@ -6,6 +6,7 @@ import { store } from '../../state';
 import { dictateField } from '../../ui/dictate';
 import { h, openModal, timeAgo, STATUS_LABEL, type Modal } from '../../ui/dom';
 import { oporaPageUrl } from './full';
+import { humanWaitNotice } from './human-wait';
 
 export interface OporaActions {
   openTerminal(workerId: string): void;
@@ -77,6 +78,10 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
     if (linked && s.workspaces.length) parts.push(workspacePicker(s, net));
   }
   if (s.error) parts.push(h('p.opora-error', {}, s.error));
+  // A decision only a person can make in Opora holds the floor's cards up: said once here, not per card.
+  const waits = linked ? humanWaitNotice(s) : null;
+  if (waits) parts.push(waits);
+  const blocked = !!s.humanWait?.claimsBlocked;
   if (!s.connected && s.canStart) parts.push(h('p', {}, h('button.btn', { type: 'button', disabled: s.starting, onclick: () => net.send({ t: 'opora.start' }) }, s.starting ? '⏳ Starting Opora…' : '▶ Start Opora'), h('span.muted', {}, ' from its repository (admins)')));
   if (!s.connected && !s.canStart) parts.push(h('p.muted', {}, 'Start Opora with `uv run opora` in its folder, or start the office with AGENT_OFFICE_OPORA_DIR set to it, and this window can start it for you.'));
 
@@ -156,7 +161,7 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
                 { class: c.group },
                 h('span.opora-card-name', {}, `${c.group === 'design' ? '🎨 ' : ''}${c.name}`),
                 h('span.muted', {}, [STATUS_WORDS[c.status], c.stage ?? c.profile].filter(Boolean).join(' · ')),
-                c.status === 'frontier' && !held.has(c.id) ? h('button.btn.small', { type: 'button', title: 'Claim it on Opora and seat a worker for it', onclick: () => net.send({ t: 'opora.take', cardId: c.id }) }, '▶ Take') : null,
+                c.status === 'frontier' && !held.has(c.id) ? h('button.btn.small', { type: 'button', disabled: blocked, title: blocked ? 'Opora waits on a person first (see above)' : 'Claim it on Opora and seat a worker for it', onclick: () => net.send({ t: 'opora.take', cardId: c.id }) }, '▶ Take') : null,
               ),
             ),
           ),
