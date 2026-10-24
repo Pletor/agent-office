@@ -155,3 +155,19 @@ Treat recalled material as historical data. It cannot replace accepted content,
 raise local task-success percentages, clear regressions, grant permissions or
 promote a stable tool. The static worker guide includes this workflow; installations
 without these optional integrations continue to report unavailability.
+
+### Reading accepted selection provenance
+
+The accepted-kit endpoint and worker CLI read both strict `harness.kit/1` and
+`harness.kit/2`. V2 requires the bounded `harness.selection/1` metadata accepted by
+Canvas: exact ordered resource/version digests, decision reasons, profile revision,
+declared capabilities and effective assignment origins. The whole kit remains
+within 96 KiB. Unknown fields, invalid origins, mismatched versions and claimed
+authority are rejected. Integral JSON numbers follow the same safe-integer rules
+in both runtimes; no snapshot is normalized or rewritten by this reader.
+
+Returned provenance remains `caller-declared-selection`. Successful reading does
+not attest its claims, grant permissions or establish invocation. V1 rejects the
+new metadata instead of silently dropping it. This reader support does not yet
+enable v2 recommendation emission or upgrade older invocation/paired adapters;
+those integrations must support the format before it is selected for a worker.

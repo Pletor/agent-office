@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type http from 'node:http';
 import type { ExecutionController } from '../opora/execution-controller.js';
 import { send } from '../http/util.js';
+import { validateSelection } from './selection-validation.js';
 
 const MAX_BYTES = 96 * 1024;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}(?![\s\S])/;
@@ -14,9 +15,11 @@ const identifiers = (v: unknown, min: number, max: number): v is string[] => Arr
   && v.length >= min && v.length <= max && v.every(s => typeof s === 'string' && ID.test(s)) && new Set(v).size === v.length;
 const invalid = (): never => { throw new Error('Accepted Harness kit is invalid; prepare and accept a corrected specification.'); };
 
-/** Same bounded wire contract as Canvas harness.kit/1; no catalog lookup or permission grant. */
+/** Same bounded v1/v2 wire contracts as Canvas; no catalog lookup or permission grant. */
 export function validateAcceptedKit(value: unknown) {
-  if (!object(value) || !keys(value, ['schema', 'problems', 'resources']) || value.schema !== 'harness.kit/1'
+  const v2 = object(value) && value.schema === 'harness.kit/2';
+  if (!object(value) || !keys(value, v2 ? ['schema', 'problems', 'resources', 'selection'] : ['schema', 'problems', 'resources'])
+    || !['harness.kit/1', 'harness.kit/2'].includes(value.schema as string)
     || !identifiers(value.problems, 1, 8) || !Array.isArray(value.resources) || value.resources.length > 24) return invalid();
   const slots = new Set<string>(), resources = new Set<string>();
   for (const entry of value.resources) {
@@ -31,6 +34,7 @@ export function validateAcceptedKit(value: unknown) {
       || digest !== createHash('sha256').update(content, 'utf8').digest('hex')) return invalid();
     slots.add(slot); resources.add(resource);
   }
+  if (v2) validateSelection(value);
   const encoded = JSON.stringify(value).replace(/[\u007f-\uffff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
   if (Buffer.byteLength(encoded) > MAX_BYTES) return invalid();
   return value;

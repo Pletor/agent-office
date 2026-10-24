@@ -10,6 +10,7 @@ import { acceptedKit, validateAcceptedKit } from '../src/server/harness/accepted
 import { officeHarness } from '../src/server/harness/api.js';
 import type { Ctx } from '../src/server/office/context.js';
 import { budgetLease } from './support/opora-budget.js';
+import { v2Kit } from './support/harness-v2.js';
 
 const digest = (content: string) => createHash('sha256').update(content, 'utf8').digest('hex');
 function kit(content = 'node run.mjs') {
@@ -20,8 +21,7 @@ function lease(assignment: Record<string, unknown>, contextProtocolVersion = 2):
   return { ...budgetLease(), nodeId: 'target', contextProtocolVersion: contextProtocolVersion as 1 | 2, assignment };
 }
 
-test('accepted kit HTTP lookup authenticates first and returns only the current worker target snapshot', async (t) => {
-  const selected = kit();
+for (const selected of [kit(), v2Kit(kit())]) test(`${selected.schema} HTTP lookup authenticates first and returns only the current worker target snapshot`, async (t) => {
   const neighbor = { ...kit('secret neighbor'), resources: [{ ...kit('secret neighbor').resources[0], resource: 'neighbor-secret' }] };
   const assignment = { contextVersion: 'accepted-context', documents: [
     { nodeId: 'target', fields: { title: 'Target', harness: selected } },
