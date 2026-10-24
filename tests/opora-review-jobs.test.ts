@@ -247,13 +247,16 @@ test('a completed job is posted once as a COMMENT review with inline comments; a
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const calls: { args: string[]; input?: Record<string, unknown> }[] = [];
   const { readFileSync } = await import('node:fs');
-  let reviews: { id: number; body: string }[] = [];
+  const reviews: { id: number; body: string; state: string }[] = [];
   const gh = async (args: string[]) => {
     const at = args.indexOf('--input');
     const input = at >= 0 ? JSON.parse(readFileSync(args[at + 1], 'utf8')) : undefined;
     calls.push({ args, input });
-    if (args.includes('--jq')) return reviews.filter((r) => r.body.includes(reviewMarker('rj_1'))).map((r) => r.id).join('\n');
-    if (args.includes('POST')) { reviews.push({ id: 55, body: input.body }); return '{"id":55}'; }
+    if (args.some((a) => a.endsWith('/files'))) return JSON.stringify({ filename: 'src/c.ts', patch: '@@ -8,2 +8,3 @@\n a\n+b\n c' });
+    if (args.includes('--jq')) return reviews.filter((r) => r.body.includes(reviewMarker('rj_1'))).map((r) => JSON.stringify(r)).join('\n');
+    if (args.some((a) => a.endsWith('/events'))) { reviews[0].state = 'COMMENTED'; return '{}'; }
+    if (args.includes('POST')) { reviews.push({ id: 55, body: input.body, state: 'PENDING' }); return '{"id":55}'; }
+    if (args.includes('PUT')) reviews[0].body = input.body;
     return '{}';
   };
   const done = job({ phase: 'completed' });
@@ -265,8 +268,10 @@ test('a completed job is posted once as a COMMENT review with inline comments; a
   const poster = new ReviewPoster(gh, path.join(dir, 'posted.json'));
   assert.equal(await poster.post(done, findings), 'posted');
   const post = calls.find((c) => c.args.includes('POST'))!;
-  assert.equal(post.input!.event, 'COMMENT');
+  assert.equal(post.input!.event, undefined, 'opened as a pending review first');
   assert.equal(post.input!.commit_id, HEAD);
+  const submit = calls.find((c) => c.args.some((a) => a.endsWith('/reviews/55/events')))!;
+  assert.equal(submit.input!.event, 'COMMENT');
   const body = String(post.input!.body);
   assert.ok(body.startsWith(reviewMarker('rj_1')));
   assert.match(body, /\*\*\[important\]\*\* `rf_9`/);
@@ -291,7 +296,7 @@ test('the runner posts completed jobs from the listing', async (t) => {
     { post: true, gh: async (args) => { posted.push(args); return args.includes('POST') ? '{"id":1}' : ''; } });
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   await runner.tick(scope);
-  assert.equal(posted.filter((a) => a.includes('POST')).length, 1);
+  assert.equal(posted.filter((a) => a.includes('POST') && !a.some((x) => x.endsWith('/events'))).length, 1);
   assert.ok(posted.every((a) => !a.join(' ').includes('rj_2')));
 });
 

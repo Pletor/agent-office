@@ -1,4 +1,4 @@
-import { FINDER_SYSTEM, VOTER_SYSTEM } from './review-prompt.js';
+import { ANSWER_ONLY, FINDER_SYSTEM, VOTER_SYSTEM } from './review-prompt.js';
 
 /**
  * What a review slot runs depends on its job's `kind` (Canvas's docs/oporahub-review-jobs.md,
@@ -40,6 +40,7 @@ export const SECURITY_FINDER_SYSTEM = [
   'Never repeat a known finding (any status). You may claim an OPEN known finding is fixed by this diff, with the rationale.',
   'Answer with exactly one JSON object and nothing else: {"findings":[{"path":"repo/relative/file","line":123,"severity":"important|nit|pre_existing","bugClass":"short-kebab-kind e.g. sql-injection, missing-authz, token-in-log, path-traversal, ssrf","title":"one line, at most 200 chars","rationale":"the exploit scenario, at most 4000 chars"}],"fixed":[{"findingId":"rf_...","rationale":"..."}]}.',
   '"line" is the line in the head version of the file, or null. Use the same bugClass and title wording a careful reviewer would use for the same vulnerability again. At most 50 findings. No vulnerabilities: {"findings":[],"fixed":[]}.',
+  ANSWER_ONLY,
 ].join('\n\n');
 
 export const SECURITY_VOTER_SYSTEM = [
@@ -48,6 +49,7 @@ export const SECURITY_VOTER_SYSTEM = [
   'Confirm a "finding" candidate only if it is a real, exploitable vulnerability at the head commit: you can name the attacker, the input or request they control, the lines it reaches and what they gain, and nothing on the path (a check, a framework default, a caller) already stops it. Reject style, general bugs, hardening wishes and anything speculative or not caused by this pull request (unless its severity is pre_existing).',
   'For a "fix" candidate, confirm only if the head code really closes the referenced vulnerability.',
   'Answer with exactly one JSON object and nothing else: {"votes":[{"candidateId":"rc_...","verdict":"confirm|reject","rationale":"short reason"}]} with exactly one vote for every candidate.',
+  ANSWER_ONLY,
 ].join('\n\n');
 
 /** The prompts for a job's kind (a missing kind is an older Canvas's `code`), or undefined for a kind not known here. */
