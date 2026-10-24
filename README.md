@@ -97,6 +97,8 @@ Press Enter to skip a step: the elevator in the office asks for your first proje
 
 Walk to an empty desk, press **E** and hire a worker.
 
+During shutdown or restart, the closing office refuses new and resumed workers. Pending preparation cannot start another worker process; the next office instance handles restoration. See [worker lifecycle](docs/how-it-works.md).
+
 Common options:
 
 ```bash
