@@ -44,7 +44,12 @@ export function stagedWorker(w: Worker, cwd: string, timeoutMs: number, host: St
     if (state === 'started') return Promise.resolve({ error: 'Worker already started; preparation cannot cancel execution' });
     if (cancellation) return cancellation;
     state = 'cancelled'; clearTimeout(timer); abort.abort();
-    cancellation = (preparation ?? Promise.resolve()).catch(() => {}).then(() => host.current() ? host.cancel() : { note: 'Preparation owner no longer active; worktree retained' });
+    cancellation = (preparation ?? Promise.resolve()).catch(() => {}).then(() => {
+      if (!host.current()) return { note: 'Preparation owner no longer active; worktree retained' };
+      // Only the owning handle knows its tracked writer has settled. Ordinary kill keeps staged trees.
+      w.preparing = undefined;
+      return host.cancel();
+    });
     return cancellation;
   };
   const timer = setTimeout(() => { void cancel().catch(() => {}); }, timeoutMs);

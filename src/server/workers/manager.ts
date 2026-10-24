@@ -369,7 +369,7 @@ export class WorkerManager {
    */
   async kill(id: string, cleanup?: WorktreeCleanup, landed?: string, landedRepos?: Record<string, string | undefined>): Promise<{ note?: string; error?: string }> {
     const w = this.workers.get(id);
-    if (!w) return {};
+    if (!w) return {}; if (w.preparing) { cleanup = 'keep'; w.stopPreparation?.(); }
     this.workers.delete(id);
     this.tasks.forget(id);
     clearTimeout(w.scanTimer);

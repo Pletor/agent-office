@@ -128,3 +128,23 @@ test('tracked preparation failure cancels the allocation without starting a work
   assert.equal(existsSync(stage.cwd), false);
   assert.match(String(stage.start('task')), /consumed|cancelled/);
 });
+
+test('direct removal and successor removal retain worktrees while a preparation writer may still exist', async t => {
+  for (const restart of [false, true]) {
+    const f = fixture(t), original = f.create();
+    const stage = original.stage({ deskId: 'desk-1', by: 'test', worktree: true, provider: 'custom' });
+    if (typeof stage === 'string') throw new Error(stage);
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    const work = stage.prepare(async cwd => {
+      await gate; writeFileSync(path.join(cwd, 'source.txt'), 'late installer write');
+    });
+    const rejected = assert.rejects(work, /cancelled/); await Promise.resolve();
+    let current = original;
+    if (restart) { original.shutdown(true); current = f.create(); }
+    await current.kill(stage.worker.id, 'all');
+    assert.ok(existsSync(stage.cwd), 'even explicit deletion cannot remove an unsettled staged directory');
+    finish(); await rejected; await stage.cancel();
+    assert.equal(readFileSync(path.join(stage.cwd, 'source.txt'), 'utf8'), 'late installer write');
+  }
+});
