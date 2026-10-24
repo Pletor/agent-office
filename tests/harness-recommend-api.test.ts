@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Ctx } from '../src/server/office/context.js';
@@ -15,10 +15,23 @@ test('recommendation uses the authenticated floor peer and refuses stale scope/p
   mkdirSync(path.join(dir, '.harness', 'rules'), { recursive: true });
   writeFileSync(path.join(dir, '.harness', 'rules', 'quality.md'), 'Run the pinned checks.');
   const profiles = new HarnessProfiles(dir);
-  let calls = 0, mutate = false;
+  let calls = 0, mutate = false, mutateCompatibility = false;
   const native = http.createServer(async (req, res) => {
     calls++;
     const url = new URL(req.url!, 'http://local');
+    if (url.pathname === '/api/oporahub/harness-kit-capabilities') {
+      assert.equal(req.headers.authorization, undefined);
+      assert.equal(url.searchParams.get('project'), 'p'); assert.equal(url.searchParams.get('workspace'), 'w');
+      if (mutateCompatibility) {
+        mutateCompatibility = false;
+        await profiles.save(dir, '', 'repository', { language: { value: 'en' } }, profiles.view(dir).revision);
+      }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ schema: 'harness.kit-capabilities/1', scope: { project: 'p', workspace: 'w' },
+        acceptedKitSchemas: ['harness.kit/1', 'harness.kit/2'], contextProtocolVersion: 2, selectionSchema: 'harness.selection/1',
+        limits: { resources: 24, bytes: 96 * 1024 }, evidence: 'installed-acceptance-validator',
+        executionAdaptersVerified: false, permissionsGranted: false, promotionAllowed: false })); return;
+    }
     assert.ok(['/api/oporahub/harness-learning', '/api/oporahub/harness-paired-evaluations', '/api/oporahub/harness-verifier/requests'].includes(url.pathname));
     assert.equal(req.headers.authorization, undefined, 'worker credentials never reach the native peer');
     assert.equal(url.searchParams.get('project'), 'p'); assert.equal(url.searchParams.get('workspace'), 'w');
@@ -73,4 +86,15 @@ test('recommendation uses the authenticated floor peer and refuses stale scope/p
   assert.equal((await fetch(base + hook, { headers })).status, 409, 'profile change during native lookup refuses the stale proposal');
   response = await fetch(base + hook, { headers }); result = await response.json();
   assert.equal(response.status, 200); assert.ok(result.kit.resources.some((resource: { resource: string }) => resource.resource === 'profile:settings'));
+  response = await fetch(base + hook + '&kitSchema=harness.kit/2', { headers });
+  const installed = existsSync(new URL('../src/server/harness/accepted-kit.ts', import.meta.url));
+  assert.equal(response.status, installed ? 200 : 409);
+  result = await response.json();
+  if (installed) {
+    assert.equal(result.kit.schema, 'harness.kit/2');
+    assert.equal(result.kit.selection.entries.at(-1).reason, 'inherited-settings');
+    mutateCompatibility = true;
+    assert.equal((await fetch(base + hook + '&kitSchema=harness.kit/2', { headers })).status, 409);
+  } else assert.match(result.error, /validator is unavailable/);
+  assert.equal((await fetch(base + hook + '&kitSchema=harness.kit/99', { headers })).status, 400);
 });
