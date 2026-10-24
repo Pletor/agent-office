@@ -125,3 +125,7 @@ Explicitly assigned blocked versions remain visible with `lifecycle-revalidation
 warnings. Content or requirement changes are different versions, never inherited proof.
 Legacy installations without lifecycle storage retain their existing evidence-based
 proposal behavior and explicitly report lifecycle support unavailable.
+
+With current lifecycle storage, withdrawn exact versions stay excluded from
+automatic selection after rollback and later refreshes, even when their audit
+entry has aged out. Fresh eligible re-promotion can clear the exact withdrawal.
