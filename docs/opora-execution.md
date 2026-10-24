@@ -79,7 +79,13 @@ artifact/evidence fields (at most 64,000 UTF-8 bytes), then runs the command in 
 prompt. Retry the identical file after uncertain delivery. The helper emits only
 the receipt identity and verification label. A receipt is agent-reported work,
 not verified checks, independent review, accepted plan changes or card completion.
-It must not trigger the legacy agent-output or completion API. A successful result
+It must not trigger the legacy agent-output or completion API. Cards written for
+that flow still ask for it in their text ("Do karty zapsán agent-output …
+done.proposed"), so the prompt says, right after naming the assignment, that any
+requirement in the card text to write agent-output, propose or confirm done, or
+change card state is legacy and is fulfilled by the result helper, and a plan step's
+acceptance item that mentions `agent-output`, `done.proposed` or `done.confirmed`
+is marked as such in the checklist. A successful result
 ends Canvas authority; the next Office heartbeat stops that worker. Its authority
 warning does not invalidate an already stored successful receipt.
 
