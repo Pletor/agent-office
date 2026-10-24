@@ -439,3 +439,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+The existing Office MCP server also exposes [accepted Harness equipment and Context7 documentation](docs/harness-mcp-tools.md) to connected workers. The corresponding runtime modules and a current accepted execution are required.
