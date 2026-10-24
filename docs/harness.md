@@ -1,5 +1,7 @@
 # Harness library
 
+For live, version-specific coding documentation, see [Context7 documentation tools](harness-context7.md). Agents can use the built-in `office-harness --docs-resolve` / `--docs` commands without changing their runner's native MCP configuration.
+
 Back to the [README](../README.md).
 
 ![Harness and Docs on either side of the balcony doors](images/harness-shelves.png)
