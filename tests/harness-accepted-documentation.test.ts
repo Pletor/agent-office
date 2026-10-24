@@ -57,6 +57,12 @@ test('accepted Context7 CLI binds exact target and refuses poisoned or stale ass
   const receipt = JSON.parse(raw.stdout);
   assert.equal(receipt.accepted.resource.digest, resource().digest);
   assert.equal(receipt.authority, 'external-reference'); assert.equal(receipt.promotionAllowed, false);
+  assert.equal(receipt.observation.schema, 'harness.documentation-observation/1');
+  assert.equal(receipt.observation.resource.digest, resource().digest);
+  assert.equal(receipt.observation.documentDigest, receipt.digest);
+  assert.equal(receipt.observation.outputBytes, Buffer.byteLength('Public reference'));
+  assert.equal(receipt.observation.evidence, 'worker-reported');
+  assert.doesNotMatch(JSON.stringify(receipt.observation), /How do streams|Public reference|contextProtocolVersion/);
   assert.doesNotMatch(raw.stdout, /hook-secret|"assignment"|"content"/);
   const before = calls;
   assert.equal((await call('hook-secret', '&task=other')).status, 400);
