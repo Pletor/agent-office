@@ -17,6 +17,8 @@ export interface LifecycleState {
   scope: LifecycleScope; active: ToolVersion; previous: ToolVersion | null;
   status: 'stable' | 'suspended'; evidenceDigest: string; policyDigest: string;
   source?: LifecycleSource; previousSource?: LifecycleSource;
+  /** Exact versions withdrawn from automatic selection, independent of the bounded audit. */
+  withdrawn?: ToolVersion[];
   audit: { at: string; action: 'promote' | 'refresh' | 'suspend' | 'rollback'; evidenceDigest: string; triggerEvidenceDigest: string; policyDigest: string; from: ToolVersion | null; to: ToolVersion }[];
 }
 export interface LifecycleCheck { current: LifecycleEvidence; fallback?: LifecycleEvidence; assertCurrent?: () => void }
@@ -61,6 +63,11 @@ export function parseLifecycle(value: unknown): LifecycleState {
   version(value.active);
   if (value.previous !== null) version(value.previous);
   source(value.source); source(value.previousSource);
+  if (value.withdrawn !== undefined) {
+    if (!Array.isArray(value.withdrawn) || value.withdrawn.length > 256) fail();
+    for (const item of value.withdrawn) version(item);
+    if (value.withdrawn.some((item, i) => (value.withdrawn as ToolVersion[]).slice(0, i).some(other => sameVersion(item, other)))) fail();
+  }
   if (value.previous === null && value.previousSource !== undefined) fail();
   if (!['stable', 'suspended'].includes(value.status as string) || !hash(value.evidenceDigest) || !hash(value.policyDigest)
     || !Array.isArray(value.audit) || value.audit.length < 1 || value.audit.length > 20) fail();
@@ -105,8 +112,14 @@ export function advanceLifecycle(scope: LifecycleScope, before: LifecycleState |
   // Keep the source of a suspended version so it can be reassessed later. It is a
   // lookup reference only: eligibility still requires a new native assessment.
   const selectedSource = selected.source ?? (action === 'suspend' ? before?.source : undefined);
+  // A rollback must not make its rejected candidate look like a new experiment on
+  // the next read. Never evict withdrawals as the short audit window advances.
+  let withdrawn = [...(before?.withdrawn ?? [])];
+  if (!current.eligible && !withdrawn.some(v => sameVersion(v, current.version))) withdrawn.push(current.version);
+  if (selected.eligible) withdrawn = withdrawn.filter(v => !sameVersion(v, selected.version));
+  if (withdrawn.length > 256) fail();
   const state: LifecycleState = { scope: structuredClone(scope), active: structuredClone(active), previous: structuredClone(previous),
-    status, evidenceDigest: selected.evidenceDigest, policyDigest: selected.policyDigest,
+    status, withdrawn: structuredClone(withdrawn), evidenceDigest: selected.evidenceDigest, policyDigest: selected.policyDigest,
     ...(selectedSource ? { source: structuredClone(selectedSource) } : {}),
     ...(previousSource ? { previousSource: structuredClone(previousSource) } : {}),
     audit: [...(before?.audit ?? []).slice(-19), { at, action, evidenceDigest: selected.evidenceDigest,

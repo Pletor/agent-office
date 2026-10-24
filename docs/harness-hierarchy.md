@@ -74,3 +74,9 @@ preserve the matching revision files as described above.
 ## Verification
 
 Run `npm run typecheck`, `npm test`, `npm run build`. Focused tests cover geometry boundaries, seven-level inheritance, legacy migration, concurrent publication, HTTP authorization, project isolation, stale-path conflicts and actual worker handoff. With Vite on 5192, run `node tests/harness-hierarchy.browser.mjs`; `HARNESS_LAB_URL` and `HARNESS_SHOTS` override the lab and screenshot directory. It checks desktop/mobile selectors, inherited checkboxes, persistence, conflict retention, reload, versioned rates, unsaved-draft retention, stale-response fencing, missing-endpoint behavior and modal close. The fixture writes no live settings and launches no paid agents.
+
+Withdrawn exact versions are retained independently of the last 20 audit entries.
+Rollback and subsequent refreshes cannot reintroduce a rejected version as an
+unknown experiment. A fresh eligible promotion clears only its exact version;
+changed content does not clear an older withdrawal. Records are bounded at 256
+per scoped state; overflow refuses publication instead of evicting restrictions.
