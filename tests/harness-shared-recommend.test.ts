@@ -52,6 +52,7 @@ test('eligible v2 shared source gets the single unknown slot despite lower prior
   const f = await sharedFixture(t), result = await recommendHarness(f.library, 'ts.references', ['command:node'], undefined,
     availableHistory(), undefined, completeFixtures(), undefined, async () => eligible());
   assert.deepEqual(result.selected.slice(2), [f.sharedId]);
+  assert.equal(result.selection.find(s => s.resource === f.sharedId)?.reason, 'shared-fixture-exploration');
   assert.equal(result.selected.filter(id => id === f.projectId || id === f.sharedId).length, 1);
   const candidate = result.candidates.find(item => item.id === f.sharedId)!;
   assert.equal(candidate.shared?.status, 'eligible'); assert.equal(candidate.observed, false);

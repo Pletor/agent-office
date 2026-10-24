@@ -166,3 +166,23 @@ source references, project/image counts and the evidence digest. This is evidenc
 about approved fixture cases, not independent production environments or proof of
 causal benefit. The target project must accept and verify its own assignment.
 No private memory is pooled and this read does not publish an OpenViking lesson.
+
+### Why each proposed resource was selected
+
+`selection` follows the same order as `selected`. Each entry contains the exact
+resource ID, content digest, configuration version digest, zero-based order and
+the decision branch that actually added it: `explicit-assignment`,
+`baseline-policy`, `native-stable`, `observed-outcomes`,
+`shared-fixture-exploration` or `unknown-exploration`.
+Explicit choices also list their effective assignment slots and scopes; overridden
+bindings are excluded. Explicit selection takes precedence over baseline or
+observed eligibility. A capacity-limited candidate that was not added receives
+no selection entry.
+
+Reasons explain the proposal, including an explicit choice whose missing
+requirements block kit creation. They do not certify safety, grant permission or
+override `constraints`/`warnings`. `selectionEvidence` explicitly marks this as
+recommendation evidence. The strict accepted `harness.kit/1` stays unchanged;
+persisting this rationale through acceptance and historical replay remains a
+separate schema migration. Generated inherited settings are context, not an
+additional selected catalog tool.

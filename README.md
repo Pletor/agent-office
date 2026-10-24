@@ -505,3 +505,6 @@ Shared Harness toolboxes can optionally declare native publication references. R
 Workers can [recall or publish shared fixture lessons](docs/harness-accepted-runtime.md#shared-fixture-lessons-for-an-accepted-tool) with `office-harness --recall-shared PUBLICATION --resource RESOURCE` or `--publish-shared`. Office checks the exact accepted tool and fresh native evidence; public requests never carry execution tokens.
 
 The accepted-kit reader preserves [v2 selection provenance](docs/harness-accepted-runtime.md#reading-accepted-selection-provenance) while retaining strict v1 support. Reading the recorded rationale does not verify the decision or enable newer kits in older execution adapters.
+The [Harness capability map](docs/harness-status.md#kde-se-knihovna-propisuje) explains what reaches the human UI, orchestrator, accepted card, worker and OpenViking, including optional shared-lesson commands and the remaining production evidence.
+
+Harness recommendations explain [why each resource was selected](docs/harness-recommend.md#why-each-proposed-resource-was-selected), with exact versions and effective assignment sources. These reasons describe the proposal; they do not yet become accepted execution provenance.
