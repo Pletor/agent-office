@@ -4,6 +4,7 @@ import { HARNESS_LEVELS, type HarnessLayer, type HarnessLevel } from '../../../.
 import { HARNESS_LEVEL_NAMES, type HarnessHierarchyView } from '../../../../shared/harness-navigation';
 import { resourceModel, setResource } from './model';
 import { experiencePanel } from './experience';
+import { originHistoryPanel } from './origin-history';
 import './style.css';
 
 /** Edits one explicitly selected scope. A save never mutates an accepted execution. */
@@ -21,9 +22,10 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
   const origins = h('pre.harness-effective');
   const preview = h('pre.harness-effective');
   const experience = experiencePanel(floor, () => view, signal, () => renderRows());
+  const history = originHistoryPanel(floor, () => view, signal);
   const el = h('details.harness-cascade', {}, h('summary', {}, 'Pracovní výbava: Globál → Projekt → Stránka → Vrstva → Oblast → Sektor → Karta'),
     h('p', {}, 'Zaškrtněte prostředky pro vybranou úroveň. Zděděné prostředky lze vypnout nebo obnovit. Změna výběru úrovně zahodí neuložené úpravy. Uložené nastavení se použije při přípravě další práce.'),
-    nav, status, bind, experience.el, h('div.harness-profile-grid', {}, h('section', {}, filter, rows), h('section', {},
+    nav, status, bind, experience.el, history.el, h('div.harness-profile-grid', {}, h('section', {}, filter, rows), h('section', {},
       h('details', {}, h('summary', {}, 'Pokročilé sloty a nastavení'), advanced),
       h('details', {}, h('summary', {}, 'Účinné prostředky a původ'), origins),
       h('details', {}, h('summary', {}, 'Náhled uloženého kontextu'), preview))),
@@ -98,6 +100,7 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
       if (signal.aborted || seq !== ticket) return;
       view = data; draft = { ...view!.layers[view!.level] }; dirty = false;
       experience.reset();
+      history.reset();
       status.textContent = [HARNESS_LEVEL_NAMES[view!.level], 'revize ' + view!.revision, view!.notice, view!.warning, view!.writable ? '' : 'Pouze ke čtení'].filter(Boolean).join(' · ');
     } catch (error) { if (!signal.aborted && seq === ticket) status.textContent = (error as Error).message; }
     finally { if (seq === ticket) { pending = false; render(); } }

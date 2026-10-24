@@ -40,7 +40,7 @@ export async function remoteHarness(argv) {
   else if (action === '--probe' && !args.length && !task) url.searchParams.set('capabilities', '1');
   else if (['--docs-resolve', '--docs', '--docs-accepted'].includes(action)) {
     url.searchParams.set('docs', '1'); body = JSON.stringify(docsQuery(action, args));
-  } else if (['--hierarchy', '--configure', '--bind'].includes(action)) body = hierarchyCommand(action, args, task, url);
+  } else if (['--hierarchy', '--origin-history', '--configure', '--bind'].includes(action)) body = hierarchyCommand(action, args, task, url);
   else if (action === '--read' && args.length === 1) url.searchParams.set('read', args[0]);
   else if (action === '--search') url.searchParams.set('catalog', '1');
   else if (action === '--bundle' && args.length >= 1 && args.length <= 24) {

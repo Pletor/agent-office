@@ -15,11 +15,20 @@ try {
     const names = ['Stránka', 'Vrstva', 'Oblast', 'Sektor', 'Karta'];
     const keys = levels.map(level => 'opora:p:w:' + level);
     const layers = emptyLayers(); layers.global = { quality: { resource: 'guide:testing' } };
-    let revision = 0, rejectSave = false, experienceAvailable = true;
+    let revision = 0, rejectSave = false, experienceAvailable = true, originAvailable = true;
     let experienceGate, experienceSeen, experienceDone;
     await page.route('**/api/harness**', async route => {
       const request = route.request(), url = new URL(request.url());
       let data;
+      if (url.searchParams.has('origin-history')) {
+        if (!originAvailable) return route.fulfill({ status: 503, json: { error: 'unavailable' } });
+        return route.fulfill({ json: { schema: 'harness.origin-history/1', scope: { project: 'p', workspace: 'w', nodeId: null },
+          window: { kind: 'newest-enrolled-executions', limit: 100, examined: 2, excluded: 0 }, limited: true, omittedCohortContributions: 0,
+          promotionAllowed: false, causalContribution: false, invocationObserved: false,
+          cohorts: [{ resource: 'guide:testing', digest: 'a'.repeat(64), versionDigest: 'b'.repeat(64), category: 'testing', problem: 'ts.references', tier: 'reported',
+            origin: { scope: url.searchParams.get('scope'), node: url.searchParams.get('node') || null }, tasks: 1,
+            rate: { pass: 1, fail: 0, unknown: 1, executions: 2, interval95: [20.65, 100] } }] } });
+      }
       if (url.pathname.endsWith('/recommend')) {
         experienceSeen?.();
         if (experienceGate) await experienceGate;
@@ -80,6 +89,15 @@ try {
     assert.equal(await checkbox.isChecked(), true, 'read-only measurements preserve the unsaved checkbox draft');
     await row.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(process.env.HARNESS_SHOTS ?? os.tmpdir(), 'harness-experience-' + width + '.png') });
+    await page.locator('.harness-origin-history summary').click();
+    await page.getByRole('button', { name: 'Načíst historii původu', exact: true }).click();
+    await page.locator('.harness-origin-history').getByText(/posledních 2/).waitFor();
+    assert.match(await page.locator('.harness-origin-row').innerText(), /Hlášení agenta: 100 % · 1\/1 · 1 neznámých/);
+    assert.equal(await checkbox.isChecked(), true, 'origin history preserves unsaved equipment choices');
+    await page.locator('.harness-origin-history').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(process.env.HARNESS_SHOTS ?? os.tmpdir(), 'harness-origin-' + width + '.png') });
+    await page.locator('.harness-origin-row').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(process.env.HARNESS_SHOTS ?? os.tmpdir(), 'harness-origin-result-' + width + '.png') });
     let release, seen, finished;
     experienceGate = new Promise(resolve => { release = resolve; });
     const requested = new Promise(resolve => { seen = resolve; }); experienceSeen = seen;
@@ -89,6 +107,10 @@ try {
     await page.getByText(/Projekt \/ repozitář · revize 1/).waitFor();
     release(); await completed;
     assert.equal(await page.locator('.harness-experience-badge').count(), 0, 'late measurements cannot repaint another scope');
+    assert.equal(await page.locator('.harness-origin-row').count(), 0, 'origin history resets on scope change');
+    originAvailable = false;
+    await page.getByRole('button', { name: 'Načíst historii původu', exact: true }).click();
+    await page.getByText('Historie původu není v této instalaci dostupná.', { exact: true }).waitFor();
     experienceGate = experienceSeen = experienceDone = undefined;
     experienceAvailable = false;
     await page.getByRole('button', { name: 'Načíst zkušenosti', exact: true }).click();

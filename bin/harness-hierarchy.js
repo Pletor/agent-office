@@ -5,7 +5,8 @@ export function hierarchyCommand(action, args, task, url) {
   const levels = ['global', 'repository', 'page', 'layer', 'area', 'sector', 'task'];
   url.searchParams.set('hierarchy', '1');
   if (task) url.searchParams.set('node', task);
-  if (action === '--hierarchy' && args.length <= 1 && (!args.length || levels.includes(args[0]))) {
+  if (['--hierarchy', '--origin-history'].includes(action) && args.length <= 1 && (!args.length || levels.includes(args[0]))) {
+    if (action === '--origin-history') url.searchParams.set('origin-history', '1');
     if (args[0]) url.searchParams.set('scope', args[0]);
     return undefined;
   }

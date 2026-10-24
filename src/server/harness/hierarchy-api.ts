@@ -9,6 +9,7 @@ import { HarnessLibrary, harnessSources } from './catalog.js';
 import { harnessHandoff } from './handoff.js';
 import { harnessLevel, resolveHarness, type HarnessLevel } from '../../shared/harness-cascade.js';
 import { samePlace } from '../../shared/opora-identity.js';
+import { originHistory } from './origin-history.js';
 
 export interface HierarchyAuthority { local: boolean; writable: boolean; globalWrite: boolean; actor: string }
 export function harnessProjects(ctx: Ctx) {
@@ -25,6 +26,15 @@ export async function harnessHierarchyRequest(ctx: Ctx, floor: Floor, req: http.
     let context = await hierarchyContext(ctx.cfg.dataDir, floor, target);
     if (url.searchParams.has('scope') && !harnessLevel(url.searchParams.get('scope'))) throw new HarnessError('Neplatná úroveň Harness.');
     let level = harnessLevel(url.searchParams.get('scope')) ?? context.path.at(-1)?.level ?? 'repository';
+    if (url.searchParams.has('origin-history')) {
+      if (req.method !== 'GET') return send(res, 405, { error: 'Use GET' });
+      assertTarget(level, target, context.path.at(-1)?.level);
+      const history = await originHistory(ctx.cfg.dataDir, floor, level, target);
+      const latest = await hierarchyContext(ctx.cfg.dataDir, floor, target);
+      if (latest.digest !== context.digest || latest.public.bindingRevision !== context.public.bindingRevision
+        || oporaOrigin(latest.view.url) !== oporaOrigin(context.view.url)) throw new HarnessError('Hierarchie se změnila. Načtěte historii znovu.', 409);
+      return send(res, 200, history, { 'cache-control': 'no-store' });
+    }
     if (req.method === 'POST') {
       if (!authority.writable) throw new HarnessError('Konfiguraci mění pouze správce nebo jeho aktivní orchestrátor.', 403);
       const body = JSON.parse(await readBody(req, 300_000));

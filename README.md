@@ -524,3 +524,11 @@ With the optional v2 integrations installed, they request a card-scoped proposal
 include the returned kit in the target specification's `fields.harness`, and use
 the normal acceptance flow before dispatch. Profile edits do not change a running
 accepted assignment. See [Harness learning](docs/harness-learning.md).
+
+### Harness origin history
+
+In F8, select a hierarchy level and open **Historie výsledků podle původu výbavy**.
+The optional native history integration shows exact-version outcomes associated
+with that pinned origin in the linked project/workspace. Workers can read the same
+report with `office-harness --origin-history LEVEL --task KEY` (omit the task for
+global/repository). See [hierarchy documentation](docs/harness-hierarchy.md).
