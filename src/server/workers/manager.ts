@@ -216,7 +216,6 @@ export class WorkerManager {
   deskOccupied(deskId: string): boolean {
     return occupiedDesk(this.workers.values(), deskId);
   }
-
   /**
    * Hires a worker at a desk. `meeting` seats one at the meeting room's table instead, for that meeting
    * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares. `repos` are
@@ -258,7 +257,7 @@ export class WorkerManager {
     let others: WorkerRepo[] | undefined;
     if (worktree) {
       const slug = `${name.toLowerCase()}-${id.slice(0, 4)}`;
-      const made = repos.length ? this.worktrees.makeWorkspace(slug, repos) : this.trees.create(slug);
+      const made = repos.length ? this.makeWorkspace(slug, repos) : this.trees.create(slug);
       if (typeof made === 'string') return made;
       if ('repos' in made) {
         ({ worktree: wt, repos: others } = made);
@@ -303,6 +302,7 @@ export class WorkerManager {
     return info;
   }
 
+  private makeWorkspace(slug: string, repos: RepoSource[]) { return this.worktrees.makeWorkspace(slug, repos); }
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
   resume(id: string, prompt?: string): string | undefined {
     const w = this.workers.get(id);
