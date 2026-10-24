@@ -503,3 +503,5 @@ Automatic Harness recommendations preserve stored exact-version withdrawals acro
 Shared Harness toolboxes can optionally declare native publication references. Recommendations use fresh three-project fixture evidence to prioritize one candidate for local verification, without borrowing task success rates or overriding local failures. See [shared evidence](docs/harness-recommend.md#shared-fixture-evidence-in-automatic-selection).
 
 Workers can [recall or publish shared fixture lessons](docs/harness-accepted-runtime.md#shared-fixture-lessons-for-an-accepted-tool) with `office-harness --recall-shared PUBLICATION --resource RESOURCE` or `--publish-shared`. Office checks the exact accepted tool and fresh native evidence; public requests never carry execution tokens.
+
+The accepted-kit reader preserves [v2 selection provenance](docs/harness-accepted-runtime.md#reading-accepted-selection-provenance) while retaining strict v1 support. Reading the recorded rationale does not verify the decision or enable newer kits in older execution adapters.
