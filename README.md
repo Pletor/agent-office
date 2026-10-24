@@ -439,3 +439,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+### Worker preparation API
+
+Server integrations can reserve a worker and its optional worktree with `WorkerManager.stage`, prepare files in its actual directory, then consume the handle once to start a task through the existing launch guards. Reservations expire and cancellation preserves modified worktrees. This API is not yet wired into automatic Harness dispatch and does not certify provider readiness. See [staged worker preparation](docs/how-it-works.md#staged-worker-preparation).
