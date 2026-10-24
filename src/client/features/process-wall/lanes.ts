@@ -3,6 +3,7 @@
 // anything yet. Pure, so the wall, the window and the tests read the same thing. Nothing here is
 // invented: a lane's phase, trail and blocker come only from events or the store's current state.
 
+import { pauseCz } from '../../../shared/usage-limit';
 import { PROCESS_PHASES, type GhPull, type OporaCard, type OporaRun, type ProcessEvent, type ProcessState, type QueueTask, type WorkerInfo } from '../../../shared/protocol';
 
 export const PHASE_CZ = ['Zadání', 'Plán', 'Práce', 'Kontroly', 'Revize', 'Sloučení', 'Paměť'] as const;
@@ -217,6 +218,7 @@ function blockerOf(acc: Acc, input: BoardInput): Blocker | undefined {
       const newest = group.sort((a, b) => b.seq - a.seq)[0];
       const asks = worker ? worker.status === 'needs_input' : newest?.kind === 'needs.input';
       if (asks) found.push(make('čeká na vás', 'wait', true));
+      else if (worker?.paused) found.push(make(pauseCz(worker.paused), 'wait'));
       else if (newest?.kind === 'worker.status' && newest.state === 'blocked' && (!worker || worker.lost)) found.push(make(newest.detail ?? 'pracovník blokován', 'wait'));
     }
     if (kind === 'pr.review' && (pull ? pull.state === 'OPEN' && pull.reviewDecision === 'CHANGES_REQUESTED' : e?.state === 'blocked')) found.push(make('změny požadovány', 'wait'));

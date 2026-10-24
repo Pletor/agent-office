@@ -93,6 +93,14 @@ export class ExecutionDispatch {
       }
     });
   }
+  /** Its worker paused on a usage limit, or carried on: authority follows execution-controller's rule, once per pause. */
+  onWorker(info: WorkerInfo) {
+    const key = info.paused ? `${info.paused.kind}@${info.paused.resetsAt ?? '?'}` : undefined;
+    if (this.pauses.get(info.id) === key) return;
+    if (key) this.pauses.set(info.id, key); else this.pauses.delete(info.id);
+    if (info.paused) this.controller.usageLimit(info.id, info.paused.resetsAt);
+  }
+  private pauses = new Map<string, string>();
   /** Hands a reported execution's work off as a pull request, from the worker's worktree under `floorDir`. */
   handOff(run: ExecutionHeld & { cardName?: string }, info: WorkerInfo | undefined, floorDir: string,
     notify: (message: string, level: 'info' | 'warn' | 'error') => void) {

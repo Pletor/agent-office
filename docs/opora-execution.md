@@ -38,6 +38,32 @@ fields (the digest stands for the assignment) and keeps the assignment it read. 
 Canvas that ignores `omit` and still sends the whole lease is checked as before. Code:
 `src/server/opora/execution-client.ts`.
 
+## Usage-limit pauses
+
+A worker whose agent stopped on its provider's usage limit (see
+[features](features.md), *Paused on a usage limit*) still looks busy to the agent's own status, so
+the office says so itself: the worker is shown *paused … until 06:00*, and a `worker.status` event
+(*<worker> čeká na limit do 06:00*, state `wait`, with the card and execution refs every worker event
+carries) goes to the journal, the Živý proces wall and Opora's process events. No new Canvas endpoint.
+
+Authority follows one rule (`ExecutionController.usageLimit`, wired through
+`ExecutionDispatch.onWorker`, once per pause):
+
+- **Resets before the execution's fixed run deadline** (budget v2, `runDeadlineAt`, compared on the
+  monotonic clock): heartbeats go on. A `run.heartbeat` event (state `info`) says authority is kept
+  through the pause.
+- **Resets at or after that deadline, or the message gives no reset time**: the execution is stopped
+  now, exactly as at its deadline (worker stop requested, worktree kept, result and pull request hand-off
+  as usual, `run.release` with the reason *Provider usage limit until … is past the execution's fixed
+  deadline*). Waiting would only hold Canvas authority for a run that cannot finish in time.
+- **No fixed deadline** (v1, unbudgeted): there is nothing it would overrun, so heartbeats go on as
+  before; the pause is visible in the office and in Opora rather than hidden behind `working`.
+
+When the agent carries on, the pause clears, the journal says *pokračuje po limitu* and the run row is
+back to *working*. Code: `src/shared/usage-limit.ts` (recognising the message and its reset time),
+`src/server/workers/usage-limit.ts` (per worker, on each screen flush); tests:
+`tests/usage-limit.test.ts`.
+
 ## Handoff and resume
 
 Canvas puts what the work before the card left behind into the assignment as

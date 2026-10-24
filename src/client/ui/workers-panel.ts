@@ -5,6 +5,7 @@ import { needyFirst } from '../nextup';
 import { store } from '../state';
 import { DESK_BY_ID } from '../../shared/layout';
 import { $, h, STATUS_LABEL, timeAgo } from './dom';
+import { workerStatusText } from '../../shared/usage-limit';
 import { usageLabel, usageTitle } from './usage';
 import { providerLabel, providerUsageState, providerWaitingLabel, resolvedProvider, modelBadge } from './provider';
 
@@ -30,7 +31,7 @@ export function renderWorkers(onOpen: (id: string) => void) {
         h('span.dot', { style: `background:${w.color}` }),
         h('span.name', {}, w.name, sub ? h('span.sub', {}, sub) : null,
           usageState === 'tracked' && w.usage ? h('span.cost', { title: usageTitle(w.usage, providerKind) }, usageLabel(w.usage, providerKind)) : null),
-        w.lost ? h('span.pill.lost', { title: 'Its worktree was deleted outside agent-office: open it to fix it' }, 'worktree deleted') : h('span.pill', { class: w.status }, asking ? 'NEEDS YOU' : (STATUS_LABEL[w.status] ?? w.status)),
+        w.lost ? h('span.pill.lost', { title: 'Its worktree was deleted outside agent-office: open it to fix it' }, 'worktree deleted') : h('span.pill', { class: w.paused && !asking ? 'paused' : w.status, ...(w.paused ? { title: w.paused.line } : {}) }, asking ? 'NEEDS YOU' : workerStatusText(w, STATUS_LABEL)),
         ask,
       ),
     );
