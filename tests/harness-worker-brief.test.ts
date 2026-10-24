@@ -62,6 +62,8 @@ test('actual v2 dispatch seats usage guide and its command reads exactly that ac
   }, () => { throw new Error('must not append live decoration'); });
   assert.match(prompt, /office-harness --accepted-kit/);
   assert.match(prompt, /office-harness --prepare-accepted before using accepted tools/);
+  assert.match(prompt, /office-harness --recall-shared PUBLICATION --resource RESOURCE/);
+  assert.match(prompt, /--publish-shared PUBLICATION --resource RESOURCE queues only the server's public fixture lesson/);
   assert.match(prompt, /prepared context is readable material, not an activated tool/);
   assert.match(prompt, /If the command is absent, report preparation unavailable/);
   assert.match(prompt, /immutable Canvas assignment/);

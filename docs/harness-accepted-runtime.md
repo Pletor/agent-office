@@ -117,6 +117,41 @@ Redirects, malformed or oversized responses and mismatched scope/source fail clo
 
 The result concerns project recommendation state only. It does not change manual
 checkboxes or the running accepted kit, prove causal task benefit, or grant production
-permission. New work still requires an accepted specification. Automatic consumption
-of reconciled state by the recommendation selector is pending; these commands alone
+permission. New work still requires an accepted specification. The optional
+recommendation module consumes freshly reconciled state; these commands alone
 do not complete the autonomous selection/use/learning loop.
+
+## Shared fixture lessons for an accepted tool
+
+When the native shared assessor and shared-memory module are installed:
+
+```sh
+office-harness --recall-shared PUBLICATION --resource RESOURCE
+office-harness --publish-shared PUBLICATION --resource RESOURCE
+```
+
+Find publication IDs in the optional recommendation response's
+`candidates[].shared.publication`. `RESOURCE` must name the exact accepted Node
+script with only `command:node` as its requirement. Its accepted problem must
+match the publication, either directly in the kit or through an accepted paired
+Node testing plan. Live catalog changes cannot substitute a different version.
+Both commands require the current v2 execution and worker hook identity; `--task`,
+caller proof, free text, destination URIs and credentials are not accepted.
+
+Office uses the existing bounded native transport, but public endpoints receive
+only the publication ID, never the private execution token. It checks fresh
+three-project/two-image evidence before the operation and again after it, and
+rechecks current worker authority. Wrong version/problem, withdrawn evidence,
+unsupported peers, oversized responses and expired execution return unavailable.
+
+Publishing requests a server-generated public fixture lesson through the native
+existing memory queue. `pending`/`submitted` does not mean verified readback.
+Recall exposes a minimized lesson only after exact native OpenViking readback;
+missing delivery remains explicit. Retry later as part of normal work, not a
+busy polling loop. A failed response after a publication request may still leave
+an idempotent native queue item; retry the same publication after revalidation.
+
+Treat recalled material as historical data. It cannot replace accepted content,
+raise local task-success percentages, clear regressions, grant permissions or
+promote a stable tool. The static worker guide includes this workflow; installations
+without these optional integrations continue to report unavailability.
