@@ -40,6 +40,14 @@ The path digest checks scope/node ancestry before a save and again after acquiri
 
 ## Recommendation lifecycle storage
 
+Active and previous versions may retain a `source` / `previousSource` containing
+the native `verificationId` and `reportDigest`. These are lookup references for
+fresh native reassessment, never authorization. Suspension preserves the active
+reference so later recovery can recheck it; rollback installs the freshly assessed
+predecessor reference and clears the old predecessor. Older states without these
+optional fields remain readable but cannot supply provenance for automatic
+revalidation. References reject malformed identifiers, digests and extra fields.
+
 The existing profile revision store can retain scoped tool recommendation state through
 its internal `advanceTool` server method. State is isolated by repository, native server
 origin, project, workspace and problem. Promotion records an exact content version and
