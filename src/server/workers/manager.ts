@@ -21,6 +21,7 @@ import { clockWork } from './clock.js';
 import { WorkerLaunchGuards } from './launch-guards.js';
 import { STAGED_START, stagedWorker, stageTimeout, stopPreparations, type WorkerStageOptions } from './staged-start.js';
 import { occupiedDesk, serviceOwners } from './queries.js';
+import { prepareTaskWorker } from './prepared-task.js';
 import { childEnv } from './env.js';
 import { midTurn } from './lifecycle.js';
 import { restoreWorkers, saveWorkers } from './persist.js';
@@ -193,9 +194,7 @@ export class WorkerManager {
   }
 
   /** Each worker's terminal process and directory, to tell whose servers are whose. */
-  owners(): ServiceOwner[] {
-    return serviceOwners(this.ctx);
-  }
+  owners(): ServiceOwner[] { return serviceOwners(this.ctx); }
 
   /** Allocates the normal worker/worktree now; its handle starts it only after preparation and claim. */
   stage(o: WorkerStageOptions) {
@@ -204,6 +203,7 @@ export class WorkerManager {
     if (typeof info === 'string') return info; const w = this.workers.get(info.id)!;
     return stagedWorker(w, this.cwd(info), timeout, { current: () => !this.closing && this.workers.get(info.id) === w && !!w.preparing, start: p => this.resume(info.id, p), cancel: () => this.kill(info.id), persist: () => this.persist() });
   }
+  stageForTask(o: WorkerStageOptions) { return prepareTaskWorker(() => this.stage({ timeoutMs: 120 * 60_000, ...o }), this.worktrees, this.dir); }
 
   /**
    * Fetches the branch the project is on, so a worktree made next starts from what's on GitHub now

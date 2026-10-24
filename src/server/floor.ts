@@ -8,6 +8,7 @@ import type { FloorDef } from './building.js';
 import { excludeFromGit } from './config.js';
 import { agentProviders, configuredProvider } from './agents.js';
 import { WorkerManager, workedMs, type HookEnv, type RunAs } from './workers.js';
+import { stagedOporaEnabled } from './workers/prepared-task.js';
 import { GitHub, MergeWatch } from './github.js';
 import type { GhAs } from './signins.js';
 import { TaskQueue } from './queue.js';
@@ -339,6 +340,7 @@ export class Floor {
         stop: (id) => this.workers.kill(id, 'keep'),
         // It fetches its card from the planning room's board on the way to its desk (via 'opora').
         seat: (deskId, by, prompt, owner) => this.workers.spawn(deskId, by, prompt, !!this.project.branch, 'agent', undefined, undefined, undefined, undefined, owner, [], 'opora'),
+        prepareWorker: stagedOporaEnabled() ? (deskId, by, owner) => this.workers.stageForTask({ deskId, by, owner, worktree: !!this.project.branch, via: 'opora' }) : undefined,
         desks: () => builtDesks(this.plan.wing).map((d) => d.id),
         deskOccupied: (deskId) => this.workers.deskOccupied(deskId),
         labels: () => this.plan.state().labels,

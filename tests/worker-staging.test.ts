@@ -7,6 +7,7 @@ import path from 'node:path';
 import { WorkerManager } from '../src/server/workers.js';
 import { Ledger } from '../src/server/usage.js';
 import { stagedWorker, stageTimeout } from '../src/server/workers/staged-start.js';
+import { prepareTaskWorker } from '../src/server/workers/prepared-task.js';
 import type { Worker } from '../src/server/workers/types.js';
 
 function fixture(t: { after(fn: () => void): void }) {
@@ -146,5 +147,22 @@ test('direct removal and successor removal retain worktrees while a preparation 
     assert.ok(existsSync(stage.cwd), 'even explicit deletion cannot remove an unsettled staged directory');
     finish(); await rejected; await stage.cancel();
     assert.equal(readFileSync(path.join(stage.cwd, 'source.txt'), 'utf8'), 'late installer write');
+  }
+});
+
+test('task preparation requires a configured installer capability and a successful outcome in the real worktree', async t => {
+  for (const outcome of ['missing', 'invalid', 'failed', 'passed']) {
+    const f = fixture(t), m = f.create(); let cwd = '';
+    mkdirSync(path.join(f.root, '.agent-office'), { recursive: true });
+    writeFileSync(path.join(f.root, '.agent-office', 'worktree-setup.json'), '{}');
+    const trees = outcome === 'missing' ? {} : { setup: { ensure: async (dir: string) => {
+      cwd = dir; assert.ok(existsSync(path.join(dir, 'source.txt')));
+      return outcome === 'invalid' ? undefined : { exitCode: outcome === 'passed' ? 0 : 1 };
+    } } };
+    const prepared = prepareTaskWorker(() => m.stage({ deskId: 'desk-1', by: 'test', worktree: true, provider: 'custom' }), trees, f.root);
+    if (outcome === 'passed') {
+      const stage = await prepared; assert.equal(stage.cwd, cwd); await stage.cancel();
+    } else await assert.rejects(prepared, /installer is unavailable|preparation failed/);
+    assert.equal(m.deskOccupied('desk-1'), false);
   }
 });
