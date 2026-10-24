@@ -66,6 +66,8 @@ const STAGE: Record<string, ProcessPhase> = { plan: 'plan', proposal: 'plan', ac
 const HEALTH: Record<string, ProcessState> = { ok: 'progress', waiting: 'wait', blocking: 'blocked' };
 const GATE: Record<string, ProcessState> = { ready: 'ok', pending: 'wait', blocked: 'blocked' };
 const DECISION: Record<string, ProcessPhase> = { accept: 'plan', close_card: 'merge', review_round_cap: 'review', verification_counterexample: 'checks', verification_failed: 'checks' };
+/** A review round's job kind, so the code and the security round Canvas opens together for one head read as two. */
+const REVIEW_KIND: Record<string, string> = { code: 'kód', security: 'bezpečnost' };
 const FORMAL_OK = new Set(['proved', 'passed', 'verified', 'ok']);
 const FORMAL_FAIL = new Set(['failed', 'counterexample', 'refuted', 'error']);
 const STATES = new Set<string>(['start', 'progress', 'ok', 'fail', 'wait', 'blocked', 'info']);
@@ -129,6 +131,10 @@ function refsOf(e: OutboxEvent): ProcessRefs {
   return out;
 }
 
+function withJob(title: string, job: string | undefined): string {
+  return job && !title.includes(job) ? `${title} (${job})` : title;
+}
+
 /**
  * The process event an outbox event makes, or undefined when it isn't Opora's (the office's own
  * events echoed back) or isn't an event at all.
@@ -137,12 +143,13 @@ export function outboxToProcess(e: OutboxEvent): ProcessInput | undefined {
   if (!e || typeof e !== 'object' || !text(e.kind)) return undefined;
   if (e.source && e.source !== 'opora') return undefined;
   const [phase, state, title] = classify(e);
+  const job = e.kind === 'review.round' ? REVIEW_KIND[String(e.data?.kind)] : undefined;
   const out: ProcessInput = {
     source: 'opora',
     kind: e.kind!,
     phase: e.phase && (PROCESS_PHASES as readonly string[]).includes(e.phase) ? (e.phase as ProcessPhase) : phase,
     state: e.state && STATES.has(e.state) ? (e.state as ProcessState) : state,
-    title: text(e.title) ?? title,
+    title: withJob(text(e.title) ?? title, job),
     refs: refsOf(e),
   };
   if (text(e.at)) out.at = e.at!;

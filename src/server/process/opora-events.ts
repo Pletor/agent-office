@@ -88,9 +88,11 @@ export function claimEvent(scope: { project: string; workspace: string; nodeId: 
     : { kind: 'run.claim', phase: 'work', state: 'start', title: `Běh ${ok.executionId} převzat${ok.workerName ? ` · ${ok.workerName}` : ''}`, refs: { ...refs, executionId: ok.executionId, workerId: ok.workerId } };
 }
 
-/** The lease's heartbeat changed state: it's failing (and retrying), it came back, or authority ended. */
-export function heartbeatEvent(lease: { executionId: string; project: string; workspace: string; nodeId: string }, workerId: string, change: 'retrying' | 'recovered' | 'stopped', reason?: string): ProcessInput {
+/** The lease's heartbeat changed state: it's failing (and retrying), it came back, authority ended, or the run finished (its result is in). */
+export function heartbeatEvent(lease: { executionId: string; project: string; workspace: string; nodeId: string }, workerId: string, change: 'retrying' | 'recovered' | 'stopped' | 'finished', reason?: string): ProcessInput {
   const refs = { project: lease.project, workspace: lease.workspace, cardId: lease.nodeId, executionId: lease.executionId, workerId };
+  // Canvas ended authority because the result is in: the run's normal end.
+  if (change === 'finished') return { kind: 'run.release', phase: 'work', state: 'ok', title: `Běh ${lease.executionId} dokončen`, detail: 'Canvas ukončil běh po nahlášeném výsledku', refs };
   if (change === 'stopped') return { kind: 'run.release', phase: 'work', state: 'fail', title: `Běh ${lease.executionId} zastaven`, detail: reason, refs };
   return change === 'retrying'
     ? { kind: 'run.heartbeat', phase: 'work', state: 'wait', title: `Běh ${lease.executionId}: heartbeat neprošel, opakuji`, refs }

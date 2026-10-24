@@ -14,7 +14,7 @@ import { requestExecutionStop } from './execution-stop.js';
 import { prepareDesignBrief } from './design-brief.js';
 import { createReviewRunner, type ReviewJobRunner } from './review-runner.js';
 import { createOporaUpkeep, type OporaUpkeep } from './upkeep-runner.js';
-import { createSelfCheckReporter, upkeepSelfChecks } from './self-checks.js';
+import { createSelfCheckReporter, upkeepSelfChecks, type SelfCheckReporter } from './self-checks.js';
 import { upkeepTap } from '../process/taps.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
@@ -98,6 +98,8 @@ export class OporaBridge {
   readonly upkeep?: OporaUpkeep;
   /** The read under way, which another call to poll waits for rather than starting a second. */
   private polling?: Promise<void>;
+  /** Self-check evidence for the heads the office hands off, while AGENT_OFFICE_OPORA_SELF_CHECKS names checks (self-checks.ts). */
+  private selfChecks?: SelfCheckReporter;
   private stopped = false;
 
   constructor(
@@ -111,7 +113,7 @@ export class OporaBridge {
     this.statePath = path.join(dataDir, 'opora.json');
     const log = (message: string, level: 'info' | 'warn') => (level === 'info' ? console.log : console.warn)(`[opora] ${message}`);
     // Self-check evidence for every head the office hands off or upkeep pushes, while AGENT_OFFICE_OPORA_SELF_CHECKS names checks (self-checks.ts).
-    const selfChecks = createSelfCheckReporter(url, `office-${floor.id}`, dataDir, log);
+    const selfChecks = this.selfChecks = createSelfCheckReporter(url, `office-${floor.id}`, dataDir, log);
     this.executions = new ExecutionDispatch(url, `office-${floor.id}`, dataDir, () => this.runs,
       () => this.changed(), (id, reason) => {
         const run = this.runs.find(run => run.workerId === id);
@@ -223,6 +225,8 @@ export class OporaBridge {
         run.state = 'gone';
         void this.letGo(run);
       }
+      // Evidence Canvas didn't answer for, posted again as it was (never the checks again).
+      void this.selfChecks?.retryPending();
       await this.read();
       if (this.state.connected && this.state.project && this.state.workspace) void this.reviews?.tick({ project: this.state.project.id, workspace: this.state.workspace });
       if (this.state.handOut) await this.handOut();
