@@ -4,7 +4,9 @@ import { HarnessLibrary, harnessSources } from '../dist/server/server/harness/ca
 import { harnessBundle } from '../dist/server/shared/harness.js';
 import { remoteHarness } from './harness-remote.js';
 const args = process.argv.slice(2);
-if (process.env.AGENT_OFFICE_HOOK_URL) {
+if (args[0] === '--evaluate-pair') {
+  await (await import('./harness-paired.js')).pairedHarness(args);
+} else if (process.env.AGENT_OFFICE_HOOK_URL) {
   await remoteHarness(args);
 } else {
 let project = process.cwd();
