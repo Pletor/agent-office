@@ -454,3 +454,5 @@ The optional native history integration shows exact-version outcomes associated
 with that pinned origin in the linked project/workspace. Workers can read the same
 report with `office-harness --origin-history LEVEL --task KEY` (omit the task for
 global/repository). See [hierarchy documentation](docs/harness-hierarchy.md).
+
+Harness area inheritance uses explicit Canvas `memberOf`, never card position or overlap. Legacy nodes without membership skip the area level; accepted execution snapshots remain unchanged. See [hierarchy compatibility](docs/harness-hierarchy.md).

@@ -16,7 +16,7 @@ test('bound hierarchy HTTP selects real scopes, fences moves, isolates projects 
   const dir = mkdtempSync(path.join(tmpdir(), 'harness-navigation-'));
   const n = (id: string, kind: string, parentId: string | null) => ({ id, kind, parentId, name: id, x: 0, y: 0 });
   const nodes = [n('domain', 'sector', null), n('page', 'node', 'domain'), n('layer', 'node', 'page'),
-    { ...n('area', 'area', 'layer'), size: { w: 800, h: 600 } }, n('sector', 'sector', 'layer'), n('card', 'node', 'sector')];
+    { ...n('area', 'area', 'layer'), size: { w: 800, h: 600 } }, { ...n('sector', 'sector', 'layer'), memberOf: 'area' as string | undefined }, n('card', 'node', 'sector')];
   let historyMode = 'valid';
   const canvas = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://local');
@@ -80,8 +80,13 @@ test('bound hierarchy HTTP selects real scopes, fences moves, isolates projects 
   assert.equal((await call('&node=opora:p:w:missing')).status, 404);
   assert.equal((await call('&scope=typo')).status, 400);
   assert.equal((await call('&node=opora:p:w:card&scope=area')).status, 400);
-  // A geometry move changes effective ownership even though the card and parent IDs remain.
+  // Layout is presentation; explicit membership alone changes inherited equipment.
   nodes.find(node => node.id === 'sector')!.x = 2000;
+  const moved = await (await call('&node=opora:p:w:card')).json();
+  assert.equal(moved.pathDigest, view.pathDigest);
+  assert.equal(moved.effective.quality.scope, 'area');
+  assert.match(await harnessHandoff(dir, dir, 'opora:p:w:card', false), /guide:testing/);
+  delete nodes.find(node => node.id === 'sector')!.memberOf;
   assert.equal((await call('&node=opora:p:w:card', { ...save, scope: 'task', revision: view.revision, pathDigest: view.pathDigest })).status, 409);
   assert.doesNotMatch(await harnessHandoff(dir, dir, 'opora:p:w:card', false), /guide:testing/);
   const hook = '/office/harness?worker=ordinary&hierarchy=1&node=opora:p:w:card';
