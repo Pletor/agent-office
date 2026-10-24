@@ -2,11 +2,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { handleMcp } from '../bin/office-workers.js';
+import { codexMcpArgs } from '../src/server/office-workers.js';
 
 const env = { AGENT_OFFICE_HARNESS_MCP: '1', AGENT_OFFICE_HOOK_URL: 'http://127.0.0.1:4455', AGENT_OFFICE_WORKER_ID: 'worker-a', AGENT_OFFICE_HOOK_TOKEN: 'fixture-token' };
 const call = (name: string, args: unknown, read: typeof fetch = fetch, credentials = env) => handleMcp({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }, { env: credentials, fetch: read });
 const kit = { evidence: 'accepted-selection-only', execution: { contextProtocolVersion: 2 }, kit: { resources: [] }, invocationObserved: false };
+
+test('Codex MCP environment selection preserves explicit opt-in without enabling it by default', () => {
+  const values = codexMcpArgs('bin/office-workers.js');
+  const names: string[] = JSON.parse(values.find(value => value.startsWith('mcp_servers.agent-office.env_vars='))!.split('=')[1]);
+  for (const enabled of [false, true]) {
+    const source: NodeJS.ProcessEnv = { ...env, AGENT_OFFICE_HARNESS_MCP: enabled ? '1' : undefined };
+    const forwarded = Object.fromEntries(names.filter(name => source[name] !== undefined).map(name => [name, source[name]]));
+    for (const name of ['SystemRoot', 'SYSTEMROOT', 'WINDIR', 'PATH', 'TEMP', 'TMP']) if (process.env[name]) forwarded[name] = process.env[name];
+    const response = JSON.parse(execFileSync(process.execPath, ['bin/office-workers.js', 'mcp'], {
+      env: forwarded, encoding: 'utf8', timeout: 10_000,
+      input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) + '\n',
+    }));
+    assert.equal(response.result.tools.some((tool: any) => tool.name === 'harness_accepted_kit'), enabled);
+  }
+});
 
 test('Harness tools are registered with the existing Office MCP server', async () => {
   const result = await handleMcp({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, { env, fetch });
