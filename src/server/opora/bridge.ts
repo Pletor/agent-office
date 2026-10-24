@@ -12,6 +12,7 @@ import { oporaProcess } from './process.js';
 import { ExecutionDispatch, type ExecutionHeld } from './execution-dispatch.js';
 import { requestExecutionStop } from './execution-stop.js';
 import { prepareDesignBrief } from './design-brief.js';
+import type { StagedWorker } from '../workers/staged-start.js';
 import { createReviewRunner, type ReviewJobRunner } from './review-runner.js';
 import { createOporaUpkeep, type OporaUpkeep } from './upkeep-runner.js';
 import { createSelfCheckReporter, upkeepSelfChecks } from './self-checks.js';
@@ -27,6 +28,7 @@ export interface BridgeFloor {
   stop?(workerId: string): Promise<unknown>;
   /** Seats a worker at `deskId`, in its own worktree when the project is a git repo. */
   seat(deskId: string, by: string, prompt: string, owner?: string): WorkerInfo | string;
+  prepareWorker?(deskId: string, by: string, owner?: string): Promise<StagedWorker>;
   /** The desks a worker can be hired at now, in order (the back office's as far as it's built). */
   desks(): string[];
   deskOccupied(deskId: string): boolean;
@@ -254,7 +256,11 @@ export class OporaBridge {
       dispatched = await this.executions.dispatch({ project: project.id, workspace, nodeId: card.id },
         () => this.events.prepareTask?.(project.id, workspace, card.id, owner) ?? Promise.resolve(''),
         prompt => seatForOpora(() => this.floor.seat(desk, by, prompt, owner)), prompt => withReaBrief(prompt, this.events.prompt),
-        () => prepareDesignBrief({ client: this.client, prompt: this.events.prompt, card, base: this.state.url, project: project.id, workspace, repoDir: this.floor.dir, dataDir: this.dataDir, log: m => console.warn(`[opora] ${m}`) }));
+        () => prepareDesignBrief({ client: this.client, prompt: this.events.prompt, card, base: this.state.url, project: project.id, workspace, repoDir: this.floor.dir, dataDir: this.dataDir, log: m => console.warn(`[opora] ${m}`) }),
+        this.floor.prepareWorker ? async () => {
+          const worker = await this.floor.prepareWorker!(desk, by, owner);
+          return { ...worker, start: (prompt: string) => seatForOpora(() => worker.start(prompt)) };
+        } : undefined);
     } catch (error) { return (error as Error).message; }
     const seated = dispatched.worker;
     this.runs.unshift({

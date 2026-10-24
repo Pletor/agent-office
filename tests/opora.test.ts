@@ -209,8 +209,30 @@ async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeE
     rmSync(dir, { recursive: true, force: true });
   });
   await bridge.poll();
-  return { bridge, op, workers, toasts, url, dir, state: () => state! };
+  return { bridge, floor, op, workers, toasts, url, dir, state: () => state! };
 }
+
+test('bridge prepares the selected desk before claiming and starts through the Opora seating wrapper', async t => {
+  const f = await fixture(t), seat = f.floor.seat;
+  configureRea(f.dir, undefined, { AGENT_OFFICE_REA: 'opora' }); t.after(() => configureRea(f.dir, undefined, {}));
+  f.floor.seat = () => { throw new Error('legacy seating must not run'); };
+  let prepared = false;
+  f.floor.prepareWorker = async (deskId, by, owner) => {
+    assert.equal(deskId, 'desk-1'); assert.equal(by, 'Ana'); assert.equal(owner, 'owner');
+    assert.equal(f.op.calls.some(c => c.path === '/api/oporahub/executions/claim'), false);
+    prepared = true;
+    const signal = new AbortController().signal;
+    return { worker: {} as WorkerInfo, cwd: f.dir, signal, prepare: operation => operation(f.dir, signal),
+      start(prompt) {
+        assert.equal(prepared, true); assert.equal(f.op.leases.has('c2'), true);
+        const worker = seat(deskId, by, prompt, owner); assert.notEqual(typeof worker, 'string');
+        if (typeof worker !== 'string') assert.equal(reaFor(worker), true);
+        return worker;
+      }, cancel: async () => { throw new Error('successful reservation must not be cancelled'); } };
+  };
+  assert.equal(await f.bridge.take('c2', 'Ana', 'owner'), undefined);
+  assert.equal(f.workers.length, 1); assert.equal(f.state().runs[0].state, 'working');
+});
 
 test('the bridge links the Opora project that plans this floor’s folder, and reads its cards by sector', async (t) => {
   const f = await fixture(t);

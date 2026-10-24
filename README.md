@@ -536,3 +536,8 @@ global/repository). See [hierarchy documentation](docs/harness-hierarchy.md).
 Harness area inheritance uses explicit Canvas `memberOf`, never card position or overlap. Legacy nodes without membership skip the area level; accepted execution snapshots remain unchanged. See [hierarchy compatibility](docs/harness-hierarchy.md).
 
 For context-v2 Harness tasks, the optional `AGENT_OFFICE_HARNESS_PREFLIGHT=1` gate validates accepted equipment before claim and compares it again before seating. Deploy the matching Canvas endpoint first; see [accepted runtime](docs/harness-accepted-runtime.md#pre-claim-accepted-content-gate). This is content integrity, not worker runtime readiness.
+
+### Worker preparation API
+
+Server integrations can reserve a worker and its optional worktree with `WorkerManager.stage`, prepare files in its actual directory, then consume the handle once to start a task through the existing launch guards. Reservations expire and cancellation preserves modified worktrees. Set `AGENT_OFFICE_OPORA_PREPARE_WORKER=1` to reserve and prepare card workers before Canvas claim. Configured dependency setup must succeed; this does not certify the full provider environment or Harness readiness. See [staged worker preparation](docs/how-it-works.md#staged-worker-preparation).
+Use the staged handle's `prepare` method for asynchronous installers: start waits for preparation, and cancellation waits for its writes to settle before cleaning up the worktree.
