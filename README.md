@@ -534,3 +534,5 @@ report with `office-harness --origin-history LEVEL --task KEY` (omit the task fo
 global/repository). See [hierarchy documentation](docs/harness-hierarchy.md).
 
 Harness area inheritance uses explicit Canvas `memberOf`, never card position or overlap. Legacy nodes without membership skip the area level; accepted execution snapshots remain unchanged. See [hierarchy compatibility](docs/harness-hierarchy.md).
+
+For context-v2 Harness tasks, the optional `AGENT_OFFICE_HARNESS_PREFLIGHT=1` gate validates accepted equipment before claim and compares it again before seating. Deploy the matching Canvas endpoint first; see [accepted runtime](docs/harness-accepted-runtime.md#pre-claim-accepted-content-gate). This is content integrity, not worker runtime readiness.

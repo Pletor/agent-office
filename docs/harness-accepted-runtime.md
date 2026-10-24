@@ -218,3 +218,26 @@ not attest its claims, grant permissions or establish invocation. V1 rejects the
 new metadata instead of silently dropping it. This reader support does not yet
 enable v2 recommendation emission or upgrade older invocation/paired adapters;
 those integrations must support the format before it is selected for a worker.
+
+
+## Pre-claim accepted-content gate
+
+For a coordinated rollout with Canvas `/api/oporahub/harness-preflight`, set
+`AGENT_OFFICE_HARNESS_PREFLIGHT=1` on Office and use context protocol 2
+(`AGENT_OFFICE_OPORA_CONTEXT_VERSION=2`). The default remains unset for compatibility
+with Canvas versions without this endpoint. Other nonempty values are rejected.
+This gate checks accepted content integrity, not runtime capability or tool activation.
+
+Before claiming, the existing dispatch registry negotiates context and reads a bounded
+preview from the configured Canvas origin (8 seconds, 256 KiB, no redirects). Missing,
+invalid or stale preview stops dispatch without a claim; there is no silent fallback.
+Before generating worker files or seating, it compares the granted immutable assignment
+identity/digest and exact target kit with the preview. Mismatch uses the existing release
+path. It never appends a live Harness profile to context v2. No automatic retry loop or
+new lease authority is introduced; context changes require refreshing the accepted task.
+
+The worker still uses `--prepare-accepted` in its actual environment and supported
+adapters. Office-host checks cannot certify the worker's future cwd, user or provider
+configuration. Scoped configuration setup/rollback and full pre-claim runner readiness
+are still separate original-H10 requirements. Turning this switch off removes this
+additional gate for future dispatches; it does not rewrite existing accepted assignments.
