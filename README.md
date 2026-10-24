@@ -61,9 +61,21 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 
 There's a lot more (a rooftop bar, an office dog, an arcade, a jukebox that keeps the songs you upload, supercars in the garage to drive round a scenic loop past a farm, pines, mountains and a beach): see [docs/features.md](docs/features.md).
 
+The autonomous learning loop, evidence metrics and H01–H24 integration work are specified in [Harness learning](docs/harness-learning.md). `npm run harness:replay -- observations.json` checks offline evidence and calculates version-specific rates with uncertainty. Live outcome-based selection and automatic learning are not yet deployed.
+
+Agents can prepare a versioned kit with `office-harness --kit PROBLEM resource-id ...` and attach it as `fields.harness` in an Opora specification proposal. The kit pins accessible resource content and SHA-256; Opora must support `harness.kit/1`. See [Harness kits](docs/harness.md#accepted-tool-kits).
+
 ## Requirements
 
+Harness recommendations preserve legacy catalog aliases and emit canonical resource IDs in new kits. Existing accepted snapshots remain unchanged; see [Harness compatibility](docs/harness.md).
+
 **Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP and memory references. Press **F8** anywhere (or **E** at the shelf) to open it across the whole screen, on a phone too. Save **Global → Repository → Task** assignments, inspect inherited values and export context packs. The Opora orchestrator can assign repository/task profiles with `office-harness`; each Opora card handoff includes the resolved, content-bearing snapshot. Assignments do not install tools or activate MCP/memory servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md).
+
+**Prepare an agent's tools.** `office-harness --recommend PROBLEM` assembles a versioned kit from published project/shared toolboxes, inherited choices and native outcomes. Use `--search "words"`, `--read ID` or `--bundle ID...` to find and inspect accessible resources with the same worker credentials. Recommendations preserve disabled resources, report missing requirements and limit unmeasured additions. Native paired-fixture regressions restrain automatic selection of the exact script version; positive worker reports do not become independently verified successes. [Recommendation, evidence and sharing](docs/harness-recommend.md).
+
+Native incident/revert guardrails suppress automatic reuse of affected versions; explicit
+assignments remain visible with warnings. These associations do not establish tool causation.
+The Czech [implementation and gap map](docs/harness-status.md) explains the UI, evidence and remaining production work.
 
 On the machine that runs the office:
 
@@ -439,3 +451,37 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+
+Harness preparation can read independent fixture reruns from the configured Canvas peer.
+Exact-version failures and regressions restrain automatic reuse; explicit assignments retain a warning.
+Fixture evidence remains separate from production acceptance rates and never auto-promotes
+resources. See [Harness learning](docs/harness-learning.md#independent-fixture-feedback).
+
+Native fixture quarantine uses all retained verification records, so an old failure cannot
+fall out merely because recent history fills up. See [recommendation evidence](docs/harness-recommend.md#independent-fixture-history-and-lasting-quarantine).
+
+Harness recommendations expose native experiment capacity when advertised by Opora; missing capacity is explicit and a snapshot never grants execution permission. See [learning evidence](docs/harness-learning.md).
+
+Harness recommendations preserve the native [nonproduction exploration allocation](docs/harness-learning.md#native-nonproduction-allocation-in-recommendations), so agents can inspect eligibility before scheduling an experiment.
+With the optional lifecycle store and native retained-evidence adapter installed, recommendations [reassess managed versions before automatic selection](docs/harness-recommend.md#fresh-lifecycle-evidence-in-automatic-selection), including compatible fallback, while preserving manual choices and accepted kits.
+
+Automatic Harness recommendations preserve stored exact-version withdrawals across rollback and later refreshes; see [lifecycle evidence](docs/harness-recommend.md#fresh-lifecycle-evidence-in-automatic-selection).
+
+Shared Harness toolboxes can optionally declare native publication references. Recommendations use fresh three-project fixture evidence to prioritize one candidate for local verification, without borrowing task success rates or overriding local failures. See [shared evidence](docs/harness-recommend.md#shared-fixture-evidence-in-automatic-selection).
+
+The [Harness capability map](docs/harness-status.md#kde-se-knihovna-propisuje) explains what reaches the human UI, orchestrator, accepted card, worker and OpenViking, including optional shared-lesson commands and the remaining production evidence.
+
+Harness recommendations explain [why each resource was selected](docs/harness-recommend.md#why-each-proposed-resource-was-selected), with exact versions and effective assignment sources. These reasons describe the proposal; they do not yet become accepted execution provenance.
+Harness recommendation HTTP callers can explicitly request accepted selection
+provenance after a scoped peer compatibility check; see
+[v2 preparation](docs/harness-recommend.md#opt-into-accepted-selection-provenance).
+Workers can request provenance with `office-harness --recommend PROBLEM --kit-schema harness.kit/2`;
+the connected Office verifies peer compatibility before returning a proposal.
+## Planner equipment handoff
+
+Opora planners and routers receive Harness guidance before a kit is accepted.
+With the optional v2 integrations installed, they request a card-scoped proposal,
+include the returned kit in the target specification's `fields.harness`, and use
+the normal acceptance flow before dispatch. Profile edits do not change a running
+accepted assignment. See [Harness learning](docs/harness-learning.md).

@@ -1,6 +1,12 @@
 # Harness library
 
+Catalog aliases preserve inherited selections during resource identity migration. New kit proposals use the canonical catalog ID and reject selecting an alias together with that same canonical resource. Previously accepted kits and historical evidence remain unchanged; evidence for different IDs is not pooled automatically.
+
+For automatic problem-specific kit preparation, toolbox descriptors and measured ranking, see [Harness recommendations](harness-recommend.md). `office-harness --recommend` proposes context without executing resources or changing accepted assignments.
+
 Back to the [README](../README.md).
+
+The [autonomous learning contract](harness-learning.md) combines the seven-level H01–H24 plan with measured tool selection, versioned experiences, Context7 and OpenViking. It distinguishes planned behavior from the implementation described below.
 
 ![Harness and Docs on either side of the balcony doors](images/harness-shelves.png)
 
@@ -121,6 +127,35 @@ Browser writes require an administrator/shared-password session and same-origin 
 Every `OporaBridge.take` path (manual take, autopilot, orchestrator handout) resolves profiles before claiming the card. It reads the selected resources, embeds the manifest and contents in the worker's initial prompt, and fails before claiming if something is unavailable or exceeds the budget. Later profile edits do not change an already seated worker's prompt. Limits: 64 slots per layer, 24 distinct effective resources, 96 KiB resolved handoff, 2 MiB persisted profiles. Invalid saved JSON fails closed and is not overwritten.
 
 This first integration applies to **Opora card dispatch**, not arbitrary direct hires or the unrelated file-planning queue. Scalar settings are **context requirements**, not runtime provider flags: `settings.model` does not change the actual model selection. Resources do not install hooks, execute scripts, connect MCP, start OpenViking, grant tool permissions or override native runner/user instructions. Confirm those capabilities in the selected runner before relying on them.
+
+## Accepted tool kits
+
+`office-harness --kit ts.references guide:testing guide:rules` emits a `harness.kit/1`
+JSON object with exact resource content and SHA-256. A local shell can use
+`node bin/office-harness.js --project PATH --kit ts.references RESOURCE_ID ...`
+after building. Office workers use the same command through their authenticated
+hook connection; ordinary workers can select project-published resources and
+portable guides, while machine resources retain the catalog's administrator boundary.
+The browser session equivalent is `GET /api/harness/kit?floor=F&problem=P&resource=ID`
+(repeat `resource` for each selection).
+
+Add the object as `fields.harness` in an ordinary Opora specification proposal.
+This requires an Opora server supporting `harness.kit/1` (Canvas PR #46). Existing
+servers reject the optional field rather than activating a live mutable fallback.
+Set `AGENT_OFFICE_OPORA_CONTEXT_VERSION=2` on the office server for card execution;
+the default legacy context cannot execute a card with a pinned kit. Opora rejects
+that downgrade explicitly. Build and restart both server and client when deploying.
+The kit has at most 24 distinct resources and 96 KiB including JSON metadata and
+Unicode escapes. An empty selection pins an empty kit. IDs are catalog IDs, never
+filesystem paths. The chosen slot is stable for each resource ID.
+
+`requires` starts empty because catalog documents do not prove runner capabilities.
+The planner must declare and verify execution requirements when preparing executable
+tools. Categories now include `plugins` and `permissions`; both are published
+references. No tool or plugin is installed or run by this command. Missing and
+inaccessible resources fail the complete build. Later edits produce new hashes while
+previously emitted kits retain their exact content. On PowerShell, save stdout with
+`| Set-Content -Encoding utf8 kit.json` when a UTF-8 file is needed by another CLI.
 
 ## Verification
 

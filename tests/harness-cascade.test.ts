@@ -58,6 +58,16 @@ test('handoff contains resolved content and provenance, freezes snapshot, blocks
   await assert.rejects(harnessHandoff(dir, dir, 'task', false), /unavailable/);
 });
 test('only Opora planning prompts get assignment instructions', () => {
+  for (const mode of ['planning.opora', 'planning.router']) {
+    const brief = harnessPlannerBrief('original', mode);
+    assert.match(brief, /--recommend PROBLEM --kit-schema harness\.kit\/2 --task KEY/);
+    assert.match(brief, /intended worker runner/);
+    assert.match(brief, /null kit is blocked/);
+    assert.match(brief, /fields\.harness through the normal proposal and acceptance flow/);
+    assert.match(brief, /dispatch a new accepted assignment/);
+    assert.match(brief, /Profile edits alone do not equip a context-v2 card/);
+    assert.match(brief, /--prepare-accepted/);
+  }
   assert.match(harnessPlannerBrief('original', 'planning.opora'), /office-harness --assign/);
   assert.match(harnessPlannerBrief('original', 'planning.router'), /Global configuration is administrator-owned/);
   assert.equal(harnessPlannerBrief('original', 'planning.plan'), 'original');

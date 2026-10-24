@@ -3,6 +3,10 @@
 import { HarnessLibrary, harnessSources } from '../dist/server/server/harness/catalog.js';
 import { harnessBundle } from '../dist/server/shared/harness.js';
 import { remoteHarness } from './harness-remote.js';
+import { buildHarnessKit } from '../dist/server/server/harness/kit.js';
+import { recommendHarness } from '../dist/server/server/harness/recommend.js';
+import { recommendationArgs } from './harness-recommend.js';
+import { searchCatalog } from './harness-search.js';
 const args = process.argv.slice(2);
 if (process.env.AGENT_OFFICE_HOOK_URL) {
   await remoteHarness(args);
@@ -14,8 +18,17 @@ if (args[0] === '--project') {
   if (!project) throw new Error('--project requires a folder');
 }
 const action = args.shift();
-if (action && !['--read', '--bundle'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--read id | --bundle id ...]');
+if (action && !['--read', '--bundle', '--kit', '--recommend', '--search'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--search "words" [--category CATEGORY] | --read id | --bundle id ... | --kit PROBLEM id ... | --recommend PROBLEM [--capability ID]...]');
 const library = new HarnessLibrary(harnessSources(project, true));
+if (action === '--search') console.log(JSON.stringify(searchCatalog(await library.list(), args), null, 2));
+else if (action === '--recommend') {
+  const input = recommendationArgs(args);
+  if (input.kitSchema === 'harness.kit/2') throw new Error('Kit v2 preparation requires a connected worker Office to verify the linked Opora format.');
+  console.log(JSON.stringify(await recommendHarness(library, input.problem, input.capabilities), null, 2));
+} else if (action === '--kit') {
+  const problem = args.shift() ?? '';
+  console.log(JSON.stringify(await buildHarnessKit(library, problem, args), null, 2));
+} else {
 const catalog = await library.list();
 if (!action) console.log(JSON.stringify(catalog, null, 2));
 else {
@@ -23,5 +36,6 @@ else {
   const entries = await Promise.all(args.map((id) => library.read(id)));
   if (entries.some((e) => !e)) throw new Error('An entry is unavailable; list the catalog again.');
   console.log(action === '--read' ? entries[0].text : harnessBundle(entries));
+}
 }
 }
