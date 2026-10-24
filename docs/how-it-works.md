@@ -2,6 +2,8 @@
 
 Back to the [README](../README.md). [Code layout](code-layout.md) says where the code lives, and how a feature plugs in.
 
+Once shutdown begins, the worker manager refuses hiring and resuming. Delayed preparation callbacks cannot start a provider or terminal through the closing manager, including during a restart that retains existing terminals. Worktrees and saved workers still follow the existing preservation and restoration rules; a subsequent office instance owns restoration. This boundary does not certify Harness runtime readiness or cancel dependency installers already running.
+
 ```
 browser ──HTTPS/WSS──▶ agent-office (Node)
                          ├─ node-pty ─▶ claude / opencode (one PTY per worker, cwd = project dir)
