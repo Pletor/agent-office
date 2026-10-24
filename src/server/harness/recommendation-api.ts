@@ -10,6 +10,7 @@ import { nativeHistory, noHistory } from './native-outcomes.js';
 import { nativePairedHistory, noPairedHistory } from './native-paired.js';
 import { nativeFixtureHistory, noFixtureHistory } from './native-verifier.js';
 import { recommendHarness, validateRecommendation } from './recommend.js';
+import { recommendationLifecycle } from './recommendation-lifecycle.js';
 import { oporaHarnessTask } from '../../shared/harness-cascade.js';
 
 async function profile(dataDir: string, floor: Floor, task: string) {
@@ -36,10 +37,14 @@ export async function recommendationRequest(ctx: Ctx, floor: Floor, req: http.In
     const [history, paired, fixtures] = view.connected && view.project && view.workspace
       ? await Promise.all([nativeHistory(view.url, view.project.id, view.workspace), nativePairedHistory(view.url, view.project.id, view.workspace), nativeFixtureHistory(view.url, view.project.id, view.workspace)])
       : [noHistory('floor-not-connected'), noPairedHistory('floor-not-connected'), noFixtureHistory('floor-not-connected')];
+    const lifecycle = view.connected && view.project && view.workspace
+      ? await recommendationLifecycle(ctx.cfg.dataDir, floor.dir,
+        { peer: new URL(view.url).origin, project: view.project.id, workspace: view.workspace, problem }, before.view.revision,
+        () => { if (peerKey(floor) !== peer) throw new HarnessError('Native scope changed during assessment.', 409); }) : undefined;
     const result = await recommendHarness(new HarnessLibrary(harnessSources(floor.dir, local)),
-      problem, capabilities, before.view, history, paired, fixtures);
+      problem, capabilities, { ...before.view, revision: lifecycle?.revision ?? before.view.revision }, history, paired, fixtures, lifecycle);
     const after = await profile(ctx.cfg.dataDir, floor, task);
-    if (peerKey(floor) !== peer || before.view.revision !== after.view.revision || before.pathDigest !== after.pathDigest) throw new HarnessError('Scope or profiles changed during preparation. Retry.', 409);
+    if (peerKey(floor) !== peer || (lifecycle?.revision ?? before.view.revision) !== after.view.revision || before.pathDigest !== after.pathDigest) throw new HarnessError('Scope or profiles changed during preparation. Retry.', 409);
     return send(res, 200, { ...result, context: { task, project: view.project?.id ?? null, workspace: view.workspace, pathDigest: before.pathDigest } });
   } catch (err) { return send(res, err instanceof HarnessError ? err.status : 400, { error: (err as Error).message }); }
 }

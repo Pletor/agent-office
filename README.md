@@ -495,3 +495,5 @@ Workers with an accepted Harness kit receive [usage guidance in their session](d
 Harness recommendations preserve the native [nonproduction exploration allocation](docs/harness-learning.md#native-nonproduction-allocation-in-recommendations), so agents can inspect eligibility before scheduling an experiment.
 
 On Windows, worker commands such as `office-harness` remain available when Git Bash starts a login shell with an inherited `ORIGINAL_PATH`. Office preserves that path and prepends its own command directory; see [configuration](docs/configuration.md#worker-commands-in-git-bash).
+
+With the optional lifecycle store and native retained-evidence adapter installed, recommendations [reassess managed versions before automatic selection](docs/harness-recommend.md#fresh-lifecycle-evidence-in-automatic-selection), including compatible fallback, while preserving manual choices and accepted kits.

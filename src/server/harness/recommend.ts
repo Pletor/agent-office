@@ -10,6 +10,7 @@ import { noHistory, type NativeHistory, type NativeGuardrails } from './native-o
 import { noPairedHistory, type PairedHistory, type PairedEvidence } from './native-paired.js';
 import { noFixtureHistory, type FixtureHistory, type FixtureEvidence } from './native-verifier.js';
 import { toolbox, toolId } from './toolbox.js';
+import { managedVersionStatus, type RecommendationLifecycle } from './recommendation-lifecycle.js';
 
 const hash = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
 interface Candidate {
@@ -20,6 +21,7 @@ interface Candidate {
   pairedEvidence: PairedEvidence[]; pairedRegression: boolean;
   fixtureEvidence: FixtureEvidence[]; fixtureRegression: boolean; fixtureFailure: boolean;
   fixtureQuarantines: string[]; fixtureHistoryIncomplete: boolean;
+  lifecycle: 'stable' | 'blocked' | null;
 }
 /** Same sorted metadata keys as Canvas's version digest; content has its own UTF-8 hash. */
 export function toolVersion(resource: string, category: string, digest: string, requires: string[]) {
@@ -49,7 +51,7 @@ export function validateRecommendation(problem: string, capabilities: string[]) 
 export async function recommendHarness(library: HarnessLibrary, problem: string, capabilities: string[],
   profile?: HarnessProfile, history: NativeHistory = noHistory('no-native-peer'),
   paired: PairedHistory = noPairedHistory('no-native-peer'),
-  fixtures: FixtureHistory = noFixtureHistory('no-native-peer')) {
+  fixtures: FixtureHistory = noFixtureHistory('no-native-peer'), lifecycle?: RecommendationLifecycle) {
   validateRecommendation(problem, capabilities);
   const catalog = await library.list(), policy = await toolbox(library, catalog.entries, problem), descriptors = policy.descriptors;
   const canonical = new Map(catalog.entries.flatMap(entry => [entry.id, ...((entry as { aliases?: string[] }).aliases ?? [])].map(id => [id, entry.id] as const)));
@@ -60,7 +62,7 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
   const automatic = profile?.effective['settings.harness.auto']?.binding;
   const auto = !(automatic && 'value' in automatic && automatic.value === false);
   const baseline = auto ? ['guide:instructions', 'guide:testing'].filter(id => !blocked.has(id)) : [];
-  const ids = [...new Set([...explicit, ...baseline, ...descriptors.keys()])];
+  const ids = [...new Set([...explicit, ...baseline, ...descriptors.keys(), ...(lifecycle?.active ? [lifecycle.active.id] : [])])];
   const candidates: Candidate[] = [];
   const constraints: { resource: string; reason: string; missing?: string[] }[] = [];
   for (const id of ids) {
@@ -69,6 +71,7 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     const text = await library.read(id);
     if (!text) throw new HarnessError('Resource changed or disappeared; retry preparation: ' + id, 409);
     const descriptor = descriptors.get(id), requires = descriptor?.requires ?? [], digest = hash(text.text);
+    const managed = managedVersionStatus(lifecycle, { id, digest, category: entry.category, requires });
     const version = toolVersion(id, entry.category, digest, requires);
     const rows = history.cohorts.filter(row => row.resource === id && row.digest === digest && row.versionDigest === version && row.problem === problem);
     const verified = rows.find(row => row.tier === 'verified'), reported = rows.find(row => row.tier === 'reported');
@@ -95,19 +98,20 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
     if (mandatory && (missing.length || metadataMissing)) constraints.push({ resource: id, reason: metadataMissing ? 'tool-metadata-needed' : 'missing-declared-capabilities', missing });
     candidates.push({ id, title: entry.title, category: entry.category, digest, versionDigest: version, requires,
       mandatory, baseline: baseline.includes(id), disabled: blocked.has(id), missing, metadataMissing,
+      lifecycle: managed,
       priority: descriptor?.priority ?? 0, observed, low, guardrails, pairedEvidence, pairedRegression, fixtureEvidence, fixtureRegression, fixtureFailure, fixtureQuarantines, fixtureHistoryIncomplete,
       reported: reported?.rate ?? null, verified: verified?.rate ?? null, tasks: verified?.tasks ?? 0,
-      state: blocked.has(id) ? 'disabled' : fixtureHistoryIncomplete ? 'fixture-history-incomplete' : fixtureFailure && !fixtureRegression ? 'fixture-failure-review-needed' : flagged ? 'regression-review-needed' : missing.length || metadataMissing ? 'needs-capabilities' : low ? 'low-observed-success' : observed ? 'observed-success' : 'candidate' });
+      state: blocked.has(id) ? 'disabled' : managed === 'blocked' ? 'lifecycle-revalidation-needed' : fixtureHistoryIncomplete ? 'fixture-history-incomplete' : fixtureFailure && !fixtureRegression ? 'fixture-failure-review-needed' : flagged ? 'regression-review-needed' : missing.length || metadataMissing ? 'needs-capabilities' : low ? 'low-observed-success' : managed === 'stable' ? 'native-stable' : observed ? 'observed-success' : 'candidate' });
   }
   const selected = candidates.filter(candidate => candidate.mandatory);
   const add = (candidate: typeof candidates[number]) => { if (!selected.some(entry => entry.id === candidate.id) && selected.length < 24) selected.push(candidate); };
   if (auto) {
     // A correlated incident must not optimize away the baseline instructions/testing policy.
     for (const candidate of candidates.filter(entry => entry.baseline && !entry.disabled)) add(candidate);
-    const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && !entry.missing.length && !entry.metadataMissing && !entry.low && !entry.guardrails?.affectedExecutions && !entry.pairedRegression && !entry.fixtureFailure && !entry.fixtureHistoryIncomplete);
-    optional.sort((a, b) => (b.verified?.interval95?.[0] ?? 0) - (a.verified?.interval95?.[0] ?? 0) || b.priority - a.priority || (a.id < b.id ? -1 : 1));
-    for (const candidate of optional.filter(entry => entry.observed).slice(0, 3)) add(candidate);
-    const exploration = optional.find(entry => !entry.observed);
+    const optional = candidates.filter(entry => !entry.mandatory && !entry.baseline && !entry.disabled && entry.lifecycle !== 'blocked' && !entry.missing.length && !entry.metadataMissing && !entry.low && !entry.guardrails?.affectedExecutions && !entry.pairedRegression && !entry.fixtureFailure && !entry.fixtureHistoryIncomplete);
+    optional.sort((a, b) => Number(b.lifecycle === 'stable') - Number(a.lifecycle === 'stable') || (b.verified?.interval95?.[0] ?? 0) - (a.verified?.interval95?.[0] ?? 0) || b.priority - a.priority || (a.id < b.id ? -1 : 1));
+    for (const candidate of optional.filter(entry => entry.observed || entry.lifecycle === 'stable').slice(0, 3)) add(candidate);
+    const exploration = optional.find(entry => !entry.observed && entry.lifecycle !== 'stable');
     if (exploration) add(exploration); // At most one insufficiently measured addition per preparation.
   }
   let kit: HarnessKit | null = null;
@@ -128,6 +132,7 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
   }
   await policy.verify();
   return { schema: 'harness.recommendation/1', problem, profileRevision: profile?.revision ?? null, automatic: auto,
+    lifecycle: lifecycle ?? { status: 'unavailable', reason: 'no-lifecycle-assessment' },
     proposalStatus: constraints.length ? 'blocked' : selected.some(entry => !entry.id.startsWith('guide:')) ? 'tools-proposed' : 'reference-only',
     unresolvedCandidateRequirements: [...new Set(candidates.filter(entry => !entry.disabled).flatMap(entry => entry.missing))],
     history: { status: history.status, limited: history.limited, reason: history.reason ?? null },
@@ -140,7 +145,7 @@ export async function recommendHarness(library: HarnessLibrary, problem: string,
       evidence: 'server-observed fixture outputs; not production success or promotion' },
     capabilityEvidence: 'caller-declared; not native attestation or permission grants',
     association: 'selected-kit outcomes; actual invocation and causal contribution unobserved', promotionAllowed: false,
-    constraints, warnings: selected.filter(entry => entry.guardrails?.affectedExecutions || entry.pairedRegression || entry.fixtureFailure || entry.fixtureHistoryIncomplete)
-      .map(entry => ({ resource: entry.id, reason: entry.fixtureHistoryIncomplete ? 'fixture-history-incomplete' : entry.fixtureRegression ? 'verified-fixture-regression-needs-review' : entry.fixtureFailure ? 'verified-fixture-failure-needs-review' : entry.pairedRegression ? 'paired-fixture-regression-needs-review' : 'linked-regression-needs-review',
+    constraints, warnings: selected.filter(entry => entry.lifecycle === 'blocked' || entry.guardrails?.affectedExecutions || entry.pairedRegression || entry.fixtureFailure || entry.fixtureHistoryIncomplete)
+      .map(entry => ({ resource: entry.id, reason: entry.lifecycle === 'blocked' ? 'lifecycle-revalidation-needed' : entry.fixtureHistoryIncomplete ? 'fixture-history-incomplete' : entry.fixtureRegression ? 'verified-fixture-regression-needs-review' : entry.fixtureFailure ? 'verified-fixture-failure-needs-review' : entry.pairedRegression ? 'paired-fixture-regression-needs-review' : 'linked-regression-needs-review',
         preserved: entry.mandatory ? 'explicit' : 'baseline-policy' })), selected: selected.map(entry => entry.id), candidates, kit };
 }
