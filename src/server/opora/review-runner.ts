@@ -50,7 +50,7 @@ export class ReviewJobRunner {
   constructor(private config: ReviewConfig, private repoDir: string, private dataDir: string,
     private deps: ReviewRunnerDeps, private log: (message: string, level: Level) => void) {
     this.budget = new ReviewBudget(config, deps.now);
-    this.poster = new ReviewPoster(deps.gh, path.join(dataDir, 'opora-reviews', 'posted.json'));
+    this.poster = new ReviewPoster(deps.gh, path.join(dataDir, 'opora-reviews', 'posted.json'), { log, now: deps.now });
   }
 
   /** Slots running now, by task id. */
@@ -148,8 +148,10 @@ export class ReviewJobRunner {
       if (job.phase !== 'completed' || this.stopped) continue;
       try {
         const done = await this.poster.post(job, listing.findings);
-        if (done !== 'unchanged') emitProcess(this.deps.client.agent, reviewEvent(job, done));
-        if (done !== 'unchanged') this.log(`🔎 ${done === 'posted' ? 'Posted' : 'Updated'} the review of ${job.repository}#${job.number} round ${job.round} on GitHub`, 'info');
+        // `busy`: another office has this round's review open on GitHub right now; the next pass looks again.
+        if (done === 'unchanged' || done === 'busy') continue;
+        emitProcess(this.deps.client.agent, reviewEvent(job, done));
+        this.log(`🔎 ${done === 'posted' ? 'Posted' : 'Updated'} the review of ${job.repository}#${job.number} round ${job.round} on GitHub`, 'info');
       } catch (error) {
         this.once(`post:${job.reviewJobId}`, `🔎 Couldn't post review ${job.reviewJobId} to ${job.repository}#${job.number}: ${(error as Error).message}`, 'warn');
       }
