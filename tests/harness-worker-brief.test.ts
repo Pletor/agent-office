@@ -62,6 +62,10 @@ test('actual v2 dispatch seats usage guide and its command reads exactly that ac
   }, () => { throw new Error('must not append live decoration'); });
   assert.match(prompt, /office-harness --accepted-kit/);
   assert.match(prompt, /office-harness --prepare-accepted before using accepted tools/);
+  assert.match(prompt, /office-harness --docs-accepted RESOURCE "public question"/);
+  assert.match(prompt, /worker-process preparation report does not attest this remote service/);
+  assert.match(prompt, /include only observation in result.harnessDocumentation/);
+  assert.match(prompt, /Do not put documentation in harnessInvocations/);
   assert.match(prompt, /office-harness --recommend PROBLEM --kit-schema harness.kit\/2/);
   assert.match(prompt, /--capability ID only for capabilities actually checked in this runner/);
   assert.match(prompt, /kit: null means blocked/);

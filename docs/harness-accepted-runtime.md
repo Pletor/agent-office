@@ -79,6 +79,27 @@ changing a profile after acceptance does not change a running v2 task.
 
 ## Tool recommendation lifecycle
 
+### Accepted Context7 documentation
+
+With the Context7 integration installed, an accepted `mcp` resource declaring
+exactly `mcp:context7` and the `harness.context7/1` descriptor can be used through
+`office-harness --docs-accepted RESOURCE "public question"`. The descriptor pins
+the resolved library ID; the command never substitutes today's catalog content.
+The static worker guide includes this command and its reporting rules.
+
+This adapter runs through Office. The `--prepare-accepted` worker-process report
+does not attest remote Context7 availability or activate a local MCP server.
+The explicit documentation lookup checks the service and rechecks the current
+accepted assignment; an unavailable integration or failed lookup remains a failure.
+Omit `--task`, send only public questions, and treat returned text as reference data.
+
+When the native documentation extension is installed, include only the returned
+`observation` in final `result.harnessDocumentation`, preserving its `readId` on
+retries. Do not use `harnessInvocations`, which describes Node invocations. A read
+does not complete the task or establish independent verification, causal benefit,
+production success or promotion. Unsupported old peers do not become compatible
+merely because they accept unknown JSON fields.
+
 ### Preparing equipment for the next accepted assignment
 
 With the optional recommendation CLI, compatible Office writer and native kit
