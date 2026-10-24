@@ -18,3 +18,5 @@
 .harness-resource-check .btn { flex: none; }
 @media (max-width: 1000px) { .harness-levels { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 500px) { .harness-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.harness-origin-row { display: grid; gap: 4px; overflow-wrap: anywhere; }
+.harness-origin-history { margin-block: 12px; }

@@ -9,14 +9,27 @@ import { requestHandler } from '../src/server/http/router.js';
 import { harnessHierarchyRoute } from '../src/server/http/routes/harness-hierarchy.js';
 import { officeHarness } from '../src/server/harness/api.js';
 import { harnessHandoff } from '../src/server/harness/handoff.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 test('bound hierarchy HTTP selects real scopes, fences moves, isolates projects and reaches worker handoff', async t => {
   const dir = mkdtempSync(path.join(tmpdir(), 'harness-navigation-'));
   const n = (id: string, kind: string, parentId: string | null) => ({ id, kind, parentId, name: id, x: 0, y: 0 });
   const nodes = [n('domain', 'sector', null), n('page', 'node', 'domain'), n('layer', 'node', 'page'),
     { ...n('area', 'area', 'layer'), size: { w: 800, h: 600 } }, n('sector', 'sector', 'layer'), n('card', 'node', 'sector')];
+  let historyMode = 'valid';
   const canvas = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://local');
+    if (url.pathname === '/api/oporahub/harness-origin-history') {
+      assert.equal(req.headers.authorization, undefined);
+      assert.equal(url.searchParams.get('project'), 'p'); assert.equal(url.searchParams.get('workspace'), 'w');
+      if (historyMode === 'missing') { res.writeHead(404); res.end(); return; }
+      if (historyMode === 'oversized') { res.end('x'.repeat(256 * 1024 + 1)); return; }
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ schema: 'harness.origin-history/1', scope: { project: historyMode === 'foreign' ? 'foreign' : 'p', workspace: 'w', nodeId: null },
+        window: { kind: 'newest-enrolled-executions', limit: 100, examined: 0, excluded: 0 },
+        limited: false, omittedCohortContributions: 0, cohorts: [], promotionAllowed: false, causalContribution: false, invocationObserved: false })); return;
+    }
     assert.equal(url.pathname, '/api/view'); assert.equal(url.searchParams.get('project'), 'p'); assert.equal(url.searchParams.get('workspace'), 'w');
     res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ graph: { nodes } }));
   });
@@ -48,6 +61,15 @@ test('bound hierarchy HTTP selects real scopes, fences moves, isolates projects 
   let view = await response.json(); assert.equal(view.choices.length, 5);
   const area = '&node=opora:p:w:area';
   response = await call(area); view = await response.json(); assert.equal(view.level, 'area');
+  response = await call(area + '&origin-history=1');
+  assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal((await response.json()).schema, 'harness.origin-history/1');
+  const cli = await promisify(execFile)(process.execPath, ['bin/office-harness.js', '--origin-history', 'area', '--task', 'opora:p:w:area'],
+    { env: { ...process.env, AGENT_OFFICE_HOOK_URL: base, AGENT_OFFICE_WORKER_ID: 'ordinary', AGENT_OFFICE_HOOK_TOKEN: 'test-token' } });
+  assert.equal(JSON.parse(cli.stdout).schema, 'harness.origin-history/1');
+  for (const mode of ['missing', 'foreign', 'oversized']) { historyMode = mode; assert.equal((await call(area + '&origin-history=1')).status, 503); }
+  historyMode = 'valid';
+  assert.equal((await call(area + '&origin-history=1', { op: 'save' })).status, 405);
   const save = { op: 'save', scope: 'area', revision: view.revision, pathDigest: view.pathDigest, layer: { quality: { resource: 'guide:testing' } } };
   assert.equal((await call(area, save)).status, 200);
   assert.equal((await call(area, save)).status, 409);

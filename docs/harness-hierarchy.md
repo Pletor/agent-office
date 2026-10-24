@@ -80,3 +80,26 @@ Rollback and subsequent refreshes cannot reintroduce a rejected version as an
 unknown experiment. A fresh eligible promotion clears only its exact version;
 changed content does not clear an older withdrawal. Records are bounded at 256
 per scoped state; overflow refuses publication instead of evicting restrictions.
+## Historical origin comparisons
+
+The separate read-only **Historie výsledků podle původu výbavy** panel follows the
+selected hierarchy level. It calls the optional native origin-history endpoint
+through the existing authenticated Office hierarchy route. The worker equivalent
+is `office-harness --origin-history LEVEL --task KEY`; global/repository omit the
+task. A configured worker hook is required; no local file fallback is provided.
+
+The report describes native outcomes associated with origins declared in accepted
+kits, not independently verified ancestry or invocation. Each exact version,
+problem and outcome tier is shown separately with counts, unknowns and intervals.
+The window covers at most 100 newest enrolled executions in the linked project
+and workspace, including for global origins; this is not a global cross-project
+success rate. Unknown legacy origins are not guessed into the selected scope.
+Multi-origin cohorts overlap, so their counts must not be summed. Truncation and
+excluded corrupt records remain visible. No rate promotes a resource or edits a kit.
+
+The fixed native destination receives no Office worker/session credentials. Reads
+are bounded, non-cacheable, validate scope and counts, and recheck the binding and
+hierarchy after the response. Missing integration, foreign or oversized replies
+remain unavailable. Switching hierarchy clears old results and cancels pending
+reads; loading history preserves an unsaved checkbox draft. Existing task-outcome
+experience badges remain a separate view.
