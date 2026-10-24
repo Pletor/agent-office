@@ -114,6 +114,12 @@ test('real CLI reads only authenticated accepted kit; transport refuses redirect
   assert.equal(observed.independentlyVerified, false);
   assert.equal(observed.promotionAllowed, false);
   assert.ok(requests >= 3, 'initial, pre-spawn and completion checks all use current authority');
+  const prepared = await promisify(execFile)(process.execPath, ['bin/office-harness.js', '--prepare-accepted'], {
+    env: { ...process.env, AGENT_OFFICE_HOOK_URL: base, AGENT_OFFICE_WORKER_ID: 'worker-1', AGENT_OFFICE_HOOK_TOKEN: 'test-hook' },
+  });
+  const readiness = JSON.parse(prepared.stdout);
+  assert.equal(readiness.ready, true); assert.equal(readiness.scope, 'worker-process');
+  assert.equal(readiness.resources[0].id, 'el:project:runner'); assert.equal(readiness.resourceContentsExecuted, false);
   mode = 'redirect'; const before = requests;
   await assert.rejects(acceptedReceipt(base, 'worker-1', 'test-hook'));
   assert.equal(requests, before + 1, 'credential request never follows redirects');

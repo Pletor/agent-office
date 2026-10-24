@@ -18,7 +18,8 @@ const args = process.argv.slice(2);
 if (args[0] === '--evaluate-pair') {
   await (await import('./harness-paired.js')).pairedHarness(args);
 } else if (process.env.AGENT_OFFICE_HOOK_URL) {
-  if (args[0] === '--invoke-node') await (await import('./harness-invoke.js')).invokeHarness(args);
+  if (args[0] === '--prepare-accepted') await (await import('./harness-prepare.js')).prepareHarness(args);
+  else if (args[0] === '--invoke-node') await (await import('./harness-invoke.js')).invokeHarness(args);
   else await remoteHarness(args);
 } else {
 let project = process.cwd();
