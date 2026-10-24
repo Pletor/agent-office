@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runPinnedNode } from './invoke-node-process.js';
 import { invocationObservation } from './invoke-observation.js';
+import { validateAdapterKit } from './adapter-kit.js';
 
 type Execution = { executionId: string; epoch: number; project: string; workspace: string; nodeId: string; acceptedRevision: string; assignmentDigest: string };
 type Resource = { resource: string; category: string; content: string; digest: string; requires: string[] };
-type Receipt = { execution: Execution; kit: { schema: string; resources: Resource[] } | null };
+type Receipt = { execution: Execution; kit: { schema: string; resources: Resource[]; [key: string]: unknown } | null };
 export const sha256 = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}(?![\s\S])/;
 const invalid = () => new Error('Current accepted kit is unavailable or invalid.');
@@ -33,8 +34,9 @@ export async function acceptedReceipt(base: string, worker: string, token: strin
   const e = value?.execution;
   if (!e || !['executionId', 'project', 'workspace', 'nodeId'].every(k => typeof e[k as keyof Execution] === 'string' && ID.test(e[k as keyof Execution] as string))
     || !Number.isSafeInteger(e.epoch) || e.epoch < 1 || typeof e.acceptedRevision !== 'string' || !/^[a-f0-9]{40}(?![\s\S])/.test(e.acceptedRevision)
-    || typeof e.assignmentDigest !== 'string' || !/^[a-f0-9]{64}(?![\s\S])/.test(e.assignmentDigest) || value.kit?.schema !== 'harness.kit/1'
+    || typeof e.assignmentDigest !== 'string' || !/^[a-f0-9]{64}(?![\s\S])/.test(e.assignmentDigest) || !value.kit
     || !Array.isArray(value.kit.resources) || value.kit.resources.length > 24) throw invalid();
+  await validateAdapterKit(value.kit);
   return { execution: { executionId: e.executionId, epoch: e.epoch, project: e.project, workspace: e.workspace,
     nodeId: e.nodeId, acceptedRevision: e.acceptedRevision, assignmentDigest: e.assignmentDigest }, kit: value.kit };
 }
@@ -51,6 +53,7 @@ export async function invokeNode(read: () => Promise<Receipt>, resourceId: strin
   if (/[,\*]/.test(path.resolve(cwd)) || /[,\*]/.test(options.tempRoot ?? tmpdir()))
     throw new Error('Working and temporary paths cannot contain permission-pattern characters.');
   const receipt = await read();
+  await validateAdapterKit(receipt.kit);
   const originalIdentity = identity(receipt);
   const matches = receipt.kit?.resources.filter(r => r.resource === resourceId) ?? [];
   const resource = matches[0];

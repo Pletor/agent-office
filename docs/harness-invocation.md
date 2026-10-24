@@ -89,3 +89,23 @@ cost and tokens remain unknown. This component writes no learning or memory
 records automatically. Native result acceptance remains the independent task-outcome
 boundary; native invocation ingestion preserves the worker-reported evidence tier
 and accepts only bounded metadata, not arbitrary stdout, arguments or credentials.
+
+## Accepted kit version compatibility
+
+Local preparation and invocation keep their existing v1 behavior. For
+`harness.kit/2`, the receipt reader and both direct adapter entry points require
+the optional full accepted-kit validator supplied by the runtime module. The
+fixed local module is loaded lazily; a missing or older validator rejects v2
+before a probe, scratch-file creation or tool execution. There is no caller
+validator option and no fallback that strips provenance to pretend the kit is v1.
+
+With the updated runtime installed, preparation validates all resources and
+selection metadata and runs only the fixed readiness probe. Invocation validates
+the same snapshot before running the exact pinned Node script under the existing
+permission controls. Selection metadata is preserved, never treated as permission
+or verified success. An installation must restart after changing optional modules.
+
+This does not enable v2 recommendation emission. Paired-evaluation adapters and
+native invocation-result ingestion must also support v2 before an orchestrator
+chooses it for those workflows. A successful local invocation alone does not prove
+that a different backend version can accept its observation.

@@ -441,3 +441,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+Harness [local adapter compatibility](docs/harness-invocation.md#accepted-kit-version-compatibility) preserves v1 and accepts v2 only with the optional full runtime validator. Missing support rejects the new kit before preparation or execution.
