@@ -9,9 +9,9 @@ function fixture(plan: unknown={schema:'harness.paired-node/1',problem:'typescri
  const p={slot:'testing.paired',resource:'test:paired',category:'testing',content,digest:sha(content),requires:[],provenance:{source:'accepted'}};
  return {execution,kit:{schema:'harness.kit/1',problems:['evaluation:paired-node'],resources:[p,{slot:'scripts.base',...script('script:base','console.log("ok")')},{slot:'scripts.candidate',...script('script:candidate','console.log("ok")')},{slot:'rules.other',resource:'other',category:'instructions',content:'x',digest:'0'.repeat(64),requires:[]}]} };
 }
-const rejects=(r:any,id='test:paired')=>assert.throws(()=>preparePair(r,id),/Invalid accepted paired plan/);
-test('prepares only accepted testing plan and returns detached pinned identities',()=>{
- const r=fixture(), prepared=preparePair(r,'test:paired');
+const rejects=(r:any,id='test:paired')=>assert.rejects(preparePair(r,id),/Invalid accepted paired plan/);
+test('prepares only accepted testing plan and returns detached pinned identities',async()=>{
+ const r=fixture(), prepared=await preparePair(r,'test:paired');
  assert.deepEqual(prepared.execution,execution); assert.deepEqual(prepared.plan.cases[0],{id:'case:one',args:['--check'],expectedStdout:'ok\n'});
  assert.equal(prepared.baseline.digest,sha('console.log("ok")')); assert.notEqual(prepared.resource.id,prepared.baseline.id);
  assert.deepEqual(Object.keys(prepared.execution),['executionId','epoch','project','workspace','nodeId','acceptedRevision','assignmentDigest']);
@@ -19,24 +19,24 @@ test('prepares only accepted testing plan and returns detached pinned identities
  prepared.execution.project='mutated'; prepared.plan.cases[0].args[0]='mutated';
  assert.equal(r.execution.project,'p'); assert.equal(JSON.parse(r.kit.resources[0].content).cases[0].args[0],'--check');
 });
-test('rejects malformed plan shapes, ids, duplicates and overflow',()=>{
- rejects(fixture({schema:'harness.paired-node/2',problem:'typescript',baseline:'script:base',candidate:'script:candidate',cases:[]}));
- rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:base',cases:[{id:'x',args:[],expectedStdout:''}]}));
- rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:candidate',cases:[{id:'x',args:[],expectedStdout:''},{id:'x',args:[],expectedStdout:''}]}));
- rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:candidate',extra:true,cases:[{id:'x',args:[],expectedStdout:''}]}));
- rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:candidate',cases:Array.from({length:9},(_,i)=>({id:'c'+i,args:[],expectedStdout:''}))}));
- rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:candidate',cases:[{id:'x',args:['\ud800'],expectedStdout:''}]}));
- rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:candidate',cases:[{id:'x',args:[],expectedStdout:'\0'}]}));
- rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base\n',candidate:'script:candidate',cases:[{id:'x',args:[],expectedStdout:''}]}));
- rejects(fixture({schema:'harness.paired-node/1',baseline:'script:base',candidate:'script:candidate',cases:[{id:'x',args:[],expectedStdout:''}]}));
- rejects(fixture({schema:'harness.paired-node/1',problem:'',baseline:'script:base',candidate:'script:candidate',cases:[{id:'x',args:[],expectedStdout:''}]}));
+test('rejects malformed plan shapes, ids, duplicates and overflow',async()=>{
+ await rejects(fixture({schema:'harness.paired-node/2',problem:'typescript',baseline:'script:base',candidate:'script:candidate',cases:[]}));
+ await rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:base',cases:[{id:'x',args:[],expectedStdout:''}]}));
+ await rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:candidate',cases:[{id:'x',args:[],expectedStdout:''},{id:'x',args:[],expectedStdout:''}]}));
+ await rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:candidate',extra:true,cases:[{id:'x',args:[],expectedStdout:''}]}));
+ await rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:candidate',cases:Array.from({length:9},(_,i)=>({id:'c'+i,args:[],expectedStdout:''}))}));
+ await rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:candidate',cases:[{id:'x',args:['\ud800'],expectedStdout:''}]}));
+ await rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base',candidate:'script:candidate',cases:[{id:'x',args:[],expectedStdout:'\0'}]}));
+ await rejects(fixture({schema:'harness.paired-node/1',problem:'typescript',baseline:'script:base\n',candidate:'script:candidate',cases:[{id:'x',args:[],expectedStdout:''}]}));
+ await rejects(fixture({schema:'harness.paired-node/1',baseline:'script:base',candidate:'script:candidate',cases:[{id:'x',args:[],expectedStdout:''}]}));
+ await rejects(fixture({schema:'harness.paired-node/1',problem:'',baseline:'script:base',candidate:'script:candidate',cases:[{id:'x',args:[],expectedStdout:''}]}));
 });
-test('rejects bad kit/resource digests, categories, requirements and missing resources',()=>{
- const r=fixture(); r.kit.resources[0].digest='0'.repeat(64); rejects(r);
- const ordinary=fixture(); ordinary.kit.problems=['typescript','security']; rejects(ordinary);
- const noProblems=fixture(); delete (noProblems.kit as any).problems; rejects(noProblems);
- const s=fixture(); s.kit.resources[1].requires=['command:node','command:node']; rejects(s);
- const c=fixture(); c.kit.resources[2].category='tools'; rejects(c);
- const d=fixture(); d.kit.resources.push({...d.kit.resources[1]}); rejects(d);
- rejects(fixture(),'test:missing');
+test('rejects bad kit/resource digests, categories, requirements and missing resources',async()=>{
+ const r=fixture(); r.kit.resources[0].digest='0'.repeat(64); await rejects(r);
+ const ordinary=fixture(); ordinary.kit.problems=['typescript','security']; await rejects(ordinary);
+ const noProblems=fixture(); delete (noProblems.kit as any).problems; await rejects(noProblems);
+ const s=fixture(); s.kit.resources[1].requires=['command:node','command:node']; await rejects(s);
+ const c=fixture(); c.kit.resources[2].category='tools'; await rejects(c);
+ const d=fixture(); d.kit.resources.push({...d.kit.resources[1]}); await rejects(d);
+ await rejects(fixture(),'test:missing');
 });

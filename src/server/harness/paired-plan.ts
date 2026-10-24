@@ -5,10 +5,11 @@ export interface PairExecution {
   acceptedRevision: string; assignmentDigest: string;
 }
 export interface PairResource { resource: string; category: string; content: string; digest: string; requires: string[] }
-export interface PairReceipt { execution: PairExecution; kit: { schema: string; problems: string[]; resources: PairResource[] } | null }
+export interface PairReceipt { execution: PairExecution; kit: { schema: string; problems: string[]; resources: PairResource[]; [key: string]: unknown } | null }
 export interface PairCase { id: string; args: string[]; expectedStdout: string }
 export interface PairPlan { schema: 'harness.paired-node/1'; problem: string; baseline: string; candidate: string; cases: PairCase[] }
 export interface PreparedPair {
+  selectionDigest?: string;
   execution: PairExecution; plan: PairPlan; resource: { id: string; digest: string };
   baseline: { id: string; digest: string }; candidate: { id: string; digest: string };
 }
@@ -21,12 +22,19 @@ const utf8 = (s: unknown, max: number): s is string => typeof s === 'string' && 
 const digest = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
 const exact = (v: Record<string, any>, keys: string[]) => Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
 
-export function preparePair(receipt: PairReceipt, planResourceId: string): PreparedPair {
+export async function preparePair(input: PairReceipt, planResourceId: string): Promise<PreparedPair> {
+  const receipt = structuredClone(input);
   const e = receipt?.execution, kit = receipt?.kit;
+  if (kit?.schema === 'harness.kit/2') {
+    const modulePath = './adapter-kit.js';
+    const adapter = await import(modulePath).catch(() => { throw new Error('Paired v2 validation is unavailable in this installation.'); });
+    if (typeof adapter.validateAdapterKit !== 'function') throw new Error('Paired v2 validation is unavailable in this installation.');
+    await adapter.validateAdapterKit(kit);
+  }
   if (!obj(e) || !exact(e, ['executionId', 'epoch', 'project', 'workspace', 'nodeId', 'acceptedRevision', 'assignmentDigest'])
     || ![e.executionId, e.project, e.workspace, e.nodeId].every(id) || !Number.isSafeInteger(e.epoch) || e.epoch < 1
     || typeof e.acceptedRevision !== 'string' || !/^[a-f0-9]{40}(?![\s\S])/.test(e.acceptedRevision) || !hash(e.assignmentDigest)
-    || !id(planResourceId) || !kit || kit.schema !== 'harness.kit/1' || !Array.isArray(kit.problems)
+    || !id(planResourceId) || !kit || !['harness.kit/1', 'harness.kit/2'].includes(kit.schema) || !Array.isArray(kit.problems)
     || kit.problems.length !== 1 || kit.problems[0] !== 'evaluation:paired-node'
     || !Array.isArray(kit.resources) || kit.resources.length > 24) return fail();
   const planMatches = kit.resources.filter(r => obj(r) && r.resource === planResourceId);
@@ -58,5 +66,6 @@ export function preparePair(receipt: PairReceipt, planResourceId: string): Prepa
   return { execution: { executionId: e.executionId, epoch: e.epoch, project: e.project, workspace: e.workspace,
     nodeId: e.nodeId, acceptedRevision: e.acceptedRevision, assignmentDigest: e.assignmentDigest },
     plan: { schema: 'harness.paired-node/1', problem: raw.problem, baseline: raw.baseline, candidate: raw.candidate, cases },
-    resource: { id: pr.resource, digest: pr.digest }, baseline, candidate };
+    resource: { id: pr.resource, digest: pr.digest }, baseline, candidate,
+    ...(kit.schema === 'harness.kit/2' ? { selectionDigest: digest(JSON.stringify(kit.selection)) } : {}) };
 }
