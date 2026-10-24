@@ -5,6 +5,7 @@ import path from 'node:path';
 import { HARNESS_CATEGORIES } from '../../shared/harness.js';
 import { acceptedReceipt, sha256 } from './invoke-node.js';
 import { runPinnedNode } from './invoke-node-process.js';
+import { validateAdapterKit } from './adapter-kit.js';
 
 type Reader = () => ReturnType<typeof acceptedReceipt>;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}(?![\s\S])/;
@@ -14,7 +15,8 @@ const PROBE = "console.log('harness-node-readiness/1')";
 
 export async function prepareAccepted(read: Reader, cwd: string, options: { tempRoot?: string } = {}) {
   const receipt = structuredClone(await read());
-  if (!receipt.kit || receipt.kit.schema !== 'harness.kit/1' || receipt.kit.resources.length > 24)
+  await validateAdapterKit(receipt.kit);
+  if (!receipt.kit || !Array.isArray(receipt.kit.resources) || receipt.kit.resources.length > 24)
     throw new Error('Accepted kit is unavailable.');
   const identity = JSON.stringify(receipt.execution), seen = new Set<string>();
   let total = 0;
