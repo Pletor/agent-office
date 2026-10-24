@@ -243,14 +243,16 @@ export class OporaBridge {
     if (!inFocus(this.state.scope, this.focus, card.id)) return `“${card.name}” is outside what the cell works on: switch it on at the 🎚️ switchboard first`;
     if (card.status !== 'frontier') return `“${card.name}” isn’t free to take (${card.status})`;
     if (this.runs.some((r) => r.cardId === cardId && r.state !== 'gone')) return `The office is already on “${card.name}”`;
-    const desk = deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
-    if (!desk) return 'Every desk is taken: send someone home, or build the back office out';
+    const freeDesk = () => deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
+    const full = 'Every desk is taken: send someone home, or build the back office out';
+    if (!freeDesk()) return full;
     if (!this.floor.stop) return "Office cannot enforce Canvas execution deadlines";
     let dispatched;
     try {
       dispatched = await this.executions.dispatch({ project: project.id, workspace, nodeId: card.id },
         () => this.events.prepareTask?.(project.id, workspace, card.id, owner) ?? Promise.resolve(''),
-        prompt => seatForOpora(() => this.floor.seat(desk, by, prompt, owner)), prompt => withReaBrief(prompt, this.events.prompt),
+        // The desk is picked when the worker sits down, so Takes in quick succession don't all pick the same one.
+        prompt => seatForOpora(() => { const desk = freeDesk(); return desk ? this.floor.seat(desk, by, prompt, owner) : full; }), prompt => withReaBrief(prompt, this.events.prompt),
         () => prepareDesignBrief({ client: this.client, prompt: this.events.prompt, card, base: this.state.url, project: project.id, workspace, repoDir: this.floor.dir, dataDir: this.dataDir, log: m => console.warn(`[opora] ${m}`) }));
     } catch (error) { return (error as Error).message; }
     const seated = dispatched.worker;
@@ -261,7 +263,7 @@ export class OporaBridge {
       group: card.group,
       workerId: seated.id,
       workerName: seated.name,
-      deskId: desk,
+      deskId: seated.deskId,
       by,
       startedAt: Date.now(),
       state: 'working',

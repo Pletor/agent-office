@@ -26,6 +26,36 @@ export interface ExecutionClaim extends ExecutionScope {
 export class ExecutionError extends Error {
   constructor(readonly status: number, readonly terminal: boolean, message = 'Canvas execution authority is unavailable') { super(message); }
 }
+/** How long one request to Opora may take: claim, context, assignment and release, and (separately) a heartbeat. */
+export interface ExecutionTimeouts { requestMs: number; heartbeatMs: number }
+const seconds = (value: string | undefined, fallback: number) => {
+  const n = Number(value);
+  return value?.trim() && Number.isFinite(n) && n >= 1 ? Math.min(120, n) * 1000 : fallback * 1000;
+};
+/** `AGENT_OFFICE_OPORA_EXECUTION_TIMEOUT_S` (default 20) and `AGENT_OFFICE_OPORA_HEARTBEAT_TIMEOUT_S` (default 15), 1 to 120 s. */
+export function executionTimeoutsFromEnvironment(env: NodeJS.ProcessEnv = process.env): ExecutionTimeouts {
+  return { requestMs: seconds(env.AGENT_OFFICE_OPORA_EXECUTION_TIMEOUT_S, 20), heartbeatMs: seconds(env.AGENT_OFFICE_OPORA_HEARTBEAT_TIMEOUT_S, 15) };
+}
+/** What the office was doing, for the error a person sees. */
+type Step = 'reading the card’s context' | 'claiming the card' | 'reading the assignment' | 'renewing the lease' | 'releasing the card';
+/** Canvas's own reason for a refusal (`detail`), single-line, short, and with the request's secrets blanked out. */
+function refusalDetail(text: string, secrets: string[]): string {
+  let detail: unknown;
+  try { detail = (JSON.parse(text) as { detail?: unknown }).detail; } catch { return ''; }
+  if (object(detail)) detail = typeof detail.message === 'string' ? detail.message : detail.reason;
+  if (typeof detail !== 'string') return '';
+  let clean = detail.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  for (const secret of secrets) if (secret.length >= 4) clean = clean.split(secret).join('[redacted]');
+  return clean.length > 200 ? clean.slice(0, 199) + '…' : clean;
+}
+/** A network failure's code (`ECONNREFUSED`, `UND_ERR_SOCKET`, ...): only an identifier-like code, never the error's text. */
+function networkCode(error: unknown): string {
+  for (let e: unknown = error, depth = 0; e && typeof e === 'object' && depth < 4; e = (e as { cause?: unknown }).cause, depth++) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === 'string' && /^[A-Z][A-Z0-9_]{1,39}$/.test(code)) return code;
+  }
+  return '';
+}
 const ROOT = '/api/oporahub/executions';
 const validId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 
@@ -95,16 +125,17 @@ export function withAssignment(authority: ExecutionLease, read: unknown, scope: 
 }
 
 export class ExecutionClient {
-  constructor(readonly base: string, readonly agent: string, private transport: typeof fetch = fetch) {}
+  constructor(readonly base: string, readonly agent: string, private transport: typeof fetch = fetch,
+    readonly timeouts: ExecutionTimeouts = executionTimeoutsFromEnvironment()) {}
 
   async context(scope: ExecutionScope, version: ContextVersion = 1): Promise<ExecutionContext> {
     const value = await this.call<Record<string, unknown>>(version === 2 ? ROOT + '/context'
-      : ROOT + '/context?' + new URLSearchParams({ ...scope }), version === 2 ? { ...scope, contextProtocolVersion: 2 } : undefined);
+      : ROOT + '/context?' + new URLSearchParams({ ...scope }), version === 2 ? { ...scope, contextProtocolVersion: 2 } : undefined, 'reading the card’s context');
     try { validateContextNegotiation(value, version); return validateContext(value); }
     catch { throw new ExecutionError(409, true, 'Canvas returned unsupported execution context'); }
   }
   async claim(payload: ExecutionClaim): Promise<ExecutionLease> {
-    const received: unknown = await this.call(ROOT + '/claim' + LEAN, payload);
+    const received: unknown = await this.call(ROOT + '/claim' + LEAN, payload, 'claiming the card');
     const lease = object(received) && 'assignment' in received ? validateExecution(received, payload)
       : await this.assignment(validateClaimedAuthority(received, payload), payload);
     if ((lease.contextProtocolVersion ?? 1) !== (payload.contextProtocolVersion ?? 1))
@@ -121,17 +152,18 @@ export class ExecutionClient {
   private async assignment(authority: ExecutionLease, scope: ExecutionScope): Promise<ExecutionLease> {
     try {
       const read = await this.call(`${ROOT}/${encodeURIComponent(authority.executionId)}/assignment?`
-        + new URLSearchParams({ project: authority.project, workspace: authority.workspace }), undefined, { 'X-Opora-Execution-Token': authority.token });
+        + new URLSearchParams({ project: authority.project, workspace: authority.workspace }), undefined, 'reading the assignment', { 'X-Opora-Execution-Token': authority.token });
       return withAssignment(authority, read, scope);
     } catch (error) {
       if (error instanceof ExecutionError && error.terminal) await this.release(authority).catch(() => {});
       throw error;
     }
   }
-  async heartbeat(lease: ExecutionLease, ttlSeconds: number): Promise<ExecutionLease> {
+  /** `withinMs` caps the wait to what is left of the authority's deadline, so a slow Opora can't hold a heartbeat past it. */
+  async heartbeat(lease: ExecutionLease, ttlSeconds: number, withinMs?: number): Promise<ExecutionLease> {
     const received: unknown = await this.call(`${ROOT}/${encodeURIComponent(lease.executionId)}/heartbeat${LEAN}`, {
       ...this.credentials(lease), ttlSeconds,
-    });
+    }, 'renewing the lease', {}, Math.max(1, Math.min(this.timeouts.heartbeatMs, withinMs ?? Infinity)));
     // Lean renewal: the digest (compared below) stands for the assignment; its context pin must not move either.
     const lean = !(object(received) && 'assignment' in received);
     const checked = validateClaimedAuthority(received, lease);
@@ -149,25 +181,38 @@ export class ExecutionClient {
     return next;
   }
   async release(lease: ExecutionLease): Promise<void> {
-    await this.call(`${ROOT}/${encodeURIComponent(lease.executionId)}/release`, this.credentials(lease));
+    await this.call(`${ROOT}/${encodeURIComponent(lease.executionId)}/release`, this.credentials(lease), 'releasing the card');
   }
   private credentials(lease: ExecutionLease) { return { project: lease.project, workspace: lease.workspace, token: lease.token, epoch: lease.epoch }; }
-  private async call<T>(endpoint: string, body: unknown, extra: Record<string, string> = {}): Promise<T> {
+  /**
+   * One request. Its failure says which of three it was, so a person can tell them apart: Opora too slow
+   * (timeout, non-terminal), Opora unreachable (the network code, non-terminal), or Opora refusing (status and
+   * Canvas's `detail`). Never the request body, the token or a raw error text.
+   */
+  private async call<T>(endpoint: string, body: unknown, step: Step, extra: Record<string, string> = {}, timeoutMs = this.timeouts.requestMs): Promise<T> {
+    const secrets = [...Object.values(extra), ...(object(body) && typeof body.token === 'string' ? [body.token] : [])];
     try {
       const response = await this.transport(new URL(endpoint, this.base), {
-        method: body === undefined ? 'GET' : 'POST', redirect: 'error', signal: AbortSignal.timeout(8000),
+        method: body === undefined ? 'GET' : 'POST', redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
         headers: { Accept: 'application/json', 'Content-Type': 'application/json', Origin: new URL(this.base).origin, 'X-Opora-Actor': `agent; name=${this.agent}`, ...extra },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-      if (!response.ok) throw new ExecutionError(response.status, response.status >= 400 && response.status < 500 && response.status !== 429,
-        `Canvas execution request refused (${response.status})`);
+      if (!response.ok) {
+        const detail = refusalDetail(await response.text().catch(() => ''), secrets);
+        throw new ExecutionError(response.status, response.status >= 400 && response.status < 500 && response.status !== 429,
+          `Opora refused ${step} (HTTP ${response.status})${detail ? ': ' + detail : ''}`);
+      }
       const text = await response.text();
       if (text.length > 4 * 1024 * 1024) throw new ExecutionError(409, true, 'Canvas assignment exceeds the supported size');
       return JSON.parse(text) as T;
     } catch (error) {
       if (error instanceof ExecutionError) throw error;
       // Do not reflect response bodies, request payloads, or capability tokens into logs/UI.
-      throw new ExecutionError(0, false);
+      const name = (error as { name?: unknown } | null)?.name;
+      if (name === 'TimeoutError' || name === 'AbortError')
+        throw new ExecutionError(0, false, `Opora didn’t answer within ${timeoutMs >= 1000 ? `${Math.round(timeoutMs / 100) / 10} s` : `${timeoutMs} ms`} while ${step}; it may be busy, try again`);
+      if (error instanceof SyntaxError) throw new ExecutionError(0, false, `Opora sent an unreadable answer while ${step}`);
+      throw new ExecutionError(0, false, `Opora couldn’t be reached while ${step} (${networkCode(error) || 'network error'})`);
     }
   }
 }
