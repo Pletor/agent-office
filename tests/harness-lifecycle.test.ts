@@ -136,7 +136,7 @@ test('withdrawn versions survive rollback, restart and audit rotation until fres
     current: proof(b, a, false), fallback: proof(a) }));
   assert.deepEqual(result.state.withdrawn, [b]);
   for (let i = 0; i < 25; i++) result = await store.advanceTool('/repo', scope, result.revision,
-    'reconcile', async () => ({ current: proof(a) }));
+    'reconcile', async () => ({ current: { ...proof(a), evidenceDigest: i.toString(16).padStart(64, '0') } }));
   const restarted = new HarnessProfiles(dir);
   assert.deepEqual(restarted.lifecycle('/repo', scope).state?.withdrawn, [b]);
   assert.ok(result.state.audit.every(row => row.action === 'refresh'));
@@ -155,4 +155,17 @@ test('withdrawal records are bounded and malformed or duplicate versions fail cl
   const full = { ...state, active: b, previous: a,
     withdrawn: Array.from({ length: 256 }, (_, i) => ({ ...b, id: 'script:' + i })) };
   assert.throws(() => advanceLifecycle(scope, full, { current: proof(b, a, false), fallback: proof(a) }, 'reconcile'));
+});
+
+test('a reconcile that confirms the stored state writes nothing, so a concurrent save still lands', async t => {
+  const { store } = setup(t);
+  await store.save('/repo', '', 'repository', { selected: { resource: 'guide:testing' }, blocked: null }, 0);
+  let result = await store.advanceTool('/repo', scope, 1, 'promote', async () => ({ current: proof(a) }));
+  const draft = result.revision;
+  result = await store.advanceTool('/repo', scope, draft, 'reconcile', async () => ({ current: proof(a) }));
+  assert.equal(result.revision, draft); assert.equal(result.state.audit.length, 1);
+  await store.save('/repo', '', 'repository', { selected: { resource: 'guide:testing' }, blocked: null }, draft);
+  result = await store.advanceTool('/repo', scope, draft + 1, 'reconcile', async () => ({ current: proof(a, a, false) }));
+  assert.equal(result.revision, draft + 2, 'a suspension is a change and is written');
+  assert.equal(result.state.status, 'suspended');
 });

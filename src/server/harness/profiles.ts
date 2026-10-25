@@ -61,6 +61,12 @@ const AUDIT_KEEP = 200;
  */
 const LOCK_WAIT_MS = 6000, LOCK_STALE_MS = 10_000;
 const CHANGED = 'Profiles changed elsewhere. Reload before saving.';
+const canonical = (v: unknown): unknown => Array.isArray(v) ? v.map(canonical)
+  : object(v) ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canonical(v[k])])) : v;
+/** The same lifecycle apart from its audit rows. */
+function sameState({ audit: _a, ...a }: LifecycleState, { audit: _b, ...b }: LifecycleState): boolean {
+  return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+}
 interface Stored { version?: number; revision: number; layers: Record<string, HarnessLayer>; audit?: HarnessAudit[]; legacyTasks?: string[]; toolStates?: Record<string, LifecycleState> }
 
 /** What a view or a save addresses: a task id (the 3-level form), or the way down to a node (shared/harness-hierarchy.ts). */
@@ -163,6 +169,9 @@ export class HarnessProfiles {
       const checks = await readEvidence(before ? structuredClone(before) : undefined);
       checks.assertCurrent?.();
       const state = advanceLifecycle(scope, before, checks, operation);
+      // A reconcile that confirms what is stored only adds an audit row; writing it would bump the revision
+      // under every reader of a recommendation and turn a concurrent save of the Equipment into a 409.
+      if (operation === 'reconcile' && before && sameState(before, state)) return { revision: data.revision, state: structuredClone(before) };
       if ((data.version ?? 1) === 1) data.legacyTasks = Object.keys(data.layers).filter(k => k.startsWith('task:'));
       data.version = HARNESS_STORE_VERSION;
       // Keep optional v2 fields: earlier v2 writers preserve unknown properties when saving layers.
