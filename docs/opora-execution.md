@@ -100,9 +100,26 @@ written by earlier agents and never as instructions; what doesn't fit (or Canvas
 out) is counted with a pointer to the assignment file, which keeps all of it.
 
 The assignment read also brings live `progress`: which pinned steps this or an earlier
-run of the card already reported done, and `current`, the first unfinished one. When
-some are done, the prompt tells the agent to resume at `current` without redoing the
-rest. Code: `src/server/opora/execution-handoff.ts`.
+run of the card already reported done (and by which execution), and `current`, the first
+unfinished one. The claim renews the lease right after that read; the renewal is lean and
+carries no progress, so the claim keeps the progress it read (it used to be dropped there,
+and a resumed run started over at the first step).
+
+A run that stopped before reporting was never pushed: its step commits live only on its
+local branch (`office/<worker>-<id>`), while the new worker's worktree starts from main. So
+the office looks those commits up itself: for each done step it takes the branch of the
+execution that did it (kept on the run in `opora.json`; for older runs, the worker's
+`office/<name>-<id>` branch) and finds its `step <id>:` commits, the same ones the step
+checkpoints sent to Canvas. Right before the new worker's first launch (after the worktree
+setup) they are cherry-picked onto its fresh branch, in the order they were made, and the
+prompt names them (`s1 <sha>, s2 <sha>, from office/byte-563a`) and says to resume at
+`current`. A pick that conflicts is undone whole, and the prompt already says that without
+those commits on the branch the steps are redone from the first. When any done step's
+commits can't be found (no record of the run, its branch deleted, no `step <id>:` commit),
+nothing is picked and the prompt says so: the work isn't on the branch, check whether main
+has it, otherwise redo from the first step. Picked commits are part of the branch, so the
+result's `stepResults` and the pull request list them like the run's own. Code:
+`src/server/opora/execution-resume.ts`, `src/server/opora/execution-handoff.ts`.
 
 The deadline watchdog runs inside Office. For unbudgeted v1 executions, a hosted
 terminal retained by shutdown may continue computation while Office is down.
@@ -127,7 +144,12 @@ workers must not read or publish the private bundle.
 
 To finish, the worker commits its work in its worktree and writes a JSON result with a nonempty `summary` and optional
 artifact/evidence fields (at most 64,000 UTF-8 bytes), then runs the command in its
-prompt. Retry the identical file after uncertain delivery. The helper emits only
+prompt. The helper waits for each attempt as long as the office's request timeout
+(`AGENT_OFFICE_OPORA_EXECUTION_TIMEOUT_S`, 20 s by default, written into the bundle) and
+sends the same body with the same `requestId` again, up to three times, after a timeout, a
+network failure, a 5xx or a 429; Canvas answers a repeated `requestId` with the receipt it
+already stored, so a slow Opora that committed the result still hands the receipt back.
+Retry the identical file after uncertain delivery. The helper emits only
 the receipt identity and verification label. A receipt is agent-reported work,
 not verified checks, independent review, accepted plan changes or card completion.
 It must not trigger the legacy agent-output or completion API. Cards written for
@@ -138,7 +160,14 @@ change card state is legacy and is fulfilled by the result helper, and a plan st
 acceptance item that mentions `agent-output`, `done.proposed` or `done.confirmed`
 is marked as such in the checklist. A successful result
 ends Canvas authority; the next Office heartbeat stops that worker. When that
-heartbeat is refused with 409 and the receipt is stored, it is the run's normal end:
+heartbeat is refused with 409 and the receipt is stored, it is the run's normal end.
+When the helper never got its receipt (it gave up on a slow Opora that stored the result
+anyway), the office asks Canvas on that 409 (`GET /api/oporahub/executions/{id}/results`)
+and, when a receipt for exactly this execution, accepted revision and assignment is there,
+keeps it as the helper would have (`<executionId>-reported.json`, marked `recovered`); the
+run then ends the same way and its work goes out as usual (push
+`opora/<card>/<execution>`, open the pull request, link it). Code:
+`src/server/opora/execution-recovery.ts`, `src/server/opora/execution-submit.ts`. In either case:
 the process wall shows "Běh … dokončen" (`run.release`, ok), the run is kept without
 an error and nothing is toasted. Any other refusal, or a 409 without a stored
 receipt, stays an error. Either way the warning does not invalidate an already

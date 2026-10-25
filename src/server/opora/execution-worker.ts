@@ -9,6 +9,7 @@ import { validSelfChecks } from './self-checks.js';
 import { commitsFromLog, pinnedSteps, withStepCommits } from './plan-steps.js';
 import { parseStepArgs, reportStep, StepShapeError } from './execution-step.js';
 import { findLensSpec, prLensEnabled } from './pr-lens.js';
+import { deliverResult, SUBMIT_ATTEMPTS, submitTimeoutMs } from './execution-submit.js';
 
 /** A result the helper refuses before sending anything, with what to fix; the same file can then be corrected. */
 export class ResultShapeError extends Error {}
@@ -45,7 +46,7 @@ export function resultLens(dir: string, env: NodeJS.ProcessEnv = process.env): R
 
 /** Capability never leaves this process; stdout contains a small public receipt only. */
 export async function reportExecution(bundlePath: string, resultPath: string, transport: typeof fetch = fetch, log: () => string = worktreeLog,
-  lensDir: string = process.cwd()) {
+  lensDir: string = process.cwd(), attempts = SUBMIT_ATTEMPTS, pause?: (ms: number) => Promise<void>) {
   const bundle = JSON.parse(readFileSync(bundlePath, 'utf8'));
   const lease = validateExecution(bundle, bundle);
   if (lease.contextProtocolVersion === 2 && bundle.executionInstructionsVersion !== EXECUTION_INSTRUCTIONS_VERSION)
@@ -75,12 +76,13 @@ export async function reportExecution(bundlePath: string, resultPath: string, tr
     const lens = resultLens(lensDir);
     if (lens) result = { ...result, lens };
   }
-  const response = await transport(new URL(`/api/oporahub/executions/${encodeURIComponent(bundle.executionId)}/results`, bundle.base), {
-    method: 'POST', redirect: 'error', signal: AbortSignal.timeout(8000),
-    headers: { 'Content-Type': 'application/json', Origin: new URL(bundle.base).origin, 'X-Opora-Actor': bundle.actor },
-    body: JSON.stringify({ project: bundle.project, workspace: bundle.workspace, token: bundle.token, epoch: bundle.epoch,
-      requestId: bundle.resultRequestId, result }),
-  });
+  // The same body (and requestId) each attempt: Canvas replays a result it already stored (execution-submit.ts).
+  const body = JSON.stringify({ project: bundle.project, workspace: bundle.workspace, token: bundle.token, epoch: bundle.epoch,
+    requestId: bundle.resultRequestId, result });
+  const response = await deliverResult(signal => transport(new URL(`/api/oporahub/executions/${encodeURIComponent(bundle.executionId)}/results`, bundle.base), {
+    method: 'POST', redirect: 'error', signal,
+    headers: { 'Content-Type': 'application/json', Origin: new URL(bundle.base).origin, 'X-Opora-Actor': bundle.actor }, body,
+  }), submitTimeoutMs(bundle), attempts, pause);
   if (!response.ok) throw new Error(`Canvas refused result (${response.status})`);
   const receipt = await response.json() as Record<string, unknown>;
   if (receipt.executionId !== bundle.executionId || receipt.state !== 'reported' || typeof receipt.receiptId !== 'string') throw new Error('Invalid receipt');

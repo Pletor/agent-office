@@ -25,6 +25,8 @@ export class ExecutionController {
   private claims = new Map<string, ExecutionClaim>();
   /** Whether the execution's result receipt is stored: Canvas then refuses its heartbeat (409) because it is finished, not lost. */
   ended?: (executionId: string) => boolean;
+  /** Asks Canvas whether a refused execution already has a stored result, and keeps it for the hand-off (execution-recovery.ts). */
+  recover?: (lease: ExecutionLease) => Promise<boolean>;
   constructor(readonly client: ExecutionClient,
     private changed: (workerId: string, lease: ExecutionLease, deadlineUnixMs: number) => void,
     private stopped: (workerId: string, reason: string) => void,
@@ -62,7 +64,9 @@ export class ExecutionController {
       const cap = this.caps.observe(claimed, started);
       if (this.closed || this.clock() >= cap) throw new ExecutionError(409, true, 'Office execution controller is shutting down');
       // Idempotent claim replay can contain the original serverNow. Renew before launch.
-      const { lease, deadline } = await this.revalidate(claimed);
+      const renewed = await this.revalidate(claimed);
+      // Renewal is lean and carries no live progress; the claim's assignment read does, so the resume point survives it.
+      const lease = claimed.progress ? { ...renewed.lease, progress: claimed.progress } : renewed.lease, deadline = renewed.deadline;
       if (this.clock() >= deadline) { void this.client.release(lease).catch(() => {}); throw new ExecutionError(409, true, 'Execution expired before dispatch'); }
       this.claims.delete(key);
       return { lease, deadline };
@@ -154,9 +158,12 @@ export class ExecutionController {
       this.schedule(workerId, watch, 30_000);
     } catch (error) {
       if (watch.stopped) return;
-      // After a reported result Canvas ends authority, so the next heartbeat's 409 is the run's normal end.
-      if (error instanceof ExecutionError && error.terminal && error.status === 409 && this.ended?.(watch.lease.executionId)) this.stop(workerId, watch, EXECUTION_FINISHED);
-      else if (error instanceof ExecutionError && error.terminal) this.stop(workerId, watch, error.message);
+      // After a reported result Canvas ends authority, so the next heartbeat's 409 is the run's normal end, also when
+      // the worker's helper never saw its receipt (a slow Opora): Canvas is asked whether the result is stored.
+      if (error instanceof ExecutionError && error.terminal && error.status === 409) {
+        const finished = this.ended?.(watch.lease.executionId) || await this.recover?.(watch.lease).catch(() => false);
+        if (!watch.stopped) this.stop(workerId, watch, finished ? EXECUTION_FINISHED : error.message);
+      } else if (error instanceof ExecutionError && error.terminal) this.stop(workerId, watch, error.message);
       else if (this.clock() >= watch.deadline) this.stop(workerId, watch, 'Canvas execution deadline expired');
       else { if (!watch.failing) { watch.failing = true; emitProcess(this.client.agent, heartbeatEvent(watch.lease, workerId, 'retrying')); } this.schedule(workerId, watch, 2000); }
     }

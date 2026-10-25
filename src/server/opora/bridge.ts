@@ -131,6 +131,8 @@ export class OporaBridge {
         requestExecutionStop(run, id, reason, this.floor.stop?.bind(this.floor),
           () => this.changed(), message => this.events.toast(message, 'warn'));
       }, undefined, selfChecks);
+    // Earlier runs' branches are in the floor's checkout: a resumed card picks up their step commits (execution-resume.ts).
+    this.executions.floorDir = floor.dir;
     this.reviews = createReviewRunner(url, `office-${floor.id}`, floor.dir, dataDir, log);
     this.upkeep = createOporaUpkeep(floor.dir, dataDir, (message, level) => this.events.toast(message, level), env,
       selfChecks && upkeepSelfChecks(selfChecks, dataDir, () => this.state.project && this.state.workspace ? { project: this.state.project.id, workspace: this.state.workspace } : undefined));
@@ -279,6 +281,7 @@ export class OporaBridge {
       workerId: seated.id,
       workerName: seated.name,
       deskId: seated.deskId,
+      ...(seated.worktree ? { branch: seated.worktree.branch, worktreeBase: seated.worktree.base } : {}),
       by,
       startedAt: Date.now(),
       state: 'working',

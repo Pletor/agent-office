@@ -9,9 +9,13 @@ import { contextVersionFromEnvironment } from './execution-context.js';
 import { PullRequestHandoff, type HandoffTools } from './pull-request-handoff.js';
 import type { SelfCheckReporter } from './self-checks.js';
 import { emitProcess, processHub } from '../process/hub.js';
+import { recoverStoredResult } from './execution-recovery.js';
+import { applyResume, resumePlan, type EarlierRun, type ResumePlan } from './execution-resume.js';
 import { claimEvent, handoffEvent, releaseEvent } from '../process/opora-events.js';
 
-export interface ExecutionHeld { workerId?: string; execution?: ExecutionLease; deadlineUnixMs?: number; leaseUntil?: string; state?: string }
+export interface ExecutionHeld { workerId?: string; execution?: ExecutionLease; deadlineUnixMs?: number; leaseUntil?: string; state?: string;
+  /** The worker and the branch (and base commit) its worktree was on, so a later run of the card can pick up its step commits (execution-resume.ts). */
+  workerName?: string; branch?: string; worktreeBase?: string }
 
 /** The bridge composes this feature; all execution authority remains server-private. */
 export class ExecutionDispatch {
@@ -22,7 +26,11 @@ export class ExecutionDispatch {
   private readonly contextVersion = contextVersionFromEnvironment();
   /** The last worker info seen per worker, so a worker already sent home still hands its worktree off. */
   private worktrees = new Map<string, WorkerInfo>();
-  private seating?: { lease: ExecutionLease; deadline: number; prompt: string; workerId?: string };
+  private seating?: { lease: ExecutionLease; deadline: number; prompt: string; workerId?: string; resume?: ResumePlan };
+  /** The floor's checkout, where earlier runs' branches are; without it a resumed run is told its commits aren't there. */
+  floorDir?: string;
+  /** Step commits of earlier runs still to be picked onto a worker's branch, right before its first launch. */
+  private picks = new Map<string, ResumePlan>();
   /** Claims of different cards go to Opora one at a time: a Take made while another claims waits its turn. */
   private turn: Promise<unknown> = Promise.resolve();
   private inTurn<T>(run: () => Promise<T>): Promise<T> {
@@ -45,6 +53,8 @@ export class ExecutionDispatch {
     }, stop);
     // A 409 on the heartbeat once the result's receipt is stored is the run's normal end (execution-controller.ts).
     this.controller.ended = id => this.pullRequests.hasReceipt(id);
+    // A result Canvas stored though the helper never saw its receipt is a finished run too (execution-recovery.ts).
+    this.controller.recover = lease => recoverStoredResult(this.client, directory, lease);
   }
   readonly guard: WorkerLaunchGuard = {
     applies: info => info.via === 'opora' || this.runs().some(run => run.workerId === info.id),
@@ -57,8 +67,11 @@ export class ExecutionDispatch {
         && !this.runs().some(run => run.workerId === info.id) && (!this.seating.workerId || this.seating.workerId === info.id)) {
         this.seating.workerId = info.id;
         this.controller.watch(info.id, this.seating.lease, this.seating.deadline);
+        if (this.seating.resume) { this.picks.set(info.id, this.seating.resume); this.seating.resume = undefined; }
       }
-      return this.controller.allowed(info.id) ? undefined : 'Canvas execution authority is missing or expired; take the card again';
+      if (!this.controller.allowed(info.id)) return 'Canvas execution authority is missing or expired; take the card again';
+      this.pick(info);
+      return undefined;
     },
     restore: async info => {
       const run = this.runs().find(run => run.workerId === info.id);
@@ -86,23 +99,51 @@ export class ExecutionDispatch {
       const grant = await this.inTurn(() => this.controller.claim(scope, this.contextVersion)).catch((e: Error) => { emitProcess(this.agent, claimEvent(scope, { error: e.message })); throw e; });
       let seatedId: string | undefined;
       try {
-        const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief);
+        const resume = this.resumePlan(grant.lease);
+        const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief, resume);
         const prompt = (this.contextVersion === 2 ? immutablePrompt : decorate(immutablePrompt)).trim();
-        this.seating = { ...grant, prompt };
-        let worker: WorkerInfo | string;
-        try { worker = seat(prompt); } finally { seatedId = this.seating?.workerId; this.seating = undefined; }
+        this.seating = { ...grant, prompt, resume };
+        let worker: WorkerInfo | string, unpicked: ResumePlan | undefined;
+        try { worker = seat(prompt); } finally { seatedId = this.seating?.workerId; unpicked = this.seating?.resume; this.seating = undefined; }
         if (typeof worker === 'string') throw new Error(worker);
         seatedId = worker.id;
+        // Launched after its worktree setup: the commits go on its branch at that launch (guard.check).
+        if (unpicked) this.picks.set(worker.id, unpicked);
         if (worker.status === 'exited') throw new Error('Worker failed to start; Canvas reservation released');
         this.controller.watch(worker.id, grant.lease, grant.deadline);
         if (!this.controller.allowed(worker.id)) throw new Error('Execution expired while starting worker');
         processHub.noteExecution(worker.id, grant.lease.executionId); emitProcess(this.agent, claimEvent(scope, { executionId: grant.lease.executionId, workerId: worker.id, workerName: worker.name }));
         return { worker, execution: grant.lease, deadlineUnixMs: Date.now() + Math.max(0, grant.deadline - performance.now()) };
       } catch (error) {
-        if (seatedId) { this.controller.forget(seatedId); this.stop(seatedId, 'Worker failed to start; worktree kept'); }
+        if (seatedId) { this.picks.delete(seatedId); this.controller.forget(seatedId); this.stop(seatedId, 'Worker failed to start; worktree kept'); }
         await this.client.release(grant.lease).catch(() => {}); throw error;
       }
     });
+  }
+  /** Earlier runs of this office with the branch their worktree was on, for a resumed card. */
+  private earlier(): EarlierRun[] {
+    return this.runs().flatMap(run => {
+      const id = run.execution?.executionId, seen = run.workerId ? this.worktrees.get(run.workerId)?.worktree : undefined;
+      // Runs saved before the branch was kept: a worker's branch is office/<name>-<first 4 of its id> (workers/manager.ts).
+      const branch = run.branch ?? seen?.branch ?? (run.workerName && run.workerId ? `office/${run.workerName.toLowerCase()}-${run.workerId.slice(0, 4)}` : undefined);
+      return id && branch ? [{ executionId: id, branch, base: run.worktreeBase ?? seen?.base }] : [];
+    });
+  }
+  private resumePlan(lease: ExecutionLease): ResumePlan | undefined {
+    if (!lease.progress?.done) return undefined;
+    if (!this.floorDir) return { state: 'missing', done: lease.progress.steps.filter(s => s.status === 'done').map(s => s.id), resumeAt: lease.progress.current,
+      first: lease.progress.steps[0]?.id ?? 'the first step', reason: 'this floor has no git checkout to look in' };
+    try { return resumePlan(lease, this.earlier(), this.floorDir); } catch { return undefined; }
+  }
+  /** Right before a resumed worker's first launch: the earlier runs' step commits onto its fresh branch. */
+  private pick(info: WorkerInfo) {
+    const plan = this.picks.get(info.id);
+    if (!plan || !info.worktree || !this.floorDir) return;
+    this.picks.delete(info.id);
+    const out = applyResume(path.join(this.floorDir, info.worktree.path), plan);
+    const lease = this.runs().find(run => run.workerId === info.id)?.execution ?? this.seating?.lease;
+    if (out.ok) console.log(`[opora] ${info.name}: picked ${plan.state === 'picks' ? plan.picks.length : 0} step commit(s) of an earlier run onto ${info.worktree.branch}${lease ? ` for ${lease.executionId}` : ''}`);
+    else console.warn(`[opora] ${info.name}: couldn't pick the earlier run's step commits onto ${info.worktree.branch} (${out.reason}); it redoes them`);
   }
   /** Its worker paused on a usage limit, or carried on: authority follows execution-controller's rule, once per pause. */
   onWorker(info: WorkerInfo) {

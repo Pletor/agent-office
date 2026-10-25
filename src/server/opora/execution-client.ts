@@ -37,7 +37,7 @@ export function executionTimeoutsFromEnvironment(env: NodeJS.ProcessEnv = proces
   return { requestMs: seconds(env.AGENT_OFFICE_OPORA_EXECUTION_TIMEOUT_S, 20), heartbeatMs: seconds(env.AGENT_OFFICE_OPORA_HEARTBEAT_TIMEOUT_S, 15) };
 }
 /** What the office was doing, for the error a person sees. */
-type Step = 'reading the card’s context' | 'claiming the card' | 'reading the assignment' | 'renewing the lease' | 'releasing the card';
+type Step = 'reading the card’s context' | 'claiming the card' | 'reading the assignment' | 'renewing the lease' | 'releasing the card' | 'reading the stored result';
 /** Canvas's own reason for a refusal (`detail`), single-line, short, and with the request's secrets blanked out. */
 function refusalDetail(text: string, secrets: string[]): string {
   let detail: unknown;
@@ -179,6 +179,12 @@ export class ExecutionClient {
       throw new ExecutionError(409, true, 'Canvas execution identity changed');
     }
     return next;
+  }
+  /** The receipts Canvas stored for this execution (`GET /{id}/results`), newest last; [] when there are none. */
+  async results(lease: ExecutionLease): Promise<unknown[]> {
+    const read = await this.call<{ results?: unknown }>(`${ROOT}/${encodeURIComponent(lease.executionId)}/results?`
+      + new URLSearchParams({ project: lease.project, workspace: lease.workspace }), undefined, 'reading the stored result');
+    return object(read) && Array.isArray(read.results) ? read.results : [];
   }
   async release(lease: ExecutionLease): Promise<void> {
     await this.call(`${ROOT}/${encodeURIComponent(lease.executionId)}/release`, this.credentials(lease), 'releasing the card');

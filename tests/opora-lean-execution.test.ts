@@ -128,7 +128,7 @@ test('handoff brief: predecessors with PR, steps, checks, decisions and lens, fl
 });
 
 test('progress brief resumes at the first unfinished step; nothing to say before any step is done', () => {
-  assert.match(progressBrief(progress), /1\/2 steps done \(s1\)\. Resume at step s2/);
+  assert.match(progressBrief(progress), /1\/2 steps done \(s1\)\. Their commits are not on your branch.*resume at step s2/);
   assert.equal(progressBrief({ ...progress, done: 0 }), '');
   assert.equal(progressBrief(undefined), '');
   assert.match(progressBrief({ ...progress, done: 2, current: null, steps: [{ id: 's1', status: 'done', executionId: null }, { id: 's2', status: 'done', executionId: null }] }), /every step done/);
@@ -139,7 +139,7 @@ test('execution prompt carries the handoff, the step command and the resume poin
   assert.match(prompt, /Handoff from the work before this card/);
   assert.match(prompt, /Step checkpoints: right after each step's commit/);
   assert.match(prompt, /'step' 'STEP_ID' 'done' '--notes' 'WHAT_YOU_DID'/);
-  assert.match(prompt, /Resume at step s2/);
+  assert.match(prompt, /resume at step s2/);
   assert.match(prompt, /"decisions":\[/);
   assert.doesNotMatch(prompt, /PRIVATE-token/);
   // Legacy card without steps: no step command, no resume line.

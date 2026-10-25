@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ExecutionLease } from './execution-client.js';
+import { executionTimeoutsFromEnvironment, type ExecutionLease } from './execution-client.js';
+import { resumeBrief, type ResumePlan } from './execution-resume.js';
 import { EXECUTION_INSTRUCTIONS_VERSION, sparseInstructions } from './execution-context.js';
 import { LEGACY_COMPLETION_PRECEDENCE, pinnedSteps, stepChecklist } from './plan-steps.js';
 import { handoffBrief, progressBrief } from './execution-handoff.js';
@@ -17,12 +18,13 @@ export function executionCommand(args: string[], windows = process.platform === 
  * Public worker prompts contain only a bundle path; the capability is server/worker-only. `design` is
  * a design card's addendum (design-brief.ts), sent in every context protocol.
  */
-export function executionPrompt(dataDir: string, base: string, agent: string, lease: ExecutionLease, context = '', design = '') {
+export function executionPrompt(dataDir: string, base: string, agent: string, lease: ExecutionLease, context = '', design = '', resume?: ResumePlan) {
   const directory = path.join(dataDir, 'opora-executions');
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const bundle = path.join(directory, lease.executionId + '.json');
   const resultRequestId = randomUUID();
   writeFileSync(bundle, JSON.stringify({ ...lease, base, actor: `agent; name=${agent}`, resultRequestId,
+    requestTimeoutMs: executionTimeoutsFromEnvironment().requestMs,
     ...(lease.contextProtocolVersion === 2 ? { executionInstructionsVersion: EXECUTION_INSTRUCTIONS_VERSION } : {}),
     resultEndpoint: new URL(`/api/oporahub/executions/${lease.executionId}/results`, base).href }, null, 2), { mode: 0o600, flag: 'wx' });
   const assignment = path.join(directory, lease.executionId + '-assignment.json');
@@ -33,7 +35,7 @@ export function executionPrompt(dataDir: string, base: string, agent: string, le
   const node = [process.execPath, ...(source ? ['--import', import.meta.resolve('tsx')] : []), helper, bundle];
   const command = executionCommand([...node, 'REPLACE_WITH_ABSOLUTE_RESULT_JSON']);
   const checkpoint = steps ? stepCheckpoint(executionCommand([...node, 'step', 'STEP_ID', 'done', '--notes', 'WHAT_YOU_DID', '--check', 'COMMAND: OUTCOME'])) : '';
-  const handoff = handoffBrief(lease.assignment), progress = steps ? progressBrief(lease.progress) : '';
+  const handoff = handoffBrief(lease.assignment), progress = steps ? (resume ? resumeBrief(resume) : progressBrief(lease.progress)) : '';
   return `${lease.contextProtocolVersion === 2 ? sparseInstructions() + '\n' : ''}Execute the immutable Canvas assignment in ${JSON.stringify(assignment)}.
 Project: ${lease.project}; workspace: ${lease.workspace}; card: ${lease.nodeId}.
 Execution: ${lease.executionId}; accepted revision: ${lease.acceptedRevision}; assignment SHA-256: ${lease.assignmentDigest}.
