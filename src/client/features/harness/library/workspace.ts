@@ -2,6 +2,7 @@ import type { HarnessCatalog } from '../../../../shared/harness';
 import { HARNESS_CATEGORIES } from '../../../../shared/harness';
 import { h } from '../../../ui/dom';
 import { capabilityCards } from './capabilities';
+import { latestDraft } from '../hierarchy/drafts';
 import './style.css';
 
 type Page = 'resources' | 'overview' | 'equipment' | 'runtime';
@@ -67,7 +68,8 @@ export function libraryWorkspace(el: HTMLElement, floor: () => string, signal: A
         + (data.bound ? ' Project binding is saved.' : ' No saved project binding.') + (data.notice ? ' ' + data.notice : '');
     } catch (error) { if (!signal.aborted && seq === ticket) hierarchy.textContent = (error as Error).message; }
   }
-  show('overview');
+  // A draft kept by ✕ or Esc reopens on Equipment, where its notice is (docs/harness-hierarchy.md).
+  show(latestDraft(floor()) ? 'equipment' : 'overview');
   return { show, catalog(value: HarnessCatalog) {
     catalog = value;
     summary.textContent = `${catalog.entries.length} resources · ${catalog.sources.filter(source => source.available).length}/${catalog.sources.length} sources` + (catalog.limited ? ' · limited catalog' : '');

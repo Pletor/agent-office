@@ -131,7 +131,7 @@ try {
     await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').count(), 0);
     revision++;
     await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
-    await page.getByRole('navigation', { name: 'Harness library pages' }).getByRole('button', { name: 'Equipment' }).click();
+    assert.equal(await page.getByRole('dialog').getAttribute('data-library-view'), 'equipment', 'a kept draft reopens on Equipment, where its notice is');
     await page.getByText(/Neuložené změny z minula – uložte nebo zahoďte\. Výbava se mezitím změnila \(revize 1 → 2\)/).waitFor();
     assert.equal(await json.inputValue(), draftLayer, 'stale draft is restored, not dropped');
     await page.getByRole('button', { name: 'Uložit výbavu', exact: true }).click();

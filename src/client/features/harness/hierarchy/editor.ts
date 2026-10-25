@@ -106,7 +106,8 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
         signal, method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? 'Konfiguraci nelze načíst.');
+      if (!response.ok) throw new Error(/changed elsewhere/i.test(data.error ?? '')
+        ? 'Výbavu mezitím uložil někdo jiný. Zahoďte změny a načtěte, pak úpravu zopakujte.' : data.error ?? 'Konfiguraci nelze načíst.');
       if (signal.aborted || seq !== ticket) return;
       view = data; draft = { ...view!.layers[view!.level] }; dirty = false; base = undefined; restored.hidden = true;
       experience.reset();
@@ -118,7 +119,9 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
         if (kept.revision !== view!.revision || kept.pathDigest !== view!.pathDigest) base = { revision: kept.revision, pathDigest: kept.pathDigest };
         restored.textContent = 'Neuložené změny z minula – uložte nebo zahoďte.' + (base ? ` Výbava se mezitím změnila (revize ${kept.revision} → ${view!.revision}); uložení skončí konfliktem, zahoďte změny a načtěte.` : '');
       }
-    } catch (error) { if (!signal.aborted && seq === ticket) status.textContent = (error as Error).message; }
+    } catch (error) {
+      if (!signal.aborted && seq === ticket) { status.textContent = (error as Error).message; status.scrollIntoView?.({ block: 'nearest' }); }
+    }
     finally { if (seq === ticket) { pending = false; render(); } }
   }
   filter.oninput = render;
