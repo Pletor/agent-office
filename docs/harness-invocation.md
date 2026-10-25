@@ -64,6 +64,10 @@ Scripts needing commands, writes, MCP or other capabilities require other adapte
 The script gets a new temporary home and minimal operating-system environment;
 hook tokens, model keys, `NODE_OPTIONS`, and the parent environment are not
 forwarded. Up to 32 arguments / 16 KiB and 64 KiB total output are supported.
+The argument limit keeps command lines within Windows limits. A script that needs
+larger input should take a file path: the script may read the working directory,
+so write the input there and pass its relative path. A tool that advertises more
+than 16 KiB of command-line input cannot be used through this adapter.
 Execution has a 30-second limit. The current execution identity is rechecked
 before spawn, at most once per second during the run, and after exit. A changed,
 expired or unreachable execution stops the child; a final failed check cannot
