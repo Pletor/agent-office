@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
 import { handleMcp } from '../bin/office-workers.js';
 import { codexMcpArgs } from '../src/server/office-workers.js';
+import { childEnv } from '../src/server/workers/env.js';
 
 const env = { AGENT_OFFICE_HARNESS_MCP: '1', AGENT_OFFICE_HOOK_URL: 'http://127.0.0.1:4455', AGENT_OFFICE_WORKER_ID: 'worker-a', AGENT_OFFICE_HOOK_TOKEN: 'fixture-token' };
 const call = (name: string, args: unknown, read: typeof fetch = fetch, credentials = env) => handleMcp({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }, { env: credentials, fetch: read });
@@ -23,6 +24,18 @@ test('Codex MCP environment selection preserves explicit opt-in without enabling
     }));
     assert.equal(response.result.tools.some((tool: any) => tool.name === 'harness_accepted_kit'), enabled);
   }
+});
+
+test("the office's Harness MCP switch reaches its workers, its other AGENT_OFFICE_ variables do not", (t) => {
+  const saved = { mcp: process.env.AGENT_OFFICE_HARNESS_MCP, url: process.env.AGENT_OFFICE_OPORA_URL };
+  t.after(() => {
+    for (const [k, v] of [['AGENT_OFFICE_HARNESS_MCP', saved.mcp], ['AGENT_OFFICE_OPORA_URL', saved.url]] as const) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  });
+  process.env.AGENT_OFFICE_HARNESS_MCP = '1'; process.env.AGENT_OFFICE_OPORA_URL = 'http://127.0.0.1:1';
+  assert.equal(childEnv().AGENT_OFFICE_HARNESS_MCP, '1');
+  assert.equal(childEnv().AGENT_OFFICE_OPORA_URL, undefined);
+  delete process.env.AGENT_OFFICE_HARNESS_MCP;
+  assert.equal('AGENT_OFFICE_HARNESS_MCP' in childEnv(), false);
 });
 
 test('Harness tools are registered with the existing Office MCP server', async () => {

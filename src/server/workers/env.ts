@@ -9,7 +9,9 @@ const SCRUB_ENV = new Set([
   'NO_COLOR', 'FORCE_COLOR', 'VSCODE_INJECTION', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION',
 ]);
 const SCRUB_PREFIXES = [...Object.values(PROVIDERS).flatMap((p) => p.scrubPrefixes ?? []), 'NEBULA_', 'AGENT_OFFICE_'];
-const scrubbed = (k: string) => SCRUB_ENV.has(k) || SCRUB_PREFIXES.some((p) => k.startsWith(p));
+// Office switches meant for its workers, kept although they start with AGENT_OFFICE_ (see docs/harness-mcp-tools.md).
+const WORKER_SWITCHES = new Set(['AGENT_OFFICE_HARNESS_MCP']);
+const scrubbed = (k: string) => !WORKER_SWITCHES.has(k) && (SCRUB_ENV.has(k) || SCRUB_PREFIXES.some((p) => k.startsWith(p)));
 
 /** The office's environment, minus anything that would make a child think it's a nested session. */
 export function childEnv(): Record<string, string> {
