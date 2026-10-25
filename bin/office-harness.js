@@ -6,6 +6,8 @@ import { harnessBundle } from '../dist/server/shared/harness.js';
 import { remoteHarness } from './harness-remote.js';
 import { docsQuery } from './harness-docs.js';
 import { context7 } from '../dist/server/server/harness/context7.js';
+import { probeRunner } from '../dist/server/server/harness/runner-probe.js';
+import { probeArgs } from './harness-probe.js';
 const args = process.argv.slice(2);
 if (process.env.AGENT_OFFICE_HOOK_URL) {
   await remoteHarness(args);
@@ -21,7 +23,8 @@ while (args[0] === '--project' || args[0] === '--data-dir') {
 }
 const action = args.shift();
 if (action === '--docs-accepted') throw new Error('Accepted documentation requires a connected worker Office and current accepted kit.');
-if (['--docs-resolve', '--docs'].includes(action)) {
+if (action === '--probe') console.log(JSON.stringify(await probeRunner(probeArgs(args)), null, 2));
+else if (['--docs-resolve', '--docs'].includes(action)) {
   console.log(JSON.stringify(await context7(docsQuery(action, args), { apiKey: process.env.CONTEXT7_API_KEY }), null, 2));
 } else {
 if (action && !['--read', '--bundle'].includes(action)) throw new Error('Usage: office-harness [--project folder] [--read id | --bundle id ...]');

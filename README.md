@@ -66,6 +66,10 @@ Resource IDs now survive checkout moves, with content digests, persisted version
 
 ## Requirements
 
+Agents can inspect bounded runner observations with `office-harness --probe` through their
+authenticated hook, or `--probe RUNNER` locally. Advertised flags remain separate from live
+MCP/permission verification. See [runner probes](docs/harness-probes.md).
+
 **Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP and memory references. Press **F8** anywhere (or **E** at the shelf) to open it across the whole screen, on a phone too. Save **Global → Repository → Task** assignments, inspect inherited values and export context packs. The Opora orchestrator can assign repository/task profiles with `office-harness`; each Opora card handoff includes the resolved, content-bearing snapshot. Assignments do not install tools or activate MCP/memory servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md).
 
 **Current coding documentation.** `office-harness --docs-resolve LIBRARY "public question"` and `--docs /owner/repo/VERSION "public question"` call Context7's real MCP tools, with bounded requests and content provenance. Workers use their authenticated Office hook; local calls need no runner-specific MCP setup. Optional `--docs-accepted RESOURCE "public question"` binds the lookup to an exact accepted MCP resource and rechecks execution authority. See [Context7 documentation tools](docs/harness-context7.md).
