@@ -95,6 +95,14 @@ export class ExecutionController {
     return { lease: next, deadline };
   }
   allowed(workerId: string) { const watch = this.watches.get(workerId); return !!watch && !watch.stopped && this.clock() < watch.deadline; }
+  /** Detached task data for the current worker only; never expose its execution capability. */
+  assignmentFor(workerId: string) {
+    const watch = this.watches.get(workerId);
+    if (!watch || !this.allowed(workerId)) return undefined;
+    const { executionId, project, workspace, nodeId, epoch, acceptedRevision, assignmentDigest, contextProtocolVersion, assignment } = watch.lease;
+    return { executionId, project, workspace, nodeId, epoch, acceptedRevision, assignmentDigest,
+      contextProtocolVersion: contextProtocolVersion ?? 1, assignment: structuredClone(assignment) };
+  }
   forget(workerId: string) {
     const watch = this.watches.get(workerId);
     if (watch) { watch.stopped = true; clearTimeout(watch.expiry); clearTimeout(watch.beat); this.watches.delete(workerId); }
