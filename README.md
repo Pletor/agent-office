@@ -481,10 +481,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 - [How it works](docs/how-it-works.md): the architecture, and security notes
 - [Code layout](docs/code-layout.md): where the code lives, adding a feature or an agent provider, and the size guard
 
-## License
-
-[MIT](LICENSE)
-
+## Harness: further reading
 
 On Windows, worker commands such as `office-harness` remain available when Git Bash starts a login shell with an inherited `ORIGINAL_PATH`. Office preserves that path and prepends its own command directory; see [configuration](docs/configuration.md#worker-commands-in-git-bash).
 Accepted documentation receipts also provide bounded metadata for the native `harnessDocumentation` result extension; [reporting guidance](docs/harness-context7.md#reporting-accepted-documentation-use) explains coverage and evidence limits.
@@ -513,7 +510,7 @@ provenance after a scoped peer compatibility check; see
 [v2 preparation](docs/harness-recommend.md#opt-into-accepted-selection-provenance).
 Workers can request provenance with `office-harness --recommend PROBLEM --kit-schema harness.kit/2`;
 the connected Office verifies peer compatibility before returning a proposal.
-## Planner equipment handoff
+### Planner equipment handoff
 
 Opora planners and routers receive Harness guidance before a kit is accepted.
 With the optional v2 integrations installed, they request a card-scoped proposal,
@@ -562,3 +559,7 @@ The existing Office MCP server also exposes [accepted Harness equipment and Cont
 
 The [paired agent experiment](docs/harness-ab-evaluation.md) records actual library use, independent acceptance results and a task/adapter capacity mismatch. It does not claim production readiness or a demonstrated general benefit.
 The [Harness composition contract](docs/harness-composed-contract.md) checks inherited choices, authenticated worker commands and unavailable optional verification services when the independent Harness modules are installed.
+
+## License
+
+[MIT](LICENSE)

@@ -5,7 +5,8 @@ Workers whose provider loads the existing `agent-office` MCP server can discover
 tools. No additional MCP server, provider settings, permissions or credentials are
 installed. The same module is available through `office-workers mcp` on stdio.
 
-Enable `AGENT_OFFICE_HARNESS_MCP=1` in the worker environment only after installing
+Set `AGENT_OFFICE_HARNESS_MCP=1` in the office's environment (it is the one `AGENT_OFFICE_`
+variable the office passes on to its workers) only after installing
 the accepted-runtime and Context7 modules (PR62 and PR56). The default MCP surface
 is unchanged. The Office Codex configuration includes this flag in its existing
 MCP environment allowlist; Claude and OpenCode use their existing inherited
