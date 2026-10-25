@@ -4,6 +4,7 @@ import { h, openModal, toast, type Modal } from '../../ui/dom';
 import { hierarchyPanel } from './hierarchy/editor';
 import { libraryKeys } from './keyboard';
 import type { HarnessProjectChoice } from '../../../shared/harness-navigation';
+import { libraryWorkspace } from './library/workspace';
 
 let active: Modal | undefined;
 export function openHarness(floor: string) {
@@ -18,7 +19,7 @@ export function openHarness(floor: string) {
   const abort = new AbortController();
   let cascade = hierarchyPanel(floor, abort.signal);
   const project = h('select', { 'aria-label': 'Projekt knihovny' }, h('option', { value: floor }, floor));
-  const assign = h('button.btn', { type: 'button', onclick: () => { if (current) cascade.assign(current); } }, 'Assign resource');
+  const assign = h('button.btn', { type: 'button', onclick: () => { if (current) { workspace.show('equipment'); void cascade.assign(current); } } }, 'Assign resource');
   const filter = h('input', { type: 'search', placeholder: 'Search resources…', 'aria-label': 'Search harness resources' });
   const category = h('select', { 'aria-label': 'Resource category' }, h('option', { value: '' }, 'All categories'), ...HARNESS_CATEGORIES.map((c) => h('option', { value: c }, c)));
   const source = h('select', { 'aria-label': 'Resource source' }, h('option', { value: '' }, 'All sources'));
@@ -43,11 +44,11 @@ export function openHarness(floor: string) {
     h('div.body.harness-body', {}, cascade.el, h('aside', {}, status, list, sources), h('section.harness-reader', { 'aria-live': 'polite' }, back, title, origin, h('div.harness-actions', {}, add, assign), retryRead, text)),
     h('footer', {}, count, clear, download, copy),
   );
-  const keys = libraryKeys(el, filter, list);
+  const workspace = libraryWorkspace(el, () => floor, abort.signal);
+  const keys = libraryKeys(el, filter, list, () => workspace.show('resources'));
   active = openModal(el, { doing: '📚 at the Harness library', reading: true, onClose: () => { closed = true; abort.abort(); active = undefined; keys.release(); } });
-  // A phone's keyboard shouldn't pop up over the library: there the window itself takes focus.
-  // A moment later, so the E that opened the shelf isn't typed into the box.
-  setTimeout(() => (matchMedia('(pointer: fine)').matches ? filter : el).focus({ preventScroll: true }), 30);
+  // Delay focus past the E that opened the shelf; Overview never summons a phone keyboard.
+  setTimeout(() => { if (el.dataset.libraryView === 'overview') el.querySelector<HTMLElement>('.harness-navigation [aria-current]')?.focus({ preventScroll: true }); }, 30);
   /** On a phone the list and the reader take turns on the screen. */
   function showList() {
     el.dataset.pane = 'list';
@@ -63,6 +64,7 @@ export function openHarness(floor: string) {
   function update() {
     project.disabled = busy;
     count.textContent = selected.size + ' selected / 24';
+    assign.disabled = !current || busy;
     add.disabled = !current || busy || (!selected.has(current.id) && selected.size >= 24);
     add.textContent = current && selected.has(current.id) ? 'Remove from pack' : 'Add to pack';
     copy.disabled = download.disabled = busy || selected.size === 0;
@@ -117,6 +119,7 @@ export function openHarness(floor: string) {
       if (closed || sequence !== catalogRequest) return;
       catalog = result;
       cascade.catalog(result);
+      workspace.catalog(result);
       selected = new Set([...selected].filter((id) => result.entries.some((e) => e.id === id)));
       source.replaceChildren(h('option', { value: '' }, 'All sources'), ...[...new Set(result.entries.map((e) => e.source))].map((s) => h('option', { value: s }, s)));
       sources.replaceChildren(h('summary', {}, 'Sources and availability'), ...result.sources.map((s) => h('p', {}, (s.available ? '✓ ' : '— ') + s.name + (s.available ? '' : ' · not found'))),

@@ -16,6 +16,7 @@ try {
   await page.waitForTimeout(1500);
   await page.keyboard.press('F8');
   await page.getByRole('dialog', { name: 'Harness library' }).waitFor();
+  await page.getByRole('navigation').getByRole('button', { name: 'Resources' }).click();
   await page.getByRole('heading', { name: 'Start here', exact: true }).waitFor();
   await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished)));
   const box = await page.getByRole('dialog').boundingBox();
@@ -40,6 +41,7 @@ try {
     await page.waitForTimeout(700);
     await page.keyboard.press('KeyE');
     await page.getByRole('dialog', { name: 'Harness library' }).waitFor();
+    await page.getByRole('navigation').getByRole('button', { name: 'Resources' }).click();
     await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Search harness resources');
     assert.equal(await search.inputValue(), '', 'E opens with an empty search');
     await page.keyboard.type('hooks');

@@ -24,8 +24,8 @@ try {
   await page.goto((process.env.HARNESS_LAB_URL ?? 'http://127.0.0.1:5187/lab/harness.html') + '?floor=' + encodeURIComponent(floor));
   await page.waitForFunction(() => window.__ready);
   await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
-  await page.getByRole('heading', { name: 'Start here', exact: true }).waitFor();
-  await page.getByText('Inheritance: Global → Repository → Task', { exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Equipment' }).click();
+  await page.getByText('Advanced layer JSON', { exact: true }).click();
   await page.getByText(new RegExp('Revision ' + revision + '\\.')).waitFor();
   await page.getByLabel('Harness task', { exact: true }).fill('qa:cascade');
   await page.getByRole('button', { name: 'Load task / reload' }).click();
@@ -47,7 +47,7 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').count(), 0);
   await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
-  await page.getByText('Inheritance: Global → Repository → Task', { exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Equipment' }).click();
   await page.getByText(new RegExp('Revision ' + revision + '\\.')).waitFor();
   assert.match(await page.getByLabel('Harness layer JSON').inputValue(), /blue/);
   await page.setViewportSize({ width: 390, height: 844 });

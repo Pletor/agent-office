@@ -32,6 +32,7 @@ async function open(width, height, mode = 'real', reduced = false) {
   await page.goto(lab);
   await page.waitForFunction(() => window.__ready);
   await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Resources' }).click();
   await page.getByRole('dialog', { name: 'Harness library' }).waitFor();
   return { page, errors };
 }
