@@ -39,13 +39,17 @@ export async function remoteHarness(argv) {
     url.searchParams.set('kit', '1');
     url.searchParams.set('problem', args.shift());
     for (const id of args) url.searchParams.append('resource', id);
+  } else if (action === '--invocations' && (!args.length || (args.length === 2 && args[0] === '--resource'))) {
+    if (args.length && !args[1]) throw new Error('--resource requires an ID');
+    url.searchParams.set('invocations', '1');
+    if (args.length) url.searchParams.set('resource', args[1]);
   }
   else if (action === '--assign' && args.length === 2 && ['repository', 'task'].includes(args[0])) {
     const data = JSON.parse(readFileSync(args[1], 'utf8'));
     body = JSON.stringify({ scope: args[0], revision: data.revision, layer: data.layer });
-  } else if (action !== '--effective' || args.length) throw new Error('Usage: office-harness --probe | --catalog | --kit PROBLEM id ... | --effective [--task ID] | --assign repository|task file.json [--task ID]');
+  } else if (action !== '--effective' || args.length) throw new Error('Usage: office-harness --probe | --catalog | --kit PROBLEM id ... | --effective [--task ID] | --invocations [--task ID] [--resource ID] | --assign repository|task file.json [--task ID]');
   const response = await fetch(url, {
-    method: body ? 'POST' : 'GET',
+    method: body ? 'POST' : 'GET', redirect: 'error',
     headers: { authorization: 'Bearer ' + (process.env.AGENT_OFFICE_HOOK_TOKEN ?? ''), 'content-type': 'application/json' },
     body, signal: AbortSignal.timeout(30_000),
   });
