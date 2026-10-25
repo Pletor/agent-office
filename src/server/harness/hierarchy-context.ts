@@ -19,7 +19,8 @@ export function hierarchyAbout(dataDir: string, floor: Floor) {
   const bindings = new HarnessBindings(dataDir), binding = bindings.forFloor(floor.id), view = floor.opora.view();
   const linked = view.project && view.workspace ? { project: view.project.id, workspace: view.workspace, name: view.project.name } : null;
   let notice = '';
-  if (!binding) notice = 'Připojte patro k projektu Opory. Globální a projektová pravidla můžete upravovat už nyní.';
+  if (!binding) notice = view.connected ? 'Připojte patro k projektu Opory. Globální a projektová pravidla můžete upravovat už nyní.'
+    : 'Opora není dostupná, patro proto zatím nelze připojit. Globální a projektová pravidla můžete upravovat už nyní.';
   else if (!view.connected) notice = 'Opora není dostupná. Specializace počkají na obnovení spojení.';
   else if (!samePlace(binding, linked ?? undefined) || (binding.baseUrl && binding.baseUrl !== oporaOrigin(view.url))) notice = 'Okno Opory čte jiný projekt, prostor nebo server než uložené připojení. Přepněte okno zpět nebo připojení změňte.';
   return { bindings, binding, linked, view, notice, public: { bound: bindingView(binding), linked,
