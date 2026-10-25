@@ -47,6 +47,19 @@ export async function isAncestor(run: Runner, dir: string, a: string, b: string)
   }
 }
 
+/** The paths a client build depends on; the same list aktualizovat-vse.ps1 rebuilds the client for. */
+const CLIENT_PATHS = ['src/client', 'src/shared', ':(glob)*.html', 'vite.config.ts', 'public', 'package.json', 'package-lock.json'];
+
+/** Whether no client source changed from `a` to `b` (git diff --quiet answers with its exit code). */
+async function sameClient(run: Runner, dir: string, a: string, b: string): Promise<boolean> {
+  try {
+    await run('git', ['diff', '--quiet', a, b, '--', ...CLIENT_PATHS], dir);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** What the office was when it started: taken once, as the server starts. */
 export interface OfficeStart {
   appDir: string;
@@ -61,6 +74,8 @@ export async function officeRunning(run: Runner, start: OfficeStart, remoteSha: 
   const facts: RunningFacts = { sha: start.sha, dev: start.dev, built: start.built, disk: readStamp(appDir), client: readClientStamp(appDir) };
   facts.headNow = await tryRun(run, 'git', ['rev-parse', 'HEAD'], appDir);
   if (start.sha && remoteSha && start.sha !== remoteSha) facts.behind = await isAncestor(run, appDir, start.sha, remoteSha);
+  if (start.built?.sha && start.sha && start.built.sha !== start.sha) facts.builtSameClient = await sameClient(run, appDir, start.built.sha, start.sha);
+  if (facts.client?.sha && remoteSha && facts.client.sha !== remoteSha) facts.clientSameCode = await sameClient(run, appDir, facts.client.sha, remoteSha);
   if (!start.built?.sha && start.sha) {
     facts.indexMtime = mtime(path.join(appDir, 'dist', 'public', 'index.html'));
     const t = Number(await tryRun(run, 'git', ['log', '-1', '--format=%ct', start.sha], appDir));

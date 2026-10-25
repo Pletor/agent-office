@@ -172,6 +172,12 @@ test('red when the running build does not match: a commit off main, or dist buil
   assert.equal(lightOf(wrongDist), 'red');
   assert.match(wrongDist.find((r) => r.level === 'bad')!.text, /dist je sestavený z bbbbbbb/);
   assert.equal(lightOf(runningReasons({ sha: MAIN, dev: false, built: { sha: MAIN, dirty: true } }, 'fork/main', MAIN)), 'red');
+  // A server-only merge after the build: the client did not change, so the deploy script rightly skipped the rebuild.
+  const serverOnly = runningReasons({ sha: MAIN, dev: false, built: { sha: OLD }, builtSameClient: true, client: { sha: OLD }, clientSameCode: true }, 'fork/main', MAIN);
+  assert.equal(lightOf(serverOnly), 'green', JSON.stringify(serverOnly));
+  assert.ok(serverOnly.some((r) => /klient se od té doby nezměnil/.test(r.text)));
+  assert.equal(lightOf(runningReasons({ sha: MAIN, dev: false, built: { sha: OLD, dirty: true }, builtSameClient: true }, 'fork/main', MAIN)), 'red');
+  assert.equal(lightOf(runningReasons({ sha: MAIN, dev: false, built: { sha: MAIN }, client: { sha: OLD }, clientSameCode: false }, 'fork/main', MAIN)), 'red');
   // Under npm run dev there is no dist to match.
   assert.equal(lightOf(runningReasons({ sha: MAIN, dev: true }, 'fork/main', MAIN)), 'green');
 });
