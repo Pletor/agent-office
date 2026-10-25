@@ -119,7 +119,9 @@ test('self-checks follow the contract: passed iff exit 0, output cut to 4000, un
   const { exec } = fakeExec({ 'npm run build': 2, missing: null });
   const evidence = await runSelfChecks([{ name: 'tests', command: 'npm test' }, { name: 'build', command: 'npm run build' }, { name: 'x', command: 'missing' }], tmpdir(), HEAD, exec);
   assert.deepEqual(evidence.checks.map((c) => [c.name, c.status, c.exitCode]), [['tests', 'passed', 0], ['build', 'failed', 2], ['x', 'failed', 127]]);
-  assert.ok(evidence.checks.every((c) => (c.output ?? '').length <= 4000 && c.summary === `last ${c.command}`));
+  assert.ok(evidence.checks.every((c) => (c.output ?? '').length <= 4000 && c.summary?.endsWith(`last ${c.command}`)));
+  // A red check runs once more before it counts (watch-wave1 F23); one that never started does not.
+  assert.match(evidence.checks[1].summary!, /^failed twice \(exit 2, then exit 2; retried once\)/);
   assert.ok(validSelfChecks(evidence));
   assert.equal(validSelfChecks({ ...evidence, extra: 1 }), false);
   assert.equal(validSelfChecks({ headSha: HEAD, checks: [{ name: 'tests', command: 'x', exitCode: 1, status: 'passed' }] }), false);
@@ -163,7 +165,7 @@ test('evidence Canvas refuses as not yet the current head is posted again, witho
   assert.equal(f.calls.length, 3);
   assert.deepEqual(f.calls[2].body, f.calls[0].body);
   assert.equal(ran.length, 1);
-  assert.equal(JSON.parse(readFileSync(path.join(dir, 'ledger.json'), 'utf8'))[`ex-1@${HEAD}`], 'recorded');
+  assert.equal(JSON.parse(readFileSync(path.join(dir, 'ledger.json'), 'utf8'))[`ex-1@${HEAD}`].outcome, 'recorded');
   assert.match(logs.at(-1)!, /once it saw that head/);
 });
 

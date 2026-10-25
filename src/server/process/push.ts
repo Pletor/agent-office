@@ -1,11 +1,14 @@
 // Pushes a floor's process events to Opora (POST /api/oporahub/process-events), so Opora's Hub sees
 // the office's work live too. Fire and forget: batches of up to 50, sent within 250 ms of the first,
-// the same batch again after a failure (Opora takes an id it has seen as a no-op; a batch it refused for good, 422, is dropped), a bounded queue
+// the same batch again after a failure (Opora takes an id it has seen as a no-op), a bounded queue
 // that drops the oldest, and quiet backoff while Opora has no such endpoint (asked again each minute).
-// It never throws into the office and never makes anything wait.
+// Every string is made valid Unicode before it goes (a lone surrogate once made Opora refuse a whole
+// batch), and a batch Opora refuses for good (422/400) is split until only the event it refuses is
+// dropped: the good events in it are still delivered. It never throws into the office and never makes anything wait.
 
 import type { ProcessEvent } from '../../shared/protocol.js';
 import { OporaClient, OporaError } from '../opora/client.js';
+import { wellFormed } from '../../shared/text-cut.js';
 
 export const PUSH_BATCH = 50;
 export const PUSH_DELAY_MS = 250;
@@ -56,6 +59,8 @@ export class ProcessPush {
   private missingUntil = 0;
   /** How many events were dropped off a full queue. */
   dropped = 0;
+  /** How many events Opora refused for good, one by one (the rest of their batches went). */
+  rejected = 0;
   sent = 0;
   stopped = false;
 
@@ -109,17 +114,10 @@ export class ProcessPush {
       while (this.queue.length && !this.stopped) {
         if (this.missing) break;
         const batch = this.queue.slice(0, PUSH_BATCH);
+        let refused: number;
         try {
-          await this.send(this.base, batch);
+          refused = await this.deliver(batch);
         } catch (err) {
-          // 422: Opora took none of the batch and never will (it says why per event): done with it, not retried.
-          if (err instanceof OporaError && (err.status === 422 || err.status === 400)) {
-            logRejected(this.base, err.message);
-            const last = batch[batch.length - 1];
-            this.queue.splice(0, this.queue.indexOf(last) + 1);
-            this.failures = 0;
-            continue;
-          }
           if (err instanceof OporaError && (err.status === 404 || err.status === 405)) {
             this.missingUntil = this.timers.now() + PUSH_REPROBE_MS;
             retry = PUSH_REPROBE_MS;
@@ -130,7 +128,8 @@ export class ProcessPush {
         const last = batch[batch.length - 1];
         const at = this.queue.indexOf(last);
         this.queue.splice(0, at >= 0 ? at + 1 : 0);
-        this.sent += batch.length;
+        this.sent += batch.length - refused;
+        this.rejected += refused;
         this.failures = 0;
         this.missingUntil = 0;
       }
@@ -141,6 +140,35 @@ export class ProcessPush {
     }
     if (this.queue.length) this.schedule(retry);
   }
+
+  /**
+   * Sends `batch`, repaired; when Opora refuses it for good (422/400: it stored none of it), sends each
+   * half on its own, down to the single event it refuses, which is dropped (not sent again). Resolves to
+   * how many were dropped; rejects on any other failure, and the caller sends the whole batch again
+   * (the halves that went are duplicates then, which Opora takes as no-ops).
+   */
+  private async deliver(batch: ProcessEvent[]): Promise<number> {
+    try {
+      await this.send(this.base, batch.map(repair));
+      return 0;
+    } catch (err) {
+      if (!(err instanceof OporaError && (err.status === 422 || err.status === 400))) throw err;
+      if (batch.length === 1) {
+        logRejected(this.base, err.message);
+        return 1;
+      }
+      const half = Math.ceil(batch.length / 2);
+      return (await this.deliver(batch.slice(0, half))) + (await this.deliver(batch.slice(half)));
+    }
+  }
+}
+
+/** The event with every string in it valid Unicode (a lone surrogate becomes U+FFFD), so one bad character can't make Opora refuse it. */
+export function repair<T>(value: T): T {
+  if (typeof value === 'string') return wellFormed(value) as T;
+  if (Array.isArray(value)) return value.map(repair) as T;
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, repair(v)])) as T;
+  return value;
 }
 
 /** Every Opora the building's floors push to, by its address. */
