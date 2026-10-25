@@ -7,6 +7,7 @@ import { HarnessError, HarnessProfiles, parseHarnessLayer } from './profiles.js'
 import { hierarchyAbout, hierarchyContext, oporaOrigin } from './hierarchy-context.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { harnessHandoff } from './handoff.js';
+import { HarnessRegistry } from './registry.js';
 import { harnessLevel, resolveHarness, type HarnessLevel } from '../../shared/harness-cascade.js';
 import { samePlace } from '../../shared/opora-identity.js';
 import { originHistory } from './origin-history.js';
@@ -51,7 +52,8 @@ export async function harnessHierarchyRequest(ctx: Ctx, floor: Floor, req: http.
         if (level === 'global' && !authority.globalWrite) throw new HarnessError('Globální nastavení patří správci v kanceláři.', 403);
         const layer = parseHarnessLayer(body.layer);
         if (target && body.pathDigest !== context.digest) throw new HarnessError('Hierarchie se změnila. Načtěte ji znovu před uložením.', 409);
-        const library = new HarnessLibrary(harnessSources(floor.dir, authority.local));
+        // The registry's digest cache, as the handoff uses: without it every save re-hashed the whole catalog (~2 s).
+        const library = new HarnessLibrary(harnessSources(floor.dir, authority.local), new HarnessRegistry(ctx.cfg.dataDir));
         await library.list();
         for (const binding of Object.values(layer)) if (binding && 'resource' in binding) {
           const entry = await library.read(binding.resource);
