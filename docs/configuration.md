@@ -170,3 +170,10 @@ The checks run on the office's server, with `git` and `gh` started with fixed ar
 | `AGENT_OFFICE_STATUS_REMOTE` | The office's remote main, as `remote/branch` (`fork/main`). |
 | `AGENT_OFFICE_STATUS_FETCH` | `off` (or `0`, `false`, `no`): never fetch, only compare with the remote-tracking branches as they are. |
 | `AGENT_OFFICE_OPORA_DIR`, `AGENT_OFFICE_OPORA_URL` | Opora's repository and address, as for [Opora Canvas](#opora-canvas). |
+
+
+## Worker commands in Git Bash
+
+Office adds its generated command directory to each worker's native `PATH`. On Windows, when a parent Git Bash also exported `ORIGINAL_PATH`, Office prepends the same directory in MSYS path notation to that existing list. This prevents a later login shell from dropping `office-harness`, `office-workers` and `office-queue` while restoring the older path. Existing directories and shell policy are preserved; `MSYS2_PATH_TYPE` is not changed. An explicitly strict/custom shell policy may still exclude inherited paths.
+
+The change applies when starting a worker. Restart the affected worker after upgrading; existing sessions keep their environment. It does not modify global profiles, install tools, change hook authentication or grant permissions. Unix path behavior is unchanged. The focused regression test reproduces command-not-found in a real Windows Git Bash login shell before checking the corrected environment.
