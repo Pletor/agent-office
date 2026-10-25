@@ -238,19 +238,28 @@ test('intent rejects unbound epochs, deadlines, floating cents and unsupported b
   } finally { f.journal.close(); rmSync(f.directory, { recursive: true, force: true }); }
 });
 
-test('fractional Canvas authority deadline aborts hung work without waiting for request timeout', async () => {
+test('fractional Canvas authority deadline aborts hung work without waiting for request timeout', { timeout: 5000 }, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_700_000_000_000 });
   const f = fixture();
   f.intent.budget.runDeadlineAt = (Date.now() + 150) / 1000;
   f.intent.budget.admittedAt = f.intent.budget.runDeadlineAt - 60;
   f.intent.authorityDeadlineAt = f.intent.budget.runDeadlineAt;
-  const executor = new ManagedAgentsExecutor(f.http(f.transport, 1000), f.journal);
+  const executor = new ManagedAgentsExecutor(f.http(f.transport, 1000), f.journal, () => Date.now(), () => Date.now());
   try {
     assert.equal(validateIntent(f.intent).authorityDeadlineAt, f.intent.budget.runDeadlineAt);
-    f.intercept((_url, _init, body) => body?.events?.[0]?.type === 'user.message' ? new Promise(() => {}) : undefined);
+    let sent = false;
+    f.intercept((_url, _init, body) => {
+      if (body?.events?.[0]?.type !== 'user.message') return undefined;
+      sent = true;
+      // Reach the hung request first; startup/fsync speed is not part of this deadline contract.
+      queueMicrotask(() => t.mock.timers.tick(151));
+      return new Promise(() => {});
+    });
     const started = Date.now();
     await assert.rejects(executor.start(f.intent, 'work', async () => true));
     await executor.revoke(f.intent.intentId);
-    assert.ok(Date.now() - started < 900, 'revocation must bypass the one-second HTTP timeout');
+    assert.equal(sent, true, 'the provider request was actually in flight');
+    assert.equal(Date.now() - started, 151, 'authority expiry aborts before the one-second HTTP timeout');
     assert.equal(executor.status(f.intent.intentId).state, 'terminated');
   } finally { await f.close(); }
 });
