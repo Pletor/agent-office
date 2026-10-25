@@ -104,6 +104,8 @@ Workers on context protocol 2 can use `office-harness --accepted-kit` to read th
 With native stability assessment and the optional lifecycle store installed, workers can inspect and update scoped recommendation state through [tool lifecycle commands](docs/harness-accepted-runtime.md#tool-recommendation-lifecycle). The server fetches evidence itself and carries a validated native verification reference for later reassessment; accepted assignments remain unchanged.
 The retained-evidence adapter rechecks that scoped reference after the session ends, without sending or restoring execution credentials, for optional automatic recommendation integration.
 
+Workers can first run `office-harness --prepare-accepted` to check pinned context, supported Node readiness and accepted Context7 access in their own process. Context7 uses at most two fixed public documentation queries through the existing authenticated adapter; failed or unprobed resources remain unavailable. It never executes resource contents or grants permissions. For explicit measured use of an accepted script, call `office-harness --invoke-node RESOURCE -- ARGS`. It requires the accepted-kit endpoint and supports trusted read-only Node scripts, with bounded execution and worker-observed receipts. Attach only `receipt.observation` to the final task result's `harnessInvocations` when Canvas supports native invocation metadata. See [Harness invocation](docs/harness-invocation.md).
+
 On the machine that runs the office:
 
 - **Node.js 20+**
@@ -540,3 +542,6 @@ Workers also receive [accepted Context7 usage guidance](docs/harness-accepted-ru
 The accepted-kit reader preserves [v2 selection provenance](docs/harness-accepted-runtime.md#reading-accepted-selection-provenance) while retaining strict v1 support. Reading the recorded rationale does not verify the decision or enable newer kits in older execution adapters.
 
 For context-v2 Harness tasks, the optional `AGENT_OFFICE_HARNESS_PREFLIGHT=1` gate validates accepted equipment before claim and compares it again before seating. Deploy the matching Canvas endpoint first; see [accepted runtime](docs/harness-accepted-runtime.md#pre-claim-accepted-content-gate). This is content integrity, not worker runtime readiness.
+Harness [local adapter compatibility](docs/harness-invocation.md#accepted-kit-version-compatibility) preserves v1 and accepts v2 only with the optional full runtime validator. Missing support rejects the new kit before preparation or execution.
+
+The accepted-runtime adapter also supplies an internal checker for automatic staged task preparation, including accepted tasks explicitly lacking a kit. See [automatic task preparation](docs/harness-task-preparation.md).

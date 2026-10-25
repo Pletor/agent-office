@@ -14,7 +14,9 @@ import { recommendationArgs } from './harness-recommend.js';
 import { searchCatalog } from './harness-search.js';
 const args = process.argv.slice(2);
 if (process.env.AGENT_OFFICE_HOOK_URL) {
-  await remoteHarness(args);
+  if (args[0] === '--prepare-accepted') await (await import('./harness-prepare.js')).prepareHarness(args);
+  else if (args[0] === '--invoke-node') await (await import('./harness-invoke.js')).invokeHarness(args);
+  else await remoteHarness(args);
 } else {
 let project = process.cwd();
 let dataDir = process.env.AGENT_OFFICE_DATA_DIR;
