@@ -4,6 +4,7 @@ import type { WorkerLaunchGuard } from '../workers/launch-guards.js';
 import { ExecutionClient, validateExecution, type ExecutionLease, type ExecutionScope } from './execution-client.js';
 import { ExecutionController } from './execution-controller.js';
 import { executionPrompt } from './execution-prompt.js';
+import { prepareExecution } from './execution-preflights.js';
 import { validateBudgetFiles } from './execution-budget-files.js';
 import { contextVersionFromEnvironment } from './execution-context.js';
 import { PullRequestHandoff, type HandoffTools } from './pull-request-handoff.js';
@@ -96,9 +97,11 @@ export class ExecutionDispatch {
     return this.controller.guarded(scope, async () => {
       const context = this.contextVersion === 2 ? '' : await prepare();
       const brief = await design().catch(() => '');
+      const prepared = await prepareExecution({ client: this.client, scope, contextVersion: this.contextVersion });
       const grant = await this.inTurn(() => this.controller.claim(scope, this.contextVersion)).catch((e: Error) => { emitProcess(this.agent, claimEvent(scope, { error: e.message })); throw e; });
       let seatedId: string | undefined;
       try {
+        prepared(grant.lease);
         const resume = this.resumePlan(grant.lease);
         const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief, resume);
         const prompt = (this.contextVersion === 2 ? immutablePrompt : decorate(immutablePrompt)).trim();

@@ -20,7 +20,23 @@ export async function remoteHarness(argv) {
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID ?? '');
   if (task) url.searchParams.set('task', task);
   let body, requestedKitSchema;
-  if (['--hierarchy', '--origin-history', '--configure', '--bind'].includes(action)) body = hierarchyCommand(action, args, task, url);
+  if (['--recall-shared', '--publish-shared'].includes(action) && args.length === 3 && args[1] === '--resource' && !task) {
+    url.searchParams.set('shared-memory', args[0]); url.searchParams.set('resource', args[2]);
+    body = JSON.stringify({ operation: action === '--publish-shared' ? 'publish' : 'recall' });
+  }
+  else if (action === '--tool-status' && args.length === 1 && !task) url.searchParams.set('stability', args[0]);
+  else if (['--promote-tool', '--reconcile-tool'].includes(action) && !task && [3, 5].includes(args.length)
+    && args[1] === '--revision' && /^(0|[1-9][0-9]*)$/.test(args[2]) && Number.isSafeInteger(Number(args[2]))
+    && (args.length === 3 || (action === '--reconcile-tool' && args[3] === '--fallback-plan'))) {
+    url.searchParams.set('stability', args[0]);
+    body = JSON.stringify({ revision: Number(args[2]), operation: action === '--promote-tool' ? 'promote' : 'reconcile',
+      ...(args.length === 5 ? { fallbackPlan: args[4] } : {}) });
+  }
+  else if (action === '--accepted-kit' && !args.length && !task) url.searchParams.set('accepted-kit', '1');
+  else if (action === '--recover' && args.length === 3 && args[1] === '--from' && !task) {
+    url.searchParams.set('recover', args[0]); url.searchParams.set('from', args[2]);
+  }
+  else if (['--hierarchy', '--origin-history', '--configure', '--bind'].includes(action)) body = hierarchyCommand(action, args, task, url);
   else if (action === '--probe' && !args.length && !task) url.searchParams.set('capabilities', '1');
   else if (['--docs-resolve', '--docs', '--docs-accepted'].includes(action)) {
     url.searchParams.set('docs', '1'); body = JSON.stringify(docsQuery(action, args));
@@ -47,7 +63,7 @@ export async function remoteHarness(argv) {
   else if (action === '--assign' && args.length === 2 && ['repository', 'task'].includes(args[0])) {
     const data = JSON.parse(readFileSync(args[1], 'utf8'));
     body = JSON.stringify({ scope: args[0], revision: data.revision, layer: data.layer });
-  } else if (action !== '--effective' || args.length) throw new Error('Usage: office-harness --probe | --catalog | --kit PROBLEM id ... | --effective [--task ID] | --invocations [--task ID] [--resource ID] | --assign repository|task file.json [--task ID]');
+  } else if (action !== '--effective' || args.length) throw new Error('Usage: office-harness --recall-shared PUBLICATION --resource RESOURCE | --publish-shared PUBLICATION --resource RESOURCE | --tool-status PLAN | --promote-tool PLAN --revision N | --reconcile-tool PLAN --revision N [--fallback-plan PLAN] | --recover RESOURCE --from EXECUTION | --accepted-kit | --probe | --catalog | --kit PROBLEM id ... | --effective [--task ID] | --invocations [--task ID] [--resource ID] | --assign repository|task file.json [--task ID]');
   const response = await fetch(url, {
     method: body ? 'POST' : 'GET', redirect: 'error',
     headers: { authorization: 'Bearer ' + (process.env.AGENT_OFFICE_HOOK_TOKEN ?? ''), 'content-type': 'application/json' },

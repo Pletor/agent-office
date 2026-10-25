@@ -16,6 +16,10 @@ import { HarnessBindings } from './bindings.js';
 import { parseOporaKey } from '../../shared/opora-identity.js';
 import { boundHarnessProfile } from './bound-profile.js';
 import { measurementsRequest } from './measurements-api.js';
+import { acceptedKitRequest } from './accepted-kit.js';
+import { recoveryRequest } from './recovery-api.js';
+import { stabilityRequest } from './stability-api.js';
+import { sharedMemoryRequest } from './shared-memory-api.js';
 
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean) {
   try {
@@ -59,6 +63,10 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   if (url.searchParams.has('capabilities')) return runnerProbeRequest(req, res, url, me.provider ?? floor.workers.defaultProvider, floor.id + ':' + me.id);
   if (url.searchParams.has('invocations')) return measurementsRequest(floor, req, res, url,
     () => ctx.workerFloor(id) === floor && !!floor.workers.authenticate(id, (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')));
+  if (url.searchParams.has('shared-memory')) return sharedMemoryRequest(ctx, floor, id, req, res, url);
+  if (url.searchParams.has('stability')) return stabilityRequest(ctx, floor, id, req, res, url);
+  if (url.searchParams.has('recover')) return recoveryRequest(floor, id, req, res, url);
+  if (url.searchParams.has('accepted-kit')) return acceptedKitRequest(floor.opora.executions.controller, id, req, res, url);
   const plan = floor.planning.state().current;
   // Workers without an identified administrator owner may read only project-published resources.
   const active = plan?.workerId === id && (plan.mode === 'opora' || plan.mode === 'router');

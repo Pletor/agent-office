@@ -99,6 +99,11 @@ Native incident/revert guardrails suppress automatic reuse of affected versions;
 assignments remain visible with warnings. These associations do not establish tool causation.
 The Czech [implementation and gap map](docs/harness-status.md) explains the UI, evidence and remaining production work.
 
+Workers on context protocol 2 can use `office-harness --accepted-kit` to read their current execution's exact accepted kit through the authenticated hook server. Their static worker guide also requests optional `--prepare-accepted` checks before tool use, with missing adapters reported as unavailable. Reading the kit does not install or execute tools; see [accepted kit runtime](docs/harness-accepted-runtime.md).
+
+With native stability assessment and the optional lifecycle store installed, workers can inspect and update scoped recommendation state through [tool lifecycle commands](docs/harness-accepted-runtime.md#tool-recommendation-lifecycle). The server fetches evidence itself and carries a validated native verification reference for later reassessment; accepted assignments remain unchanged.
+The retained-evidence adapter rechecks that scoped reference after the session ends, without sending or restoring execution credentials, for optional automatic recommendation integration.
+
 On the machine that runs the office:
 
 - **Node.js 20+**
@@ -522,3 +527,16 @@ global/repository). See [hierarchy documentation](docs/harness-hierarchy.md).
 Harness area inheritance uses explicit Canvas `memberOf`, never card position or overlap. Legacy nodes without membership skip the area level; accepted execution snapshots remain unchanged. See [hierarchy compatibility](docs/harness-hierarchy.md).
 
 Harness equipment edits stay in their selected scope: changing hierarchy or project is blocked until edits are saved or explicitly discarded. Pending saves also block project changes. This affects future preparation, not accepted running assignments.
+A worker can request `office-harness --recover RESOURCE --from EXECUTION` to prepare a historical same-card kit proposal. The [recovery command](docs/harness-accepted-runtime.md#historical-recovery) keeps capabilities private and requires ordinary Canvas acceptance.
+
+Workers with an accepted Harness kit receive [usage guidance in their session](docs/harness-accepted-runtime.md#discovery-in-worker-sessions), including the command that reads their exact pinned resources.
+
+Workers can [recall or publish shared fixture lessons](docs/harness-accepted-runtime.md#shared-fixture-lessons-for-an-accepted-tool) with `office-harness --recall-shared PUBLICATION --resource RESOURCE` or `--publish-shared`. Office checks the exact accepted tool and fresh native evidence; public requests never carry execution tokens.
+
+The worker guide also explains [preparing equipment for the next accepted assignment](docs/harness-accepted-runtime.md#preparing-equipment-for-the-next-accepted-assignment): optional v2 recommendations preserve selection reasons, while the orchestrator accepts the proposal before a new worker assignment uses it.
+
+Workers also receive [accepted Context7 usage guidance](docs/harness-accepted-runtime.md#accepted-context7-documentation), including exact library selection, remote-service limits and the native documentation observation field.
+
+The accepted-kit reader preserves [v2 selection provenance](docs/harness-accepted-runtime.md#reading-accepted-selection-provenance) while retaining strict v1 support. Reading the recorded rationale does not verify the decision or enable newer kits in older execution adapters.
+
+For context-v2 Harness tasks, the optional `AGENT_OFFICE_HARNESS_PREFLIGHT=1` gate validates accepted equipment before claim and compares it again before seating. Deploy the matching Canvas endpoint first; see [accepted runtime](docs/harness-accepted-runtime.md#pre-claim-accepted-content-gate). This is content integrity, not worker runtime readiness.
