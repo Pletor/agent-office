@@ -244,10 +244,16 @@ test('floor removal after provider mapping prevents the first work event and arc
 
 test('lease expiry independently stops provider and shutdown leaves a durable immutable intent', async t => {
   const f = await fixture(t);
-  f.lease.expiresAt = Date.now() / 1000 + 0.25;
+  // Canvas renews a short lease on every heartbeat while start runs, so a slow (loaded) start never meets an
+  // already-expired authority; once start has answered, renewal stops and the office's own deadline must end the run.
+  let renewing = true;
+  f.hook(url => { if (renewing && url.includes('/heartbeat')) f.lease.expiresAt = Date.now() / 1000 + 2; return undefined; });
   const response = await f.call('start', f.input);
   assert.equal(response.status, 200, JSON.stringify(response.value));
-  await new Promise(resolve => setTimeout(resolve, 300));
+  renewing = false;
+  assert.equal(response.value.state, 'running');
+  for (let index = 0; index < 200 && (await f.call('runs')).value.items[0].state !== 'terminated'; index++)
+    await new Promise(resolve => setTimeout(resolve, 50));
   assert.equal(f.session.status, 'terminated');
   const current = await f.call('runs'); assert.equal(current.value.items[0].state, 'terminated');
   await f.reopen();
