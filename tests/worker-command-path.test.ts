@@ -26,12 +26,13 @@ test('actual Git Bash login retains a worker command with a stale inherited ORIG
   if (process.platform !== 'win32') return t.skip('Windows Git Bash integration');
   const bash = ['C:/Program Files/Git/bin/bash.exe', 'C:/Program Files/Git/usr/bin/bash.exe'].find(existsSync);
   if (!bash) return t.skip('Git Bash unavailable');
-  const dir = mkdtempSync(path.join(tmpdir(), 'office commands '));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const dir = mkdtempSync(path.join(tmpdir(), 'office commands ')), home = mkdtempSync(path.join(tmpdir(), 'office home '));
+  t.after(() => { rmSync(dir, { recursive: true, force: true }); rmSync(home, { recursive: true, force: true }); });
   writeFileSync(path.join(dir, 'office-path-proof'), '#!/bin/sh\nprintf "office-command-found"\n');
   const env: Record<string, string> = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   for (const key of Object.keys(env)) if (['PATH', 'ORIGINAL_PATH'].includes(key.toUpperCase())) delete env[key];
-  Object.assign(env, { PATH: `${dir};C:\\Windows\\System32`, ORIGINAL_PATH: '/usr/bin', MSYS2_PATH_TYPE: 'inherit' });
+  // An empty HOME keeps the machine user's ~/.bashrc out of the login: it may add PATH entries (even the cwd).
+  Object.assign(env, { PATH: `${dir};C:\\Windows\\System32`, ORIGINAL_PATH: '/usr/bin', MSYS2_PATH_TYPE: 'inherit', HOME: home });
   const before = spawnSync(bash, ['-lc', 'office-path-proof'], { env, cwd: dir, encoding: 'utf8', timeout: 10000 });
   assert.equal(before.status, 127, 'the stale login snapshot must reproduce the missing command');
   prependOfficeCommandPath(env, dir, true);
