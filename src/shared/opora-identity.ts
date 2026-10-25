@@ -3,9 +3,6 @@
 // never takes one from a name or a position, and never carries one from one project or workspace to
 // another: the same node id in another workspace is another card.
 
-import { ancestry } from './opora-scope.js';
-import type { OporaScopeNode } from './protocol/opora.js';
-
 export const OPORA_IDENTITY_VERSION = 1;
 
 /** The levels of the hierarchy, outermost first. Each one below `global` is an Opora id. */
@@ -35,38 +32,7 @@ export function parseOporaKey(key: string): (OporaPlace & { nodeId: string }) | 
   }
 }
 
-/** Why `key` can't be used in `place`, or undefined when it can: another project or workspace is refused, never remapped. */
-export function refuseForeign(place: OporaPlace, key: string): string | undefined {
-  const at = parseOporaKey(key);
-  if (!at) return `Not an Opora key: ${key}`;
-  if (at.project !== place.project) return `That node is in another Opora project (${at.project})`;
-  if (at.workspace !== place.workspace) return `That node is in another workspace (${at.workspace}) of the project`;
-  return undefined;
-}
-
 /** Whether two places are the same project and workspace. */
 export function samePlace(a: OporaPlace | undefined, b: OporaPlace | undefined): boolean {
   return !!a && !!b && a.project === b.project && a.workspace === b.workspace;
-}
-
-/**
- * Whether a focus still means what it meant when it was switched on: every node in it is still in
- * the architecture with every node above it switched on too. A node that vanished or moved breaks
- * it, so the focus is never quietly widened to what's left of it (the parent of a vanished task).
- */
-export function focusIntact(scope: readonly OporaScopeNode[], focus: readonly string[]): boolean {
-  const on = new Set(focus);
-  const there = new Set(scope.map((n) => n.id));
-  return focus.every((id) => there.has(id) && ancestry(scope, id).every((a) => on.has(a)));
-}
-
-/**
- * The area a node explicitly belongs to, as Opora states it in the node's `memberOf`, or undefined.
- * Only an area with the same parent counts; the office never guesses one from where a card is drawn.
- */
-export function areaOf(nodes: readonly { id: string; kind: string; parentId: string | null; memberOf?: string }[], id: string): string | undefined {
-  const node = nodes.find((n) => n.id === id);
-  if (!node?.memberOf) return undefined;
-  const area = nodes.find((n) => n.id === node.memberOf);
-  return area?.kind === 'area' && area.parentId === node.parentId ? area.id : undefined;
 }

@@ -7,7 +7,7 @@
 // sector is the "layer" is only Opora's convention of nesting one card (`[vrstva NN]`) under the page,
 // so it's read from the shape alone (the innermost card above the sector) and a canvas without that
 // nesting, or without `memberOf` (Opora before areas had members), simply has no layer or no area.
-import { oporaKey, parseOporaKey, refuseForeign, type OporaPlace } from './opora-identity.js';
+import { oporaKey, type OporaPlace } from './opora-identity.js';
 import type { HarnessPath, HarnessPathNode } from './harness-cascade.js';
 
 /** What the hierarchy needs of a canvas node. */
@@ -92,19 +92,4 @@ export function harnessDeadEnd(nodes: readonly HierarchyNode[], nodeId: string, 
   const reaches = children.some((c) => c.kind === 'sector' || (c.kind === 'node' && !index.children.get(c.id)?.length));
   if (reaches) return undefined;
   return `"${self.name || nodeId}" is a card between the page and the layers under it: no task's path goes through it, so a layer saved here would reach nothing. Save at the page above it or at the layer right above a sector.`;
-}
-
-/**
- * The path for what a caller addressed: an Opora key of this place is looked up on the canvas, a key
- * of another project or workspace is refused (the reason is thrown), and anything else is a custom
- * task id with nothing above it.
- */
-export function harnessTarget(nodes: readonly HierarchyNode[], place: OporaPlace | undefined, id: string): HarnessPath {
-  if (!id) return [];
-  const at = parseOporaKey(id);
-  if (!at) return [{ level: 'task', node: id }];
-  if (!place) return [{ level: 'task', node: id }];
-  const foreign = refuseForeign(place, id);
-  if (foreign) throw new Error(foreign);
-  return harnessPath(nodes, place, at.nodeId);
 }

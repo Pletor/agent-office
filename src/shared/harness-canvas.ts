@@ -1,7 +1,6 @@
 import type { HierarchyNode } from './harness-hierarchy.js';
 
 export interface GeometryNode extends HierarchyNode { x: number; y: number; size?: { w: number; h: number } }
-export const AREA_MEMBERSHIP_CONTRACT = 'canvas.explicit-memberOf/1';
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 128 && !/[\x00-\x1f\x7f]/.test(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
