@@ -86,6 +86,7 @@ Versioned experience also shows optional incident/revert warnings without changi
 The autonomous learning loop, evidence metrics and H01–H24 integration work are specified in [Harness learning](docs/harness-learning.md). `npm run harness:replay -- observations.json` checks offline evidence and calculates version-specific rates with uncertainty. Live outcome-based selection and automatic learning are not yet deployed.
 
 Agents can prepare a versioned kit with `office-harness --kit PROBLEM resource-id ...` and attach it as `fields.harness` in an Opora specification proposal. The kit pins accessible resource content and SHA-256; Opora must support `harness.kit/1`. See [Harness kits](docs/harness.md#accepted-tool-kits).
+Authenticated workers with the accepted Node invocation adapter can compare pinned script versions using `office-harness --evaluate-pair PLAN_RESOURCE`. Predeclared cases measure output correctness separately from process success, preserve failures and unknown trials, and keep experiment outcomes separate from production-problem ratings. See [paired candidate evaluation](docs/harness-paired-evaluation.md).
 
 ## Requirements
 
@@ -545,3 +546,5 @@ For context-v2 Harness tasks, the optional `AGENT_OFFICE_HARNESS_PREFLIGHT=1` ga
 Harness [local adapter compatibility](docs/harness-invocation.md#accepted-kit-version-compatibility) preserves v1 and accepts v2 only with the optional full runtime validator. Missing support rejects the new kit before preparation or execution.
 
 The accepted-runtime adapter also supplies an internal checker for automatic staged task preparation, including accepted tasks explicitly lacking a kit. See [automatic task preparation](docs/harness-task-preparation.md).
+Paired Harness evaluation supports accepted selection provenance through the
+optional installed validators; see [compatibility and async preparation](docs/harness-paired-evaluation.md#accepted-selection-provenance).
