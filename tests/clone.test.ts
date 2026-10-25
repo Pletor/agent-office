@@ -23,6 +23,9 @@ case "$1 $2" in
     [ -n "$FAKE_GH_HANG" ] && exec sleep 600
     printf "Receiving objects:  42%% (42/100), 1.00 MiB | 512.00 KiB/s\\r" >&2
     [ -n "$FAKE_GH_DELAY" ] && sleep "$FAKE_GH_DELAY"
+    if [ -n "$FAKE_GH_RELEASE" ]; then
+      while [ ! -f "$FAKE_GH_RELEASE" ]; do sleep 0.05; done
+    fi
     git clone -q "$FAKE_GH_REPOS/$name.git" "$dest" || exit 1
     git -C "$dest" remote set-url origin "https://github.com/$name.git"
     ;;
@@ -60,7 +63,7 @@ function office(t: { after(fn: () => void): void }) {
   execFileSync('git', ['clone', '-q', '--bare', work, path.join(repos, 'acme', 'game.git')]);
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
   process.env.FAKE_GH_REPOS = repos;
-  for (const k of ['FAKE_GH_DELAY', 'FAKE_GH_HANG', 'FAKE_GH_FAIL']) delete process.env[k];
+  for (const k of ['FAKE_GH_DELAY', 'FAKE_GH_HANG', 'FAKE_GH_FAIL', 'FAKE_GH_RELEASE']) delete process.env[k];
   const projects = path.join(root, 'projects');
   /** The clones under way, as the office keeps them for the next one. */
   const saved = () => (existsSync(path.join(dataDir, 'cloning.json')) ? (JSON.parse(readFileSync(path.join(dataDir, 'cloning.json'), 'utf8')) as (FloorDef & { pid: number })[]) : []);
@@ -153,24 +156,27 @@ test('a clone can be stopped by an admin or whoever added it', async (t) => {
   assert.equal(building.cancel(id, 'again', () => true), 'No such floor');
 });
 
-test('a restart mid-clone picks the clone back up, and it becomes its floor', async (t) => {
-  const { dataDir, projects, saved, running } = office(t);
-  process.env.FAKE_GH_DELAY = '1';
-  const first = new Building(dataDir, projects, fast);
+test('a restart mid-clone picks the clone back up, and it becomes its floor', { timeout: 15_000 }, async (t) => {
+  const { root, dataDir, projects, saved, running } = office(t);
+  const release = path.join(root, 'release-clone');
+  process.env.FAKE_GH_RELEASE = release;
+  // Hold completion until adoption is asserted, without racing the separate stall test's short watchdog.
+  const polling = { clone: { tickMs: 50 } };
+  const first = new Building(dataDir, projects, polling);
   void first.add('acme/game', 'Sam', () => {});
-  await running();
-  // The office restarts (tsx watch, systemd): the clone carries on without it.
+  const pid = await running();
   first.shutdown(true);
-  const second = new Building(dataDir, projects, fast);
-  const done: (FloorDef | string)[] = [];
-  second.resumeClones((r) => done.push(r));
-  assert.deepEqual(second.pending().map((d) => d.repo), ['acme/game'], "it's on its way again");
-  await until(() => done.length > 0);
-  assert.equal(typeof done[0], 'object', String(done[0]));
-  assert.deepEqual(second.list().map((d) => d.repo), ['acme/game']);
+  const second = new Building(dataDir, projects, polling);
+  const done = new Promise<FloorDef | string>(resolve => second.resumeClones(resolve));
+  assert.deepEqual(second.pending().map(d => d.repo), ['acme/game'], "it's on its way again");
+  assert.equal(saved()[0].pid, pid, 'the restart adopts the original clone process');
+  assert.ok(alive(pid), 'completion remains held until the restarted office adopts it');
+  writeFileSync(release, 'continue');
+  const result = await done;
+  assert.equal(typeof result, 'object', String(result));
+  assert.deepEqual(second.list().map(d => d.repo), ['acme/game']);
   assert.deepEqual(saved(), []);
-  // Saved, so the next office has it too.
-  assert.deepEqual(new Building(dataDir, projects).list().map((d) => d.repo), ['acme/game']);
+  assert.deepEqual(new Building(dataDir, projects).list().map(d => d.repo), ['acme/game']);
 });
 
 test('a clone that finished while no office was watching becomes its floor at the next start', async (t) => {
