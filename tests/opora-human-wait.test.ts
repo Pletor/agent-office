@@ -46,6 +46,10 @@ test('an older Canvas, an empty or malformed agent-state has no human wait, and 
   }
   // Ready claims are read as before.
   assert.deepEqual([...digestAgentState({ actions: [{ verb: 'claim', status: 'ready', targetId: 'c1' }, { verb: 'claim', status: 'blocked', targetId: 'c2' }] }).ready], ['c1']);
+  // A card with a pinned Harness kit is claimable only through the sparse context: a v1 office leaves it alone.
+  const kit = { actions: [{ verb: 'claim', status: 'ready', targetId: 'c1' }, { verb: 'claim', status: 'ready', targetId: 'kit', preconditions: { contextProtocolVersion: 2 } }] };
+  assert.deepEqual([...digestAgentState(kit, 1).ready], ['c1']);
+  assert.deepEqual([...digestAgentState(kit, 2).ready], ['c1', 'kit']);
 });
 
 test('a decision whose action an agent may take is not a human wait; a changeset wait leaves claims open', () => {

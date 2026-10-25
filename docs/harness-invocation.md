@@ -60,6 +60,8 @@ filesystem reads of the working directory and its temporary script; it grants no
 filesystem writes, child processes, worker threads, native addons or WASI. This
 adapter is suitable for deterministic calculations and repository inspection.
 Scripts needing commands, writes, MCP or other capabilities require other adapters.
+The pinned content runs as an ES module (`accepted.mjs`): write it with `import`
+(for example `import { readFileSync } from 'node:fs'`); `require` is undefined there.
 
 The script gets a new temporary home and minimal operating-system environment;
 hook tokens, model keys, `NODE_OPTIONS`, and the parent environment are not
