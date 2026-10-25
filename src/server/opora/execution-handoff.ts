@@ -79,10 +79,13 @@ export function handoffBrief(assignment: unknown, max = HANDOFF_BRIEF_MAX): stri
   return out.join('\n');
 }
 
-/** The prompt's resume line from live progress: which steps are already done and where to start; '' when there is nothing to resume. */
+/**
+ * The prompt's resume line from live progress alone, when the office couldn't look for the earlier run's commits
+ * (execution-resume.ts says what it picked onto the branch when it could); '' when there is nothing to resume.
+ */
 export function progressBrief(progress: ExecutionProgress | undefined): string {
   if (!progress || !progress.done) return '';
   const done = progress.steps.filter(s => s.status === 'done').map(s => s.id);
   if (!progress.current) return `Progress: an earlier run already reported every step done (${done.join(', ')}). Verify the work, don't redo it.`;
-  return `Progress: an earlier run already reported ${progress.done}/${progress.total} steps done (${done.join(', ')}). Resume at step ${progress.current}: don't redo the done steps (their commits are on main or in the predecessor's PR; check with git log), and you may leave them out of stepResults.`;
+  return `Progress: an earlier run already reported ${progress.done}/${progress.total} steps done (${done.join(', ')}). Their commits are not on your branch unless main already has them; check with git log. If it doesn't, redo from the first step; otherwise resume at step ${progress.current}, and you may leave the done steps out of stepResults.`;
 }
