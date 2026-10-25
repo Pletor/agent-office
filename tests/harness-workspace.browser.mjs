@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { HarnessLibrary, harnessSources } from '../dist/server/server/harness/catalog.js';
+import { emptyLayers, resolveHarness } from '../dist/server/shared/harness-cascade.js';
 const library = new HarnessLibrary(harnessSources(process.cwd(), true));
 const catalog = await library.list();
 const browser = await chromium.launch({ channel: process.platform === 'win32' ? 'msedge' : 'chrome', headless: true });
@@ -15,22 +16,27 @@ try {
     const page = await browser.newPage({ viewport: { width, height }, acceptDownloads: true });
     const errors = [], writes = [];
     let writable = true, hierarchyStatus = 404;
-    const profile = { revision: 7, layers: { global: { 'rules.quality': { resource: 'guide:testing' } }, repository: {}, task: {} }, tasks: [], writable: true, globalWrite: true, preview: 'Saved snapshot', warning: '' };
+    // Unbound floor: only Globál and Projekt / repozitář are selectable, as before an Opora binding exists.
+    const layers = emptyLayers(); layers.global = { 'rules.quality': { resource: 'guide:testing' } };
+    let revision = 7;
     page.on('pageerror', error => errors.push(error.message));
     await page.route('**/api/harness**', async route => {
       const request = route.request(), endpoint = new URL(request.url());
       const send = (data, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
-      if (endpoint.pathname.endsWith('/hierarchy')) return send(hierarchyStatus === 200 ? { schema: 'harness.hierarchy/1', writable, bound: null, notice: '' } : { error: 'Unavailable' }, hierarchyStatus);
-      if (endpoint.pathname.endsWith('/profile')) {
+      if (endpoint.pathname.endsWith('/hierarchy')) {
+        if (hierarchyStatus !== 200) return send({ error: 'Unavailable' }, hierarchyStatus);
+        const level = endpoint.searchParams.get('scope') || 'repository';
         if (request.method() === 'POST') {
           assert.ok(writable, 'read-only session must never write');
           const body = request.postDataJSON(); writes.push(body);
-          assert.equal(body.revision, profile.revision, 'save retains current revision');
-          profile.layers[body.scope] = body.layer; profile.revision++;
+          assert.equal(body.op, 'save');
+          assert.equal(body.revision, revision, 'save retains current revision');
+          assert.equal(body.scope, level, 'save targets the selected level');
+          layers[body.scope] = body.layer; revision++;
         }
-        const effective = {};
-        for (const scope of ['global', 'repository', 'task']) for (const [slot, binding] of Object.entries(profile.layers[scope])) effective[slot] = { binding, scope };
-        return send({ ...profile, effective, writable, globalWrite: writable });
+        return send({ schema: 'harness.hierarchy/1', floor: 'lab', target: '', level, revision, path: [], layers,
+          effective: resolveHarness(level === 'global' ? { global: layers.global } : layers, []), bound: null, linked: null, bindingRevision: 0,
+          pathDigest: '', choices: [], notice: '', writable, globalWrite: writable, canBind: false, preview: 'Saved snapshot', warning: '' });
       }
       if (endpoint.pathname.endsWith('/file')) return send(await library.read(endpoint.searchParams.get('id')));
       return send(catalog);
@@ -39,6 +45,8 @@ try {
     await page.waitForFunction(() => window.__ready);
     const open = async () => { await page.getByRole('button', { name: 'Open Harness', exact: true }).click(); await page.locator('.harness-entry').first().waitFor({ state: 'attached' }); };
     const nav = name => page.getByRole('navigation', { name: 'Harness library pages' }).getByRole('button', { name });
+    const testing = catalog.entries.find(entry => entry.id === 'guide:testing').title;
+    const row = title => page.locator('.harness-resource-check').filter({ has: page.getByRole('checkbox', { name: title, exact: true }) });
     await open();
     await nav('Overview').click();
     await page.getByText(/This server exposes Global/).waitFor();
@@ -48,52 +56,68 @@ try {
     assert.deepEqual([Math.round(box.width), Math.round(box.height)], [width, height]);
     await page.locator('.harness-category').filter({ hasText: 'memory' }).click();
     assert.equal(await page.getByLabel('Resource category').inputValue(), 'memory');
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    assert.equal(await page.getByRole('dialog').count(), 0);
+    hierarchyStatus = 200;
+    await open();
+    await nav('Overview').click();
+    await page.getByText(/Seven-level hierarchy API available · write authority confirmed\. Seven-level editor loaded\./).waitFor();
     await nav('Equipment').click();
-    let checkbox = page.getByRole('checkbox', { name: 'Enable rules.quality' });
-    await checkbox.waitFor();
+    await page.getByText(/Projekt \/ repozitář · revize 7/).waitFor();
+    let checkbox = page.getByRole('checkbox', { name: testing, exact: true });
     assert.equal(await checkbox.isChecked(), true);
-    await page.getByText('Inherited · global', { exact: true }).waitFor();
+    assert.match(await row(testing).innerText(), /Globál/, 'inherited resource shows its origin');
     await checkbox.uncheck();
-    await page.getByLabel('Harness scope').selectOption('global');
-    assert.equal(await page.getByLabel('Harness scope').inputValue(), 'repository', 'scope change preserves unsaved draft');
-    await page.getByRole('button', { name: 'Save layer', exact: true }).click();
-    await page.getByText(/Revision 8\./).waitFor();
+    await page.getByLabel('Globál', { exact: true }).selectOption('global');
+    await page.getByText('Nejprve uložte výbavu nebo zahoďte změny.', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Projekt / repozitář', { exact: true }).inputValue(), 'repository', 'level change preserves unsaved draft');
+    assert.equal(await checkbox.isChecked(), false);
+    await page.getByRole('button', { name: 'Uložit výbavu', exact: true }).click();
+    await page.getByText(/revize 8/).waitFor();
     assert.equal(writes[0].scope, 'repository');
     assert.equal(writes[0].layer['rules.quality'], null, 'disable is an explicit null override');
     assert.equal(await checkbox.isChecked(), false);
-    await page.getByRole('button', { name: 'Inherit', exact: true }).click();
+    assert.match(await row(testing).innerText(), /Zděděný prostředek vypnutý zde/);
+    await row(testing).getByRole('button', { name: 'Dědit', exact: true }).click();
     assert.equal(await checkbox.isChecked(), true);
-    await page.getByRole('button', { name: 'Save layer', exact: true }).click();
-    await page.getByText(/Revision 9\./).waitFor();
+    await page.getByRole('button', { name: 'Uložit výbavu', exact: true }).click();
+    await page.getByText(/revize 9/).waitFor();
     assert.equal(Object.hasOwn(writes[1].layer, 'rules.quality'), false, 'inherit deletes only the local override');
+    assert.equal(await checkbox.isChecked(), true);
     await page.screenshot({ path: path.join(shots, `harness-workspace-equipment-${width}.png`) });
-    await page.getByLabel('Harness slot', { exact: true }).fill('tools.new');
     await nav('Resources').click();
     await page.getByLabel('Resource category').selectOption('');
     await page.getByRole('button', { name: /Start here/ }).click();
     await page.getByRole('button', { name: 'Assign resource', exact: true }).click();
-    const assigned = page.getByRole('checkbox', { name: 'Enable tools.new' });
+    const assigned = page.getByRole('checkbox', { name: 'Start here', exact: true });
+    assert.equal(await assigned.isChecked(), true);
     await assigned.uncheck();
     await assigned.check();
-    assert.equal(JSON.parse(await page.getByLabel('Harness layer JSON').inputValue())['tools.new'].resource, 'guide:instructions', 'new unsaved assignment survives off/on');
-    await page.getByRole('button', { name: 'Load task / reload', exact: true }).click();
-    await page.getByText(/Revision 9\./).waitFor();
+    const draft = JSON.parse(await page.getByLabel('Harness layer JSON').inputValue());
+    assert.ok(Object.values(draft).some(binding => binding?.resource === 'guide:instructions'), 'new unsaved assignment survives off/on');
+    await page.getByRole('button', { name: 'Zahodit změny a načíst', exact: true }).click();
+    await page.getByText(/revize 9/).waitFor();
+    assert.equal(await assigned.isChecked(), false, 'discard drops the unsaved assignment');
+    assert.equal(writes.length, 2);
     await nav('Runtime & evidence').click();
     await page.getByText('Accepted runtime', { exact: true }).click();
     await page.getByText('office-harness --accepted-kit', { exact: true }).first().waitFor();
     assert.equal(await page.locator('.harness-runtime input[type=checkbox]').count(), 0, 'worker-only capabilities have no fake switches');
     await page.screenshot({ path: path.join(shots, `harness-workspace-runtime-${width}.png`) });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.keyboard.press('Escape');
     assert.equal(await page.getByRole('dialog').count(), 0);
-    writable = false; hierarchyStatus = 200;
+    writable = false;
     await open();
     await nav('Overview').click();
     await page.getByText(/Seven-level hierarchy API available · read-only/).waitFor();
     await nav('Equipment').click();
-    checkbox = page.getByRole('checkbox', { name: 'Enable rules.quality' });
-    await checkbox.waitFor();
+    await page.getByText(/revize 9 · Pouze ke čtení/).waitFor();
+    checkbox = page.getByRole('checkbox', { name: testing, exact: true });
     assert.equal(await checkbox.isDisabled(), true);
-    assert.equal(await page.getByRole('button', { name: 'Save layer', exact: true }).isDisabled(), true);
+    assert.equal(await row(testing).getByRole('button', { name: 'Dědit', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Uložit výbavu', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByLabel('Harness layer JSON').isDisabled(), true);
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     assert.equal(await page.getByRole('dialog').count(), 0);
     assert.deepEqual(errors, []);
@@ -120,5 +144,5 @@ try {
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await page.close();
   }
-  console.log('PASS: desktop/mobile workspace, real catalog/category navigation, on/off/inherit/revision payloads, draft preservation, API hierarchy detection, read-only controls, worker-only states, screenshots, Esc/close');
+  console.log('PASS: desktop/mobile workspace, real catalog/category navigation, seven-level on/off/inherit/revision payloads, draft preservation and discard, legacy and seven-level API detection, read-only controls, worker-only states, screenshots, Esc/close');
 } finally { await browser.close(); }

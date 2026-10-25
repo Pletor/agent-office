@@ -62,7 +62,8 @@ try {
     await page.goto(process.env.HARNESS_LAB_URL ?? 'http://127.0.0.1:5192/lab/harness.html');
     await page.waitForFunction(() => window.__ready);
     await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
-    await page.locator('.harness-cascade summary').first().click();
+    // The seven-level editor lives on the workspace's Equipment page, which opens it.
+    await page.getByRole('navigation', { name: 'Harness library pages' }).getByRole('button', { name: 'Equipment' }).click();
     await page.getByLabel('Karta', { exact: true }).selectOption(keys[4]);
     // Derive the exact published title rather than hard-coding translations.
     const title = catalog.entries.find(entry => entry.id === 'guide:testing').title;
