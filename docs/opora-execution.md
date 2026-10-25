@@ -223,6 +223,8 @@ Readiness follows Canvas, not the old desktop-v3 pipeline: on each read the offi
 `GET /api/oporahub/agent-state` which cards have a `claim` action `ready` (accepted steps, budget,
 no unfinished predecessor over a `next` edge), and the 🤖 autopilot takes those as well as routed
 cards. A Canvas without agent-state leaves the autopilot on routed cards only.
+A claim whose preconditions carry `contextProtocolVersion: 2` (a card with an accepted Harness
+kit) counts as ready only when the office runs with `AGENT_OFFICE_OPORA_CONTEXT_VERSION=2`.
 
 ### When Opora waits on a person
 

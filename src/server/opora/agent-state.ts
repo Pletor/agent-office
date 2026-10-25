@@ -2,6 +2,7 @@
 // ready claim for, and a small digest of what waits on a person there (docs/opora-execution.md).
 
 import type { OporaHumanWait } from '../../shared/protocol/opora.js';
+import { contextVersionFromEnvironment, type ContextVersion } from './execution-context.js';
 
 /** What one agent-state read gives the bridge. */
 export interface AgentStateDigest {
@@ -23,12 +24,15 @@ const text = (v: unknown): string => (typeof v === 'string' ? v.trim().slice(0, 
  * an error: an older Canvas without stages or decisions just has no human wait. A human wait is a
  * decision whose action Canvas marks `human_only`; the stages that block or wait come along with it,
  * and the cards Canvas holds back for those stages' reasons are counted (a lower bound when Canvas
- * cut its card list short). Claims are blocked outright while there's no accepted baseline.
+ * cut its card list short). Claims are blocked outright while there's no accepted baseline. A claim whose
+ * preconditions ask for context protocol 2 (a card with a pinned Harness kit) is ready only for a v2 office.
  */
-export function digestAgentState(doc: unknown): AgentStateDigest {
+export function digestAgentState(doc: unknown, contextVersion: ContextVersion = contextVersionFromEnvironment()): AgentStateDigest {
   const d = rec(doc) ?? {};
   const actions = rows(d.actions);
-  const ready = new Set(actions.filter((a) => a.verb === 'claim' && a.status === 'ready' && typeof a.targetId === 'string').map((a) => a.targetId as string));
+  const needsV2 = (a: Record<string, unknown>) => rec(a.preconditions)?.contextProtocolVersion === 2;
+  const ready = new Set(actions.filter((a) => a.verb === 'claim' && a.status === 'ready' && typeof a.targetId === 'string'
+    && (contextVersion === 2 || !needsV2(a))).map((a) => a.targetId as string));
   const humanOnly = new Set(actions.filter((a) => a.blockReason === 'human_only' && typeof a.id === 'string').map((a) => a.id as string));
   const decisions = rows(d.decisions)
     .filter((x) => typeof x.actionId === 'string' && humanOnly.has(x.actionId) && text(x.kind))
