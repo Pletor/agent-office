@@ -5,15 +5,19 @@ import { HARNESS_LEVEL_NAMES, type HarnessHierarchyView } from '../../../../shar
 import { resourceModel, setResource } from './model';
 import { experiencePanel } from './experience';
 import { originHistoryPanel } from './origin-history';
+import { keepDraft, latestDraft, takeDraft } from './drafts';
 import './style.css';
 
 /** Edits one explicitly selected scope. A save never mutates an accepted execution. */
 export function hierarchyPanel(floor: string, signal: AbortSignal) {
   let view: HarnessHierarchyView | undefined, catalog: HarnessCatalog | undefined;
   let draft: HarnessLayer = {}, pending = false, ticket = 0, dirty = false;
+  // A draft restored from a closed library keeps its own base revision, so a stale one ends in the usual 409.
+  let base: { revision: number; pathDigest: string } | undefined;
   const nav = h('div.harness-levels');
   const rows = h('div.harness-resource-checks');
   const status = h('p', { role: 'status' });
+  const restored = h('p.harness-kept-draft', { role: 'status', hidden: true });
   const filter = h('input', { type: 'search', placeholder: 'Hledat nástroj…', 'aria-label': 'Hledat výbavu' });
   const save = h('button.btn.primary', { type: 'button' }, 'Uložit výbavu');
   const reload = h('button.btn', { type: 'button' }, 'Znovu načíst');
@@ -25,7 +29,7 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
   const history = originHistoryPanel(floor, () => view, signal);
   const el = h('details.harness-cascade', {}, h('summary', {}, 'Pracovní výbava: Globál → Projekt → Stránka → Vrstva → Oblast → Sektor → Karta'),
     h('p', {}, 'Zaškrtněte prostředky pro vybranou úroveň. Zděděné prostředky lze vypnout nebo obnovit. Před změnou úrovně nebo projektu úpravy uložte nebo výslovně zahoďte. Uložené nastavení se použije při přípravě další práce.'),
-    nav, status, bind, experience.el, history.el, h('div.harness-profile-grid', {}, h('section', {}, filter, rows), h('section', {},
+    nav, status, restored, bind, experience.el, history.el, h('div.harness-profile-grid', {}, h('section', {}, filter, rows), h('section', {},
       h('details', {}, h('summary', {}, 'Pokročilé sloty a nastavení'), advanced),
       h('details', {}, h('summary', {}, 'Účinné prostředky a původ'), origins),
       h('details', {}, h('summary', {}, 'Náhled uloženého kontextu'), preview))),
@@ -96,7 +100,7 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
     if (pending || (operation !== 'save' && operation !== 'discard' && !canNavigate())) return;
     const seq = ++ticket; pending = true; status.textContent = operation === 'save' ? 'Ukládání…' : 'Načítání…'; render();
     try {
-      const body = operation === 'save' ? { op: 'save', scope: level, layer: draft, revision: view?.revision, pathDigest: view?.pathDigest }
+      const body = operation === 'save' ? { op: 'save', scope: level, layer: draft, revision: base?.revision ?? view?.revision, pathDigest: base?.pathDigest ?? view?.pathDigest }
         : operation === 'bind' ? { op: 'bind', ...view?.linked, revision: view?.bindingRevision, rebind: !!view?.bound } : undefined;
       const response = await fetch('/api/harness/hierarchy?' + new URLSearchParams({ floor, node: target, scope: level }), {
         signal, method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}),
@@ -104,10 +108,16 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Konfiguraci nelze načíst.');
       if (signal.aborted || seq !== ticket) return;
-      view = data; draft = { ...view!.layers[view!.level] }; dirty = false;
+      view = data; draft = { ...view!.layers[view!.level] }; dirty = false; base = undefined; restored.hidden = true;
       experience.reset();
       history.reset();
       status.textContent = [HARNESS_LEVEL_NAMES[view!.level], 'revize ' + view!.revision, view!.notice, view!.warning, view!.writable ? '' : 'Pouze ke čtení'].filter(Boolean).join(' · ');
+      const kept = operation ? undefined : takeDraft(floor, view!.level, view!.target);
+      if (kept) {
+        draft = kept.layer; dirty = true; restored.hidden = false;
+        if (kept.revision !== view!.revision || kept.pathDigest !== view!.pathDigest) base = { revision: kept.revision, pathDigest: kept.pathDigest };
+        restored.textContent = 'Neuložené změny z minula – uložte nebo zahoďte.' + (base ? ` Výbava se mezitím změnila (revize ${kept.revision} → ${view!.revision}); uložení skončí konfliktem, zahoďte změny a načtěte.` : '');
+      }
     } catch (error) { if (!signal.aborted && seq === ticket) status.textContent = (error as Error).message; }
     finally { if (seq === ticket) { pending = false; render(); } }
   }
@@ -128,9 +138,14 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
   save.onclick = () => void load(undefined, undefined, 'save');
   reload.onclick = () => void load(undefined, undefined, 'discard');
   bind.onclick = () => void load('', 'repository', 'bind');
-  el.ontoggle = () => { if (el.open && !view && !pending) void load(); };
+  // Closing the library (✕ or Esc) aborts the signal: an unsaved draft stays in memory for the next opening.
+  signal.addEventListener('abort', () => {
+    if (dirty && view) keepDraft({ floor, level: view.level, target: view.target, revision: base?.revision ?? view.revision, pathDigest: base?.pathDigest ?? view.pathDigest, layer: draft });
+  }, { once: true });
+  const first = () => { const kept = latestDraft(floor); return load(kept?.target ?? '', kept?.level ?? 'repository'); };
+  el.ontoggle = () => { if (el.open && !view && !pending) void first(); };
   return { el, canNavigate, catalog(value: HarnessCatalog) { catalog = value; render(); }, async assign(entry: HarnessText) {
-    el.open = true; if (!view) await load();
+    el.open = true; if (!view) await first();
     if (!writable()) return;
     draft = setResource(view!, draft, entry.id, true); changed();
   } };

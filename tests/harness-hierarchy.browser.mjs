@@ -124,6 +124,21 @@ try {
     await page.getByRole('button', { name: 'Načíst zkušenosti', exact: true }).click();
     await page.getByText('Tato instalace zatím neposkytuje měření zkušeností.', { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    // A draft kept across Esc while another writer saved: restored with a notice, its save is a 409, never a silent overwrite.
+    const json = page.getByLabel('Harness layer JSON'), savedLayer = await json.inputValue();
+    await checkbox.click(); await page.getByText(/^Neuložené úpravy pro/).waitFor();
+    const draftLayer = await json.inputValue(); assert.notEqual(draftLayer, savedLayer);
+    await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').count(), 0);
+    revision++;
+    await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Harness library pages' }).getByRole('button', { name: 'Equipment' }).click();
+    await page.getByText(/Neuložené změny z minula – uložte nebo zahoďte\. Výbava se mezitím změnila \(revize 1 → 2\)/).waitFor();
+    assert.equal(await json.inputValue(), draftLayer, 'stale draft is restored, not dropped');
+    await page.getByRole('button', { name: 'Uložit výbavu', exact: true }).click();
+    await page.getByText('Konflikt revize; načtěte znovu.', { exact: true }).waitFor();
+    assert.equal(await json.inputValue(), draftLayer, 'a rejected save keeps the restored draft');
+    await page.getByRole('button', { name: 'Zahodit změny a načíst', exact: true }).click();
+    await page.getByText(/revize 2/).waitFor(); assert.equal(await json.inputValue(), savedLayer);
     await page.locator('.harness-body').evaluate(element => { element.scrollTop = 0; });
     await page.screenshot({ path: path.join(process.env.HARNESS_SHOTS ?? os.tmpdir(), 'harness-hierarchy-' + width + '.png'), fullPage: true });
     await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').count(), 0);
@@ -131,5 +146,5 @@ try {
     await page.getByRole('button', { name: 'Close', exact: true }).click(); assert.equal(await page.getByRole('dialog').count(), 0);
     assert.deepEqual(errors, []); await page.close();
   }
-  console.log('PASS: seven levels, inheritance, save/conflict/reload, versioned rates, late-response fences, optional endpoint, desktop/mobile, Esc and close');
+  console.log('PASS: seven levels, inheritance, save/conflict/reload, stale kept draft conflict, versioned rates, late-response fences, optional endpoint, desktop/mobile, Esc and close');
 } finally { await browser.close(); }

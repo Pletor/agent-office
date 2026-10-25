@@ -27,3 +27,18 @@ test('canonical rows preserve alias bindings and disable or restore every matchi
   const orphanedDisable = { [resourceSlot('legacy-id')]: null };
   assert.deepEqual(setResource({ ...view, layers: emptyLayers() }, orphanedDisable, 'el:project:one', 'inherit', ['legacy-id']), {});
 });
+
+test('a draft kept on close comes back once, for its own floor, level and target', async () => {
+  const { keepDraft, latestDraft, takeDraft } = await import('../src/client/features/harness/hierarchy/drafts.js');
+  const layer = { quality: null };
+  keepDraft({ floor: 'a', level: 'task', target: 'card', revision: 3, pathDigest: 'p', layer });
+  keepDraft({ floor: 'a', level: 'repository', target: '', revision: 3, pathDigest: '', layer: {} });
+  layer.quality = { resource: 'later' } as never;
+  assert.deepEqual(latestDraft('a'), { level: 'repository', target: '' });
+  assert.equal(latestDraft('b'), undefined);
+  assert.equal(takeDraft('b', 'task', 'card'), undefined, 'another floor never sees it');
+  assert.deepEqual(takeDraft('a', 'task', 'card'), { floor: 'a', level: 'task', target: 'card', revision: 3, pathDigest: 'p', layer: { quality: null } });
+  assert.equal(takeDraft('a', 'task', 'card'), undefined, 'taken once');
+  assert.ok(takeDraft('a', 'repository', ''));
+  assert.equal(latestDraft('a'), undefined);
+});
