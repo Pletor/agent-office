@@ -1,0 +1,22 @@
+# Harness library workspace
+
+Open the Harness shelf with **E**, or press **F8**. The full-screen workspace has four pages:
+
+- **Overview** maps published resource categories, source availability and the path from inherited configuration to an accepted execution. Click a category to filter the existing reader. A successful `harness.hierarchy/1` response confirms the seven-level API and the current session’s write authority; a 404 identifies the legacy Global → Repository → Task server. Other errors remain unknown, rather than looking like an available capability.
+- **Resources** retains search, category/source filters, plain-text reading and copy/download of an ad-hoc pack. These selections do not change persistent configuration.
+- **Equipment** opens the existing profile editor. Legacy profile slots now have on/off switches and **Inherit**. A scalar boolean changes its boolean value; resource or other scalar slots use a `null` binding to disable the assignment. Inherit deletes the local override. A disabled local slot with no surviving upstream binding must be repaired in Advanced layer JSON or reassigned from Resources. Every switch edits a draft; **Save layer** persists it for future preparation. Changing scope is blocked while a draft is unsaved; save or explicitly reload to discard it. The existing backend still enforces permissions, revision checks and budgets.
+- **Runtime & evidence** describes accepted kits, runner probes, Context7, Office MCP, invocations, paired evaluations, learning/recovery, shared memory, lifecycle and preparation. Each expandable card gives its input/output relationship and worker verification entry point. These are references to implemented worker contracts, **not deployment detection or browser actions**. Some require additional installed modules. This browser has no session API for their execution state, credentials or runtime health. Unknown production results stay unknown.
+
+The top-right **✕** and **Esc** use the existing office modal/focus lifecycle to resume mouse-look. The navigation fits narrow screens; the reader retains its list/reader panes and keyboard shortcuts. Resource category counts describe the loaded catalog, including its truncation flag. A source found on disk does not establish a live OpenViking service, MCP connection or Context7 credentials.
+
+## Seven-level composition
+
+This frontend PR is independently based on main and does not copy the pending hierarchy implementation. `libraryWorkspace(el, () => floor, abort.signal)` wraps whichever `.harness-cascade` editor the Harness feature supplies. Keep PR55’s `hierarchyPanel`, its catalog callback, project selector, provenance, save/path checks, experience and historical-origin panels when composing.
+
+Composition wiring in `ui.ts` consists of importing `libraryWorkspace`, constructing it after the dialog, calling `workspace.catalog(result)` after each successful catalog load, and calling `workspace.show('equipment')` before Assign resource. The floor getter follows PR55’s project changes. Retain both `cascade.catalog(result)` and `workspace.catalog(result)`. The legacy slot-controls import belongs only to `cascade.ts`; it is not needed by the seven-level editor.
+
+The hierarchy API check confirms only server support. It does not install a missing hierarchy editor. Seven-level editing requires PR55’s frontend and backend together. The seven-level module owns draft preservation when changing a scope/project; do not silently discard drafts in its navigation. A saved profile is planning data: it never mutates an already accepted kit or running execution.
+
+## Verification
+
+Run `npm run typecheck`, `npm test`, `npm run build`. With Vite running on port 5187, run `node tests/harness-workspace.browser.mjs` for desktop/mobile screenshots, real profile-switch payloads, read-only authority, optional hierarchy states, category navigation, export and ✕/Esc. The test uses the actual catalog/reader and isolated route fixtures for profile authority and optional modules; it does not prove a production deployment or worker execution.

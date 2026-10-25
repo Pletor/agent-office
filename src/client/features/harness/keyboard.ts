@@ -5,7 +5,7 @@ const shown = (e: HTMLElement) => (e.checkVisibility ? e.checkVisibility() : e.o
  * The library's keyboard, while it's the window on top: Tab and Shift+Tab stay inside it, ↑/↓/Home/End
  * walk the resource list, / jumps to the search. `release` puts focus back where it was before opening.
  */
-export function libraryKeys(el: HTMLElement, search: HTMLInputElement, list: HTMLElement) {
+export function libraryKeys(el: HTMLElement, search: HTMLInputElement, list: HTMLElement, openSearch?: () => void) {
   const before = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
   const onTop = () => el.parentElement !== null && el.parentElement === el.parentElement.parentElement?.lastElementChild;
   const onKey = (e: KeyboardEvent) => {
@@ -22,6 +22,7 @@ export function libraryKeys(el: HTMLElement, search: HTMLInputElement, list: HTM
     }
     if (e.key === '/' && !target?.closest('input, textarea, select')) {
       e.preventDefault();
+      openSearch?.();
       search.focus();
       search.select();
       return;

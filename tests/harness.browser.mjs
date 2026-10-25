@@ -23,6 +23,7 @@ try {
   const shots = process.env.HARNESS_SHOTS ?? os.tmpdir();
   await page.screenshot({ path: path.join(shots, 'harness-shelves.png') });
   await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Resources' }).click();
   await page.getByRole('heading', { name: 'Start here', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Add to pack', exact: true }).click();
   await page.getByLabel('Resource category').selectOption('memory');
@@ -43,6 +44,7 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').count(), 0);
   await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: 'Resources' }).click();
   await page.getByRole('heading', { name: 'Start here', exact: true }).waitFor();
   await page.getByLabel('Search harness resources').fill('no-match-6f973');
   await page.getByText('No matching resources.', { exact: true }).waitFor();
