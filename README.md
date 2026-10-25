@@ -63,6 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 There's a lot more (a rooftop bar, an office dog, an arcade, a jukebox that keeps the songs you upload, supercars in the garage to drive round a scenic loop past a farm, pines, mountains and a beach): see [docs/features.md](docs/features.md).
 
 Resource IDs now survive checkout moves, with content digests, persisted version history and legacy aliases. Publish reviewed resources for all workers through `AGENT_OFFICE_SHARED_HARNESS_DIR`. Registry setup and migration: [Harness identity](docs/harness-identity.md).
+Authenticated workers can inspect submitted tool measurements with `office-harness --invocations`, optionally filtered by the namespaced task or resource. Results show version-specific pass/fail counts, duration, sample coverage and explicit worker-reported evidence; they do not grant verified status or promote tools. Requires the native Canvas invocation endpoint; older peers return unavailable. See [Harness measurements](docs/harness-measurements.md).
 
 ## Requirements
 
