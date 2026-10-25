@@ -558,3 +558,6 @@ Staged integrations can supply an asynchronous `verify` check: dispatch temporar
 
 Staged Harness checks authenticate only during the fixed checker process, for accepted equipment and documentation routes under the current claim; ordinary worker access still requires a running provider.
 The existing Office MCP server also exposes [accepted Harness equipment and Context7 documentation](docs/harness-mcp-tools.md) to connected workers. The corresponding runtime modules and a current accepted execution are required.
+### Harness evaluation
+
+The [paired agent experiment](docs/harness-ab-evaluation.md) records actual library use, independent acceptance results and a task/adapter capacity mismatch. It does not claim production readiness or a demonstrated general benefit.
