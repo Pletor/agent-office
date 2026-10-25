@@ -20,3 +20,5 @@
 @media (max-width: 500px) { .harness-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .harness-origin-row { display: grid; gap: 4px; overflow-wrap: anywhere; }
 .harness-origin-history { margin-block: 12px; }
+.harness-kept-draft { margin: 0 0 12px; padding: 10px 12px; border: 1px solid #d9a52b; border-radius: 8px; background: #d9a52b22; overflow-wrap: anywhere; }
+.harness-kept-draft[hidden] { display: none; }

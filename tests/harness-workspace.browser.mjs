@@ -99,6 +99,35 @@ try {
     await page.getByText(/revize 9/).waitFor();
     assert.equal(await assigned.isChecked(), false, 'discard drops the unsaved assignment');
     assert.equal(writes.length, 2);
+    // Esc with an unsaved draft keeps it in memory: reopening restores it with a notice, and Save sends it (audit F07).
+    checkbox = page.getByRole('checkbox', { name: testing, exact: true });
+    await checkbox.uncheck();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.getByRole('dialog').count(), 0);
+    await open(); await nav('Equipment').click();
+    const kept = page.getByText('Neuložené změny z minula – uložte nebo zahoďte.', { exact: true });
+    await kept.waitFor();
+    assert.equal(await checkbox.isChecked(), false, 'reopening restores the unsaved draft');
+    await kept.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(shots, `harness-workspace-kept-draft-${width}.png`) });
+    await page.getByRole('button', { name: 'Uložit výbavu', exact: true }).click();
+    await page.getByText(/revize 10/).waitFor();
+    assert.equal(writes[2].layer['rules.quality'], null, 'save sends the restored draft');
+    assert.equal(await kept.isVisible(), false, 'a save clears the notice');
+    // ✕ keeps it too, and Zahodit drops it for good.
+    await row(testing).getByRole('button', { name: 'Dědit', exact: true }).click();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await open(); await nav('Equipment').click();
+    await kept.waitFor();
+    assert.equal(await checkbox.isChecked(), true);
+    await page.getByRole('button', { name: 'Zahodit změny a načíst', exact: true }).click();
+    await page.getByText(/revize 10/).waitFor();
+    assert.equal(await checkbox.isChecked(), false, 'discard drops the restored draft');
+    await page.keyboard.press('Escape');
+    await open(); await nav('Equipment').click();
+    await page.getByText(/revize 10/).waitFor();
+    assert.equal(await kept.isVisible(), false, 'a discarded draft never comes back');
+    assert.equal(writes.length, 3);
     await nav('Runtime & evidence').click();
     await page.getByText('Accepted runtime', { exact: true }).click();
     await page.getByText('office-harness --accepted-kit', { exact: true }).first().waitFor();
@@ -112,7 +141,7 @@ try {
     await nav('Overview').click();
     await page.getByText(/Seven-level hierarchy API available · read-only/).waitFor();
     await nav('Equipment').click();
-    await page.getByText(/revize 9 · Pouze ke čtení/).waitFor();
+    await page.getByText(/revize 10 · Pouze ke čtení/).waitFor();
     checkbox = page.getByRole('checkbox', { name: testing, exact: true });
     assert.equal(await checkbox.isDisabled(), true);
     assert.equal(await row(testing).getByRole('button', { name: 'Dědit', exact: true }).isDisabled(), true);
@@ -144,5 +173,5 @@ try {
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await page.close();
   }
-  console.log('PASS: desktop/mobile workspace, real catalog/category navigation, seven-level on/off/inherit/revision payloads, draft preservation and discard, legacy and seven-level API detection, read-only controls, worker-only states, screenshots, Esc/close');
+  console.log('PASS: desktop/mobile workspace, real catalog/category navigation, seven-level on/off/inherit/revision payloads, draft preservation and discard, drafts kept across Esc/✕ and restored with a notice, legacy and seven-level API detection, read-only controls, worker-only states, screenshots, Esc/close');
 } finally { await browser.close(); }
