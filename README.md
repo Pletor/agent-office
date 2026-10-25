@@ -548,3 +548,11 @@ Harness [local adapter compatibility](docs/harness-invocation.md#accepted-kit-ve
 The accepted-runtime adapter also supplies an internal checker for automatic staged task preparation, including accepted tasks explicitly lacking a kit. See [automatic task preparation](docs/harness-task-preparation.md).
 Paired Harness evaluation supports accepted selection provenance through the
 optional installed validators; see [compatibility and async preparation](docs/harness-paired-evaluation.md#accepted-selection-provenance).
+### Worker preparation API
+
+Server integrations can reserve a worker and its optional worktree with `WorkerManager.stage`, prepare files in its actual directory, then consume the handle once to start a task through the existing launch guards. Reservations expire and cancellation preserves modified worktrees. Set `AGENT_OFFICE_OPORA_PREPARE_WORKER=1` to reserve and prepare card workers before Canvas claim. Configured dependency setup must succeed; this does not certify the full provider environment or Harness readiness. See [staged worker preparation](docs/how-it-works.md#staged-worker-preparation).
+Use the staged handle's `prepare` method for asynchronous installers: start waits for preparation, and cancellation waits for its writes to settle before cleaning up the worktree.
+Office startup releases abandoned preparation desks only after recording their retained worktrees in the floor's private `preparation-recovery` directory. A fresh attempt gets a new worktree; old installer termination remains unknown. See [preparation recovery](docs/how-it-works.md#staged-worker-preparation).
+Staged integrations can supply an asynchronous `verify` check: dispatch temporarily binds the claimed execution to that worker, awaits verification before provider start, and releases the claim on refusal. With the matching Harness checker installed, AGENT_OFFICE_HARNESS_PREPARE_WORKER=1 attaches the automatic Node/context/documentation check; it requires staged preparation and context version 2.
+
+Staged Harness checks authenticate only during the fixed checker process, for accepted equipment and documentation routes under the current claim; ordinary worker access still requires a running provider.
