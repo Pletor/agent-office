@@ -68,6 +68,8 @@ Resource IDs now survive checkout moves, with content digests, persisted version
 
 **Harness library.** Across the balcony doors from Docs, the **Harness** bookshelf holds model instructions, skills, hooks, rules, commands, scripts, tools, MCP and memory references. Press **F8** anywhere (or **E** at the shelf) to open it across the whole screen, on a phone too. Save **Global → Repository → Task** assignments, inspect inherited values and export context packs. The Opora orchestrator can assign repository/task profiles with `office-harness`; each Opora card handoff includes the resolved, content-bearing snapshot. Assignments do not install tools or activate MCP/memory servers. Setup, permissions and testing: [docs/harness.md](docs/harness.md).
 
+**Current coding documentation.** `office-harness --docs-resolve LIBRARY "public question"` and `--docs /owner/repo/VERSION "public question"` call Context7's real MCP tools, with bounded requests and content provenance. Workers use their authenticated Office hook; local calls need no runner-specific MCP setup. Optional `--docs-accepted RESOURCE "public question"` binds the lookup to an exact accepted MCP resource and rechecks execution authority. See [Context7 documentation tools](docs/harness-context7.md).
+
 On the machine that runs the office:
 
 - **Node.js 20+**
@@ -447,3 +449,4 @@ Every change to the app that lands on `main` is published as a GitHub release by
 
 
 On Windows, worker commands such as `office-harness` remain available when Git Bash starts a login shell with an inherited `ORIGINAL_PATH`. Office preserves that path and prepends its own command directory; see [configuration](docs/configuration.md#worker-commands-in-git-bash).
+Accepted documentation receipts also provide bounded metadata for the native `harnessDocumentation` result extension; [reporting guidance](docs/harness-context7.md#reporting-accepted-documentation-use) explains coverage and evidence limits.
