@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { WorkerInfo } from '../../shared/protocol.js';
 import type { WorkerLaunchGuard } from '../workers/launch-guards.js';
+import { verifyWorkerReadiness, type PreparedWorker } from './execution-worker-readiness.js';
 import { ExecutionClient, validateExecution, type ExecutionLease, type ExecutionScope } from './execution-client.js';
 import { ExecutionController } from './execution-controller.js';
 import { executionPrompt } from './execution-prompt.js';
@@ -93,34 +94,39 @@ export class ExecutionDispatch {
   };
   async dispatch(scope: ExecutionScope, prepare: () => Promise<string>, seat: (prompt: string) => WorkerInfo | string, decorate: (prompt: string) => string = value => value,
     /** A design card's addendum (design-brief.ts), read before the claim like `prepare`. */
-    design: () => Promise<string> = async () => '') {
+    design: () => Promise<string> = async () => '', prepareWorker?: () => Promise<PreparedWorker>) {
     return this.controller.guarded(scope, async () => {
       const context = this.contextVersion === 2 ? '' : await prepare();
       const brief = await design().catch(() => '');
       const prepared = await prepareExecution({ client: this.client, scope, contextVersion: this.contextVersion });
-      const grant = await this.inTurn(() => this.controller.claim(scope, this.contextVersion)).catch((e: Error) => { emitProcess(this.agent, claimEvent(scope, { error: e.message })); throw e; });
-      let seatedId: string | undefined;
+      const reserved = await prepareWorker?.(); let committed = false;
       try {
-        prepared(grant.lease);
-        const resume = this.resumePlan(grant.lease);
-        const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief, resume);
-        const prompt = (this.contextVersion === 2 ? immutablePrompt : decorate(immutablePrompt)).trim();
-        this.seating = { ...grant, prompt, resume };
-        let worker: WorkerInfo | string, unpicked: ResumePlan | undefined;
-        try { worker = seat(prompt); } finally { seatedId = this.seating?.workerId; unpicked = this.seating?.resume; this.seating = undefined; }
-        if (typeof worker === 'string') throw new Error(worker);
-        seatedId = worker.id;
-        // Launched after its worktree setup: the commits go on its branch at that launch (guard.check).
-        if (unpicked) this.picks.set(worker.id, unpicked);
-        if (worker.status === 'exited') throw new Error('Worker failed to start; Canvas reservation released');
-        this.controller.watch(worker.id, grant.lease, grant.deadline);
-        if (!this.controller.allowed(worker.id)) throw new Error('Execution expired while starting worker');
-        processHub.noteExecution(worker.id, grant.lease.executionId); emitProcess(this.agent, claimEvent(scope, { executionId: grant.lease.executionId, workerId: worker.id, workerName: worker.name }));
-        return { worker, execution: grant.lease, deadlineUnixMs: Date.now() + Math.max(0, grant.deadline - performance.now()) };
-      } catch (error) {
-        if (seatedId) { this.picks.delete(seatedId); this.controller.forget(seatedId); this.stop(seatedId, 'Worker failed to start; worktree kept'); }
-        await this.client.release(grant.lease).catch(() => {}); throw error;
-      }
+        const grant = await this.inTurn(() => this.controller.claim(scope, this.contextVersion)).catch((e: Error) => { emitProcess(this.agent, claimEvent(scope, { error: e.message })); throw e; });
+        let seatedId: string | undefined;
+        try {
+          prepared(grant.lease);
+          await verifyWorkerReadiness(this.controller, grant, reserved);
+          const resume = this.resumePlan(grant.lease);
+          const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief, resume);
+          const prompt = (this.contextVersion === 2 ? immutablePrompt : decorate(immutablePrompt)).trim();
+          this.seating = { ...grant, prompt, resume };
+          let worker: WorkerInfo | string, unpicked: ResumePlan | undefined;
+          try { worker = reserved ? reserved.start(prompt) : seat(prompt); } finally { seatedId = this.seating?.workerId; unpicked = this.seating?.resume; this.seating = undefined; }
+          if (typeof worker === 'string') throw new Error(worker);
+          seatedId = worker.id;
+          // Launched after its worktree setup: the commits go on its branch at that launch (guard.check).
+          if (unpicked) this.picks.set(worker.id, unpicked);
+          if (worker.status === 'exited') throw new Error('Worker failed to start; Canvas reservation released');
+          this.controller.watch(worker.id, grant.lease, grant.deadline);
+          if (!this.controller.allowed(worker.id)) throw new Error('Execution expired while starting worker');
+          processHub.noteExecution(worker.id, grant.lease.executionId); emitProcess(this.agent, claimEvent(scope, { executionId: grant.lease.executionId, workerId: worker.id, workerName: worker.name }));
+          committed = true;
+          return { worker, execution: grant.lease, deadlineUnixMs: Date.now() + Math.max(0, grant.deadline - performance.now()) };
+        } catch (error) {
+          if (seatedId) { this.picks.delete(seatedId); this.controller.forget(seatedId); this.stop(seatedId, 'Worker failed to start; worktree kept'); }
+          await this.client.release(grant.lease).catch(() => {}); throw error;
+        }
+      } finally { if (!committed) await reserved?.cancel(); }
     });
   }
   /** Earlier runs of this office with the branch their worktree was on, for a resumed card. */

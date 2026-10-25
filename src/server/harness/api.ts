@@ -1,4 +1,5 @@
 import type http from 'node:http';
+import { preparationApiWorker } from '../workers/preparation-access.js';
 import type { Ctx } from '../office/context.js';
 import type { Floor } from '../floor.js';
 import { readBody, send } from '../http/util.js';
@@ -57,7 +58,8 @@ export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.In
 export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
   const id = url.searchParams.get('worker') ?? '';
   const floor = ctx.workerFloor(id);
-  const me = floor?.workers.authenticate(id, (req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''));
+  const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+  const me = floor?.workers.authenticate(id, token) ?? preparationApiWorker(floor, id, token, req, url);
   if (!floor || !me) return send(res, 401, { error: 'Use your worker ID and hook bearer token.' });
   if (url.searchParams.has('docs')) return documentationRequest(req, res, JSON.stringify([floor.id, id]), floor.opora?.executions?.controller, id, url.searchParams.has('task'));
   if (url.searchParams.has('capabilities')) return runnerProbeRequest(req, res, url, me.provider ?? floor.workers.defaultProvider, floor.id + ':' + me.id);
