@@ -1,7 +1,8 @@
 # Harness: co dnes funguje a co zbývá
 
-Stav review větví, nikoli potvrzení nasazení. Hlavní cíl samoučící knihovny zůstává
-otevřený. Původní návrh H01–H24 a jeho historii zachovává [kontrakt učení](harness-learning.md).
+Knihovna je od 25. 10. 2026 v hlavní linii kanceláře i Canvasu. Nové části jsou ve výchozím
+stavu vypnuté (viz [Zapnutí v provozu](#zapnutí-v-provozu)). Hlavní cíl samoučící knihovny
+zůstává otevřený: tři vazby smyčky chybí a přínos není prokázán. Původní návrh H01–H24 a jeho historii zachovává [kontrakt učení](harness-learning.md).
 
 ## Jak se v knihovně orientovat
 
@@ -65,18 +66,37 @@ z Office #62 a odpovídající nativní moduly Canvas #46/#78. Veřejný požada
 neposílá token pracovního běhu. Důkazy se kontrolují před operací i po ní
 a přijatá výbava zůstává beze změny.
 
-## Kde je změna k revizi
+## Zapnutí v provozu
 
-- [Office #48](https://github.com/Pletor/agent-office/pull/48): vyhledání, čtení,
-  sestavení a doporučování kitu, offline replay, shared publikování, regrese.
-- [Office #55](https://github.com/Pletor/agent-office/pull/55): sedm úrovní,
-  checkboxy, bezpečné ukládání a přehled zkušeností.
-- [Office #56](https://github.com/Pletor/agent-office/pull/56): Context7.
-- [Office #60](https://github.com/Pletor/agent-office/pull/60): přenosná identita a registr verzí.
-- [Office #62](https://github.com/Pletor/agent-office/pull/62): přístup k přijaté výbavě a čerstvým nativním důkazům.
-- [Canvas #46](https://github.com/Pletor/opora-control-center-canvas/pull/46):
-  přijatý kit, nativní výsledky, regrese a doručování paměti.
-- [Canvas #78](https://github.com/Pletor/opora-control-center-canvas/pull/78): nezávislé kontejnerové ověření a nové posouzení uchovaných důkazů.
+Bez proměnných prostředí worker dostane jen živý snímek profilu (kontext v1). Celý řetězec
+přijatá výbava → příprava → měřené použití → učení potřebuje obě strany:
+
+| Proměnná | Kde | Výchozí | Pro zapnutí |
+| --- | --- | --- | --- |
+| `AGENT_OFFICE_OPORA_CONTEXT_VERSION` | Office | v1 | `2` |
+| `AGENT_OFFICE_HARNESS_PREFLIGHT` | Office | vypnuto | `1` (kontrola přijaté výbavy před claimem) |
+| `AGENT_OFFICE_OPORA_PREPARE_WORKER` | Office | vypnuto | `1` (pracovní adresář workera před claimem) |
+| `AGENT_OFFICE_HARNESS_PREPARE_WORKER` | Office | vypnuto | `1` (příprava výbavy před startem providera; vyžaduje `AGENT_OFFICE_OPORA_PREPARE_WORKER=1` a kontext v2, jinak start selže s chybou) |
+| `AGENT_OFFICE_HARNESS_MCP` | Office | vypnuto | `1` (nástroje výbavy v Office MCP; kancelář ho předá workerům) |
+| `CONTEXT7_API_KEY` | Office | nenastaveno | volitelné, vyšší limity Context7 |
+| `OPORA_HARNESS_VERIFIER` | Canvas | prázdné = vypnuto | JSON rozsahů a připnutý obraz Node |
+| `OPORA_HARNESS_STABILITY` | Canvas | prázdné = vypnuto | JSON rozsahů a schválené digesty plánů |
+| `OPORA_HARNESS_EXPLORATION` | Canvas | prázdné = vypnuto | JSON rozsahů, jen `nonproduction` |
+| `OPORA_HARNESS_TRANSFER` | Canvas | prázdné = vypnuto | JSON pro sdílení mezi projekty |
+| `OPORA_OPENVIKING_ENABLED` | Canvas | false | `1` a klíče rolí (`provision_roles`) |
+
+Pořadí: nasaďte Canvas i Office ze stejného dne (`aktualizovat-vse.ps1`), zapněte Office
+proměnné na jednom patře, ověřte jednu kartu s přijatou výbavou a teprve potom politiky Canvasu.
+Vypnutí proměnné vrací původní chování; uložené profily a historie zůstávají.
+
+Ještě chybí: automatický zápis doporučeného kitu do návrhu karty, spouštěč nezávislého
+ověření po výsledku a návrat paměti z OpenVikingu do doporučení.
+
+## Kde je změna
+
+Sloučeno 25. 10. 2026: Office #48, #55, #56, #57, #60, #62–#65, #69, #72, #80, #84–#86,
+#90–#96 a Canvas #46, #74, #78, #82. Staré návrhy #22–#31 zůstávají otevřené
+k rozhodnutí; jejich nepřevzaté části popisuje audit knihovny.
 
 Novější izolovaná zkouška prošla skutečným spuštěním připnutého skriptu, šesti
 nezávislými kontejnerovými pokusy, nativním přijetím výsledku bez duplicity při
@@ -100,6 +120,4 @@ runneru. Globální dostupnost sdíleného prostředku nepřenáší automaticky
 úspěšnost mezi projekty. Výslovně publikovaná nativní evidence může být podkladem
 pro místní ověření v jiném projektu, zatímco místní výsledky zůstanou neznámé.
 
-Větve se slučují přes lidskou frontu podle [Čisté linie](cista-linie.md), po jednom,
-s přeložením dalších větví na nový main. Nasazení musí ověřit server i klienta.
-Otevření těchto PR samo o sobě nesplňuje celý původní cíl.
+Nasazení musí ověřit server i klienta. Sloučení samo o sobě nesplňuje celý původní cíl.
