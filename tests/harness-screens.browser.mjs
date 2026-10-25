@@ -32,8 +32,8 @@ async function open(width, height, mode = 'real', reduced = false) {
   await page.goto(lab);
   await page.waitForFunction(() => window.__ready);
   await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
-  await page.getByRole('navigation').getByRole('button', { name: 'Resources' }).click();
-  await page.getByRole('dialog', { name: 'Harness library' }).waitFor();
+  await page.getByRole('navigation').getByRole('button', { name: 'Prostředky' }).click();
+  await page.getByRole('dialog', { name: 'Knihovna Harness' }).waitFor();
   return { page, errors };
 }
 async function fillsTheScreen(page) {
@@ -55,7 +55,7 @@ try {
     await (tag === 'mobile' ? page.getByRole('button', { name: /Start here/ }) : page.getByRole('heading', { name: 'Start here', exact: true })).waitFor();
     await fillsTheScreen(page);
     if (tag === 'desktop') {
-      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Search harness resources', 'search has focus on open');
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Hledat v knihovně', 'search has focus on open');
       // Tab never leaves the window, either way round.
       for (let i = 0; i < 40; i++) {
         await page.keyboard.press(i % 3 ? 'Tab' : 'Shift+Tab');
@@ -68,30 +68,30 @@ try {
       await page.locator('.harness-text:not([aria-busy])').waitFor();
       assert.equal(await retryShown(page), false, 'no Try again after a successful read');
       await page.keyboard.press('/');
-      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Search harness resources', '/ jumps to search');
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Hledat v knihovně', '/ jumps to search');
       await shot(page, 'harness-full-desktop.png');
     } else {
       assert.equal(await page.locator('.harness-reader').isVisible(), false, 'a phone starts on the list');
       await shot(page, 'harness-full-mobile-list.png');
       await page.getByRole('button', { name: /Start here/ }).click();
-      await page.getByRole('button', { name: '← Resources' }).waitFor();
+      await page.getByRole('button', { name: '← Prostředky' }).waitFor();
       assert.equal(await page.locator('.harness-body > aside').isVisible(), false, 'the reader takes the screen');
       await fillsTheScreen(page);
       await page.locator('.harness-text:not([aria-busy])').waitFor();
       assert.equal(await retryShown(page), false, 'no Try again after a successful read');
       await shot(page, 'harness-full-mobile-reader.png');
-      await page.getByRole('button', { name: '← Resources' }).click();
+      await page.getByRole('button', { name: '← Prostředky' }).click();
       await page.getByRole('button', { name: /Start here/ }).waitFor();
     }
     // A resource that fails to read offers Try again, and only then.
-    await page.getByLabel('Search harness resources').fill('Broken resource');
+    await page.getByLabel('Hledat v knihovně').fill('Broken resource');
     await page.getByRole('button', { name: /Broken resource/ }).click();
-    await page.getByRole('heading', { name: 'Unable to read' }).waitFor();
+    await page.getByRole('heading', { name: 'Nelze přečíst' }).waitFor();
     assert.equal(await retryShown(page), true, 'Try again after a failed read');
     await shot(page, `harness-read-error-${tag}.png`);
-    if (tag === 'mobile') await page.getByRole('button', { name: '← Resources' }).click();
+    if (tag === 'mobile') await page.getByRole('button', { name: '← Prostředky' }).click();
     // Long titles, paths and unbroken text wrap rather than push the page sideways.
-    await page.getByLabel('Search harness resources').fill('very long title');
+    await page.getByLabel('Hledat v knihovně').fill('very long title');
     await page.getByRole('button', { name: /very long title/ }).click();
     await page.getByRole('heading', { name: /very long title/ }).waitFor();
     assert.equal(await retryShown(page), false, 'a new read hides Try again');
@@ -99,12 +99,12 @@ try {
     await fillsTheScreen(page);
     await shot(page, `harness-long-${tag}.png`);
     // No matches, with a way back.
-    if (tag === 'mobile') await page.getByRole('button', { name: '← Resources' }).click();
-    await page.getByLabel('Search harness resources').fill('no-match-6f973');
-    await page.getByText('No matching resources.', { exact: true }).waitFor();
+    if (tag === 'mobile') await page.getByRole('button', { name: '← Prostředky' }).click();
+    await page.getByLabel('Hledat v knihovně').fill('no-match-6f973');
+    await page.getByText('Žádný prostředek neodpovídá.', { exact: true }).waitFor();
     await shot(page, `harness-nomatch-${tag}.png`);
-    await page.getByRole('button', { name: 'Clear filters' }).click();
-    assert.equal(await page.getByLabel('Search harness resources').inputValue(), '');
+    await page.getByRole('button', { name: 'Zrušit filtry' }).click();
+    assert.equal(await page.getByLabel('Hledat v knihovně').inputValue(), '');
     await page.keyboard.press('Escape');
     assert.equal(await page.getByRole('dialog').count(), 0);
     if (tag === 'desktop') assert.equal(await page.evaluate(() => document.activeElement?.id), 'open-harness', 'focus goes back where it was');
@@ -115,8 +115,8 @@ try {
       const { page, errors } = await open(width, height, mode, true);
       if (mode === 'slow') await page.locator('.harness-skeleton').first().waitFor();
       if (mode !== 'error') assert.equal(await retryShown(page), false, 'no reader Try again while loading or empty');
-      if (mode === 'error') await page.getByRole('button', { name: 'Try again' }).first().waitFor();
-      if (mode === 'empty') await page.getByText(/No resources published yet/).waitFor();
+      if (mode === 'error') await page.getByRole('button', { name: 'Zkusit znovu' }).first().waitFor();
+      if (mode === 'empty') await page.getByText(/Zatím žádné publikované prostředky/).waitFor();
       await fillsTheScreen(page);
       await shot(page, `harness-${mode === 'slow' ? 'loading' : mode}-${tag}.png`);
       await page.getByRole('button', { name: 'Close', exact: true }).click();
