@@ -63,7 +63,7 @@ try {
     await page.waitForFunction(() => window.__ready);
     await page.getByRole('button', { name: 'Open Harness', exact: true }).click();
     // The seven-level editor lives on the workspace's Equipment page, which opens it.
-    await page.getByRole('navigation', { name: 'Harness library pages' }).getByRole('button', { name: 'Equipment' }).click();
+    await page.getByRole('navigation', { name: 'Stránky knihovny' }).getByRole('button', { name: 'Výbava' }).click();
     await page.getByLabel('Karta', { exact: true }).selectOption(keys[4]);
     // Derive the exact published title rather than hard-coding translations.
     const title = catalog.entries.find(entry => entry.id === 'guide:testing').title;
