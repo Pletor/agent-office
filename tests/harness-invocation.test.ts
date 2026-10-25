@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
@@ -125,6 +125,15 @@ test('real CLI reads only authenticated accepted kit; transport refuses redirect
   assert.equal(requests, before + 1, 'credential request never follows redirects');
   mode = 'large'; await assert.rejects(acceptedReceipt(base, 'worker-1', 'test-hook'), /invalid/);
   mode = 'gone'; await assert.rejects(acceptedReceipt(base, 'worker-1', 'test-hook'), /unavailable/);
+});
+
+test('large input goes through a working-directory file; oversized command lines are refused with that advice', async (t) => {
+  const root = await temp(t), big = JSON.stringify({ edges: 'x'.repeat(64 * 1024) });
+  const counter = "import {readFileSync} from 'node:fs'; console.log(JSON.parse(readFileSync(process.argv[2], 'utf8')).edges.length)";
+  await assert.rejects(invokeNode(async () => receipt(counter), 'el:project:runner', [big], root), /16 KiB of arguments\. Put larger input in a file/);
+  await writeFile(path.join(root, 'input.json'), big);
+  const result = await invokeNode(async () => receipt(counter), 'el:project:runner', ['input.json'], root);
+  assert.equal(result.outcome, 'pass'); assert.equal(result.stdout, String(64 * 1024) + '\n');
 });
 
 test('rejects digest mismatch and unsupported requirements before starting Node', async () => {

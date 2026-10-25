@@ -50,7 +50,8 @@ const identity = (r: Receipt) => JSON.stringify([r.execution.executionId, r.exec
 export async function invokeNode(read: () => Promise<Receipt>, resourceId: string, args: string[], cwd: string,
   options: { timeoutMs?: number; pollMs?: number; tempRoot?: string } = {}) {
   if (!ID.test(resourceId) || args.length > 32 || args.some(a => typeof a !== 'string' || a.includes('\0'))
-    || Buffer.byteLength(JSON.stringify(args)) > 16 * 1024) throw new Error('Choose one resource and at most 32 arguments / 16 KiB.');
+    || Buffer.byteLength(JSON.stringify(args)) > 16 * 1024)
+    throw new Error('Choose one resource and at most 32 arguments / 16 KiB of arguments. Put larger input in a file inside the working directory and pass its path; the script may read that directory.');
   if (!process.allowedNodeEnvironmentFlags.has('--permission')) throw new Error('This Node runtime lacks the required permission controls.');
   if (/[,\*]/.test(path.resolve(cwd)) || /[,\*]/.test(options.tempRoot ?? tmpdir()))
     throw new Error('Working and temporary paths cannot contain permission-pattern characters.');
