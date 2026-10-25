@@ -2,7 +2,7 @@
 
 Knihovna je od 25. 10. 2026 v hlavní linii kanceláře i Canvasu. Nové části jsou ve výchozím
 stavu vypnuté (viz [Zapnutí v provozu](#zapnutí-v-provozu)). Hlavní cíl samoučící knihovny
-zůstává otevřený: tři vazby smyčky chybí a přínos není prokázán. Původní návrh H01–H24 a jeho historii zachovává [kontrakt učení](harness-learning.md).
+zůstává otevřený: smyčka je propojená, ale její přínos zatím není prokázán. Původní návrh H01–H24 a jeho historii zachovává [kontrakt učení](harness-learning.md).
 
 ## Jak se v knihovně orientovat
 
@@ -89,8 +89,25 @@ Pořadí: nasaďte Canvas i Office ze stejného dne (`aktualizovat-vse.ps1`), za
 proměnné na jednom patře, ověřte jednu kartu s přijatou výbavou a teprve potom politiky Canvasu.
 Vypnutí proměnné vrací původní chování; uložené profily a historie zůstávají.
 
-Ještě chybí: automatický zápis doporučeného kitu do návrhu karty, spouštěč nezávislého
-ověření po výsledku a návrat paměti z OpenVikingu do doporučení.
+Ověřeno 25. 10. 2026 v izolované sestavě (Canvas :8791, Office :4693, vlastní OpenViking)
+se skutečnými procesy:
+
+- Pět Office proměnných zapnutých: karta bez výbavy proběhla beze změny až k lidské kontrole.
+- Karta s výbavou prošla celou cestou: kontext v2, preflight, claim, příprava, prompt,
+  `--accepted-kit`, `--prepare-accepted`, `--invoke-node`, výsledek a měření v Canvasu.
+- Autopilot bere kartu s přijatou výbavou jen kancelář s kontextem v2. Kancelář ve v1 takovou
+  kartu přeskočí.
+- Nový repozitář, kterému Claude Code ještě nedůvěřuje, zastaví workera na dotazu na důvěru
+  („Waiting on a setup prompt“). Proto zapínejte na repozitáři, ve kterém už workeři běželi.
+
+Neověřeno v provozu: samotný běh politik Canvasu (verifier, stabilita, průzkum), zápis do
+OpenVikingu a použití MCP nástrojů výbavy workerem. Politiky Canvasu proto zatím nezapínejte.
+`OPORA_HARNESS_STABILITY` navíc potřebuje skutečné digesty schválených plánů.
+
+Vazby smyčky:
+- Doporučený kit se do karty dostane návrhem změny, který přijme člověk (záměrně ne automaticky).
+- Nezávislé ověření spustí worker příkazem `office-harness --verify-pair PLAN`.
+- Doporučení čte nativní výsledky Canvasu.
 
 ## Kde je změna
 
