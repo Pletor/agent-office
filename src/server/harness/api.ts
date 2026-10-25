@@ -8,6 +8,7 @@ import { HarnessRegistry } from './registry.js';
 import { HarnessLibrary, harnessSources } from './catalog.js';
 import { oporaHarnessTask } from '../../shared/harness-cascade.js';
 import { documentationRequest } from './documentation-api.js';
+import { runnerProbeRequest } from './runner-probe-api.js';
 
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean) {
   try {
@@ -46,6 +47,7 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   const me = floor?.workers.authenticate(id, (req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''));
   if (!floor || !me) return send(res, 401, { error: 'Use your worker ID and hook bearer token.' });
   if (url.searchParams.has('docs')) return documentationRequest(req, res, JSON.stringify([floor.id, id]), floor.opora?.executions?.controller, id, url.searchParams.has('task'));
+  if (url.searchParams.has('capabilities')) return runnerProbeRequest(req, res, url, me.provider ?? floor.workers.defaultProvider, floor.id + ':' + me.id);
   const plan = floor.planning.state().current;
   // Workers without an identified administrator owner may read only project-published resources.
   const active = plan?.workerId === id && (plan.mode === 'opora' || plan.mode === 'router');
