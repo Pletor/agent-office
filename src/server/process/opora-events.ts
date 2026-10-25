@@ -114,25 +114,30 @@ export function handoffEvent(lease: { executionId: string; project: string; work
   return { kind: 'pr.handoff', phase: 'review', state: out.state === 'failed' ? 'fail' : 'info', title: `Běh ${lease.executionId}: PR neotevřen`, detail: out.reason, refs };
 }
 
-export function selfCheckEvent(s: { project: string; workspace: string; executionId: string; headSha: string }, failed: string[], outcome: string): ProcessInput {
+/** The office ran its self-checks on a head: which failed (each with its exit code, whether it was retried, and its last line), and what Canvas said. */
+export function selfCheckEvent(s: { project: string; workspace: string; executionId: string; headSha: string }, failed: string[], outcome: string,
+  checks: { name: string; exitCode: number | null; status: string; attempts: number; firstExitCode?: number; tail?: string }[] = []): ProcessInput {
+  const red = checks.filter((c) => c.status !== 'passed').map((c) => `${c.name} exit ${c.exitCode}${c.attempts > 1 ? ' i po opakování' : ''}${c.tail ? `: ${c.tail.split('\n').pop()}` : ''}`);
+  const retried = checks.filter((c) => c.status === 'passed' && c.attempts > 1).map((c) => `${c.name} prošel až na druhý pokus (poprvé exit ${c.firstExitCode})`);
   return {
     kind: 'check.self',
     phase: 'checks',
     state: failed.length ? 'fail' : 'ok',
     title: failed.length ? `Self-checky selhaly: ${failed.join(', ')}` : 'Self-checky prošly',
-    detail: `head ${s.headSha.slice(0, 12)} · Canvas: ${outcome}`,
+    detail: [`head ${s.headSha.slice(0, 12)} · Canvas: ${outcome}`, ...red, ...retried].join(' · '),
     refs: { project: s.project, workspace: s.workspace, executionId: s.executionId, sha: s.headSha },
   };
 }
 
 const UPKEEP = { rebased: ['ok', 'přebázován'], resolved: ['ok', 'konflikty vyřešeny'], human: ['blocked', 'potřebuje člověka'], failed: ['fail', 'údržba selhala'] } as const;
 
-/** One upkeep pass: only PRs it did something to (or couldn't), and the guard when its verdict changed. */
-export function upkeepEvents(pass: { upkeep?: { number: number; state: string; reason?: string }[]; guard?: { state: string; head: string; culprit?: string; url?: string; reason?: string } }, lastGuard?: string): ProcessInput[] {
+/** One upkeep pass: only PRs it did something to (or couldn't), a "needs a human" it took back, and the guard when its verdict changed. */
+export function upkeepEvents(pass: { upkeep?: { number: number; state: string; reason?: string; cleared?: boolean }[]; guard?: { state: string; head: string; culprit?: string; url?: string; reason?: string } }, lastGuard?: string): ProcessInput[] {
   const out: ProcessInput[] = [];
   for (const u of pass.upkeep ?? []) {
     const m = UPKEEP[u.state as keyof typeof UPKEEP];
     if (m) out.push({ kind: 'upkeep', phase: 'merge', state: m[0], title: `PR #${u.number}: ${m[1]}`, detail: u.reason, refs: { pr: u.number } });
+    if (u.cleared) out.push({ kind: 'upkeep', phase: 'merge', state: 'ok', title: `PR #${u.number}: člověk už není potřeba`, detail: 'Další průchod údržby PR srovnal se základem; upozornění staženo', refs: { pr: u.number } });
   }
   const g = pass.guard;
   if (g && `${g.state}@${g.head}` !== lastGuard && g.state !== 'none' && g.state !== 'handled' && g.state !== 'not-opora') {

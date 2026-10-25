@@ -1,7 +1,7 @@
 // A worker's agent CLI stopped on its provider's usage limit, read off its terminal: Claude Code's
 // "You've hit your session limit · resets 6am (Europe/Prague)" (session, weekly, usage, Opus…),
 // its older "Claude usage limit reached|<epoch>", and Codex's "You've hit your usage limit … try again
-// in 2 hours". Conservative on purpose: only a line that *starts* with one of those (after the CLI's
+// in 2 hours", and "Usage limit reached · continuing automatically at 2am". Conservative on purpose: only a line that *starts* with one of those (after the CLI's
 // own bullets), near the bottom of the screen, so a diff or a file that quotes one doesn't pause anyone.
 // Pure, so the server (which detects it) and the browser (which shows it) share the words.
 
@@ -26,9 +26,22 @@ const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', '
 const CLOCK = String.raw`(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?`;
 const DATE = String.raw`(?:(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? (\d{1,2})(?:st|nd|rd|th)?,?\s*(?:(\d{4}),?\s*)?(?:at\s+)?)?`;
 const ZONE = String.raw`(?:\s*\(([A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)+|UTC|GMT)\))?`;
-const AT = new RegExp(String.raw`(?:resets?|reset at|try again)\s+(?:at\s+|on\s+)?${DATE}${CLOCK}${ZONE}`, 'i');
+// "resets 6am", "try again at 6am", and Claude Code's "continuing automatically at 2am".
+const AT = new RegExp(String.raw`(?:resets?|reset at|try again|continu(?:e|es|ing)(?:\s+automatically)?)\s+(?:at\s+|on\s+)?${DATE}${CLOCK}${ZONE}`, 'i');
 const IN = /(?:resets?|try again)\s+in\s+(?:(\d+)\s*(?:hours?|hrs?|h)\b)?[\s,]*(?:(\d+)\s*(?:minutes?|mins?|m)\b)?/i;
 const EPOCH = /\|(\d{10})\b/;
+/**
+ * The CLI saying the limit is over and it carries on: Claude Code's "Usage limit reset · continuing
+ * automatically" (or a bare "Continuing automatically"). A limit line above it is the past, even when
+ * a repaint leaves it on the screen; "continuing automatically at 2am" is still the stop itself.
+ */
+const RESUMED = new RegExp(String.raw`^(?:(?:claude )?(?:(?:${KINDS}) )?limit (?:has )?(?:been )?reset\b|continuing (?:automatically|now)\b(?!\s+(?:at|on|in)\b))`, 'i');
+
+/** Which of `lines` is the last one saying the limit reset and the CLI carries on; -1 when none does. */
+export function limitResumeIndex(lines: string[]): number {
+  for (let i = lines.length - 1; i >= 0; i--) if (RESUMED.test(lines[i].replace(LEAD, '').trim())) return i;
+  return -1;
+}
 
 /** What a stop on a usage limit looks like on the screen: which limit, when it resets, the line itself. */
 export interface LimitStop {
@@ -45,7 +58,9 @@ export interface LimitStop {
  * time with none named is in (the machine's own when left out).
  */
 export function detectLimitStop(lines: string[], now = Date.now(), zone?: string): LimitStop | undefined {
-  const tail = lines.map((text, index) => ({ text, index })).filter((l) => l.text.trim()).slice(-LIMIT_TAIL_LINES);
+  // Only what the CLI printed after it last said the limit reset: a stale limit line above that doesn't count.
+  const resumed = limitResumeIndex(lines);
+  const tail = lines.map((text, index) => ({ text, index })).filter((l) => l.index > resumed && l.text.trim()).slice(-LIMIT_TAIL_LINES);
   for (let i = tail.length - 1; i >= 0; i--) {
     const text = tail[i].text.replace(LEAD, '').trim();
     for (const p of PATTERNS) {

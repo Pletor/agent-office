@@ -9,6 +9,7 @@ import { isOporaPr, NEEDS_HUMAN, PrUpkeep, type OporaPr } from '../src/server/op
 import { upkeepConfig, type UpkeepConfig } from '../src/server/opora/upkeep-config.js';
 import { createOporaUpkeep, OporaUpkeep } from '../src/server/opora/upkeep-runner.js';
 import { executionOf, UpkeepLedger, type UpkeepTools } from '../src/server/opora/upkeep-tools.js';
+import { upkeepEvents } from '../src/server/process/opora-events.js';
 
 const BASE = 'b'.repeat(40), HEAD = 'h'.repeat(40), NEW = 'n'.repeat(40);
 const config = (over: Partial<UpkeepConfig> = {}): UpkeepConfig => ({ ...upkeepConfig({ AGENT_OFFICE_OPORA_UPKEEP: 'on', AGENT_OFFICE_OPORA_GUARD: 'on', AGENT_OFFICE_OPORA_CHECK_COMMAND: 'npm test' }), ...over });
@@ -130,7 +131,7 @@ test('a resolved conflict whose checks fail is not pushed: the PR gets a human c
   const out = await new PrUpkeep(config(), f.tools, new UpkeepLedger(), quiet).pass('Pletor/shop', root(t), root(t));
   assert.equal(out[0]!.state, 'human');
   assert.equal(pushes(f.git).length, 0);
-  assert.match(comments(f.gh)[0]!.at(-1)!, /npm test` failed after the rebase[\s\S]*FAIL cart\.test\.ts/);
+  assert.match(comments(f.gh)[0]!.at(-1)!, /npm test` failed twice after the rebase[\s\S]*FAIL cart\.test\.ts/);
   assert.ok(f.gh.some((a) => a[1] === 'edit' && a.includes(NEEDS_HUMAN)));
 });
 
@@ -242,4 +243,73 @@ test('a first bad commit that is not an Opora merge is reported, not reverted; g
   assert.equal((await new MergeGuard(config(), green.tools, ledger, quiet).pass('Pletor/shop', root(t), root(t))).state, 'green');
   assert.equal(ledger.lastGreen, green.shas[6]);
   assert.equal(ledger.handledRed, undefined);
+});
+
+// watch-wave1 F22: "needs a human" raised on a failure the next pass (or another office keeping the
+// same repository) fixed a minute later, and never taken back.
+test('a check that fails once and passes on its retry is pushed, with no human notice', async t => {
+  const f = prFakes();
+  let n = 0;
+  f.tools.check = async () => ({ ok: ++n > 1, output: n > 1 ? 'ok' : 'EBUSY' });
+  const out = await new PrUpkeep(config(), f.tools, new UpkeepLedger(), quiet).pass('Pletor/shop', root(t), root(t));
+  assert.deepEqual(out, [{ number: 7, state: 'rebased' }]);
+  assert.equal(n, 2);
+  assert.equal(pushes(f.git).length, 1);
+  assert.equal(comments(f.gh).length, 0);
+});
+
+test('a failure while someone else moved the head is skipped, not left to a human', async t => {
+  const f = prFakes({ check: false });
+  const git = f.tools.git;
+  f.tools.git = async (args, cwd) => (args[0] === 'ls-remote' ? `${'f'.repeat(40)}\trefs/heads/opora/card/exec-1` : git(args, cwd));
+  const out = await new PrUpkeep(config(), f.tools, new UpkeepLedger(), quiet).pass('Pletor/shop', root(t), root(t));
+  assert.deepEqual(out, [{ number: 7, state: 'skipped', reason: 'its head moved while upkeep checked it' }]);
+  assert.equal(comments(f.gh).length, 0);
+  assert.ok(!f.gh.some((a) => a.includes(NEEDS_HUMAN)));
+  // A push race (another office pushed first) is the same.
+  const g = prFakes();
+  const gitG = g.tools.git;
+  g.tools.git = async (args, cwd) => {
+    if (args[0] === 'push') throw new Error('! [rejected] HEAD -> opora/card/exec-1 (stale info)');
+    return args[0] === 'ls-remote' ? `${'f'.repeat(40)}\trefs/heads/opora/card/exec-1` : gitG(args, cwd);
+  };
+  const raced = await new PrUpkeep(config({ attemptsPerHead: 1 }), g.tools, new UpkeepLedger(), quiet).pass('Pletor/shop', root(t), root(t));
+  assert.deepEqual(raced, [{ number: 7, state: 'skipped', reason: 'its head moved while upkeep worked on it' }]);
+  assert.equal(comments(g.gh).length, 0);
+});
+
+test('a later pass that finds the PR up to date takes the "needs a human" notice back: label off, comment withdrawn', async t => {
+  const notice = "🛰️ Agent Office couldn't bring this pull request up to date with `main`: `npm test` failed twice after the rebase.";
+  const f = prFakes({ behind: false, prs: [pr({ labels: [{ name: NEEDS_HUMAN }] })] });
+  const gh = f.tools.gh;
+  f.tools.gh = async (args, cwd) => {
+    if (args[0] === 'api' && args.includes('--paginate')) { f.gh.push(args); return [JSON.stringify({ id: 41, body: notice }), JSON.stringify({ id: 42, body: 'other comment' })].join('\n'); }
+    return gh(args, cwd);
+  };
+  const said: string[] = [];
+  const out = await new PrUpkeep(config(), f.tools, new UpkeepLedger(), (m) => said.push(m)).pass('Pletor/shop', root(t), root(t));
+  assert.deepEqual(out, [{ number: 7, state: 'current', cleared: true }]);
+  assert.ok(f.gh.some((a) => a[1] === 'edit' && a.includes('--remove-label') && a.includes(NEEDS_HUMAN)));
+  const patches = f.gh.filter((a) => a[0] === 'api' && a.includes('PATCH'));
+  assert.equal(patches.length, 1);
+  assert.equal(patches[0][3], 'repos/Pletor/shop/issues/comments/41');
+  assert.match(patches[0].at(-1)!, /^body=> ✅ \*\*No longer needs a human\.\*\*[\s\S]*<details><summary>The original notice<\/summary>[\s\S]*failed twice after the rebase/);
+  assert.match(said.join('\n'), /no longer needs a human/);
+  // The wall gets the withdrawal next to the pass.
+  const events = upkeepEvents({ upkeep: out });
+  assert.deepEqual(events.map((e) => [e.state, e.title]), [['ok', 'PR #7: člověk už není potřeba']]);
+  // Without the notice, a current PR stays quiet.
+  const g = prFakes({ behind: false });
+  assert.deepEqual(await new PrUpkeep(config(), g.tools, new UpkeepLedger(), quiet).pass('Pletor/shop', root(t), root(t)), [{ number: 7, state: 'current' }]);
+  assert.ok(!g.gh.some((a) => a.includes('--remove-label')));
+});
+
+test('a notice this office raised on an older head is taken back when a rebase succeeds later', async t => {
+  const ledger = new UpkeepLedger();
+  const old = ledger.pr(7, 'o'.repeat(40));
+  old.human = true;
+  const f = prFakes();
+  const out = await new PrUpkeep(config(), f.tools, ledger, quiet).pass('Pletor/shop', root(t), root(t));
+  assert.deepEqual(out, [{ number: 7, state: 'rebased', cleared: true }]);
+  assert.ok(f.gh.some((a) => a.includes('--remove-label')));
 });

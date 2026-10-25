@@ -2,6 +2,7 @@
 // absolute paths into the office's data. Every string an event carries goes through here.
 
 import os from 'node:os';
+import { cutText } from '../../shared/text-cut.js';
 
 const SECRETS: [RegExp, string][] = [
   // GitHub, Anthropic/OpenAI style and Slack tokens.
@@ -31,10 +32,24 @@ function escape(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Hides secrets and data-dir paths, folds a root (the floor's checkout, the home folder) to a short name, and cuts to `max`. */
+/**
+ * Hides secrets and data-dir paths, folds a root (the floor's checkout, the home folder) to a short name,
+ * and cuts to `max` by code point: never inside an emoji, never leaving a lone surrogate, which Opora
+ * refuses (shared/text-cut.ts).
+ */
 export function redact(text: unknown, max: number, roots: string[] = []): string {
   let s = typeof text === 'string' ? text : text === undefined || text === null ? '' : String(text);
   s = s.replace(/[\r\n\t]+/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '');
+  return cutText(hide(s, roots).trim(), max);
+}
+
+/** `redact` a line at a time, keeping the lines (a command's output tail): each line at most `lineMax`. */
+export function redactLines(text: string, lineMax: number, roots: string[] = []): string {
+  return text.split(/\r?\n/).map((line) => cutText(hide(line.replace(/\t/g, ' ').replace(/[\u0000-\u001f\u007f]/g, ''), roots).trimEnd(), lineMax)).join('\n');
+}
+
+function hide(text: string, roots: string[]): string {
+  let s = text;
   for (const [re, to] of SECRETS) s = s.replace(re, to);
   s = s.replace(DATA_PATH, '[data]');
   for (const root of [...roots, os.homedir()].filter((r) => r && r.length > 3)) {
@@ -42,7 +57,5 @@ export function redact(text: unknown, max: number, roots: string[] = []): string
     const pattern = escape(root).replace(/\\\\|\//g, '[\\\\/]');
     s = s.replace(new RegExp(pattern, process.platform === 'win32' ? 'gi' : 'g'), root === os.homedir() ? '~' : '.');
   }
-  s = s.replace(ABS_WIN, maskPath).replace(ABS_POSIX, maskPath);
-  s = s.trim();
-  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+  return s.replace(ABS_WIN, maskPath).replace(ABS_POSIX, maskPath);
 }

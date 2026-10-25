@@ -23,8 +23,8 @@ const STATUS_CZ: Record<WorkerStatus, string> = {
   offline: 'offline',
 };
 
-/** A worker changed: its turn started or ended, it needs someone, its status otherwise moved, or its tests keep failing. */
-export function workerEvents(prev: WorkerInfo | undefined, next: WorkerInfo): ProcessInput[] {
+/** A worker changed: its turn started or ended, it needs someone, its status otherwise moved, or its tests keep failing. `now` is when it's read, which says whether a reset time needs its date (pauseCz). */
+export function workerEvents(prev: WorkerInfo | undefined, next: WorkerInfo, now = Date.now()): ProcessInput[] {
   const base = { actor: actorOf(next), refs: workerRefs(next) };
   const out: ProcessInput[] = [];
   if (!prev) {
@@ -43,7 +43,7 @@ export function workerEvents(prev: WorkerInfo | undefined, next: WorkerInfo): Pr
     out.push({ ...base, kind: 'tool.use', phase: 'checks', state: 'fail', title: `${next.name}: testy nebo build opakovaně selhávají`, tool: { name: 'tests', action: 'failing' } });
   // Stopped on its provider's usage limit while its status still says working (see shared/usage-limit.ts).
   if (next.paused && (!prev.paused || prev.paused.resetsAt !== next.paused.resetsAt || prev.paused.kind !== next.paused.kind))
-    out.push({ ...base, kind: 'worker.status', phase: 'work', state: 'wait', title: `${next.name} ${pauseCz(next.paused)}`, detail: `Limit poskytovatele (${next.paused.kind}): ${next.paused.line}` });
+    out.push({ ...base, kind: 'worker.status', phase: 'work', state: 'wait', title: `${next.name} ${pauseCz(next.paused, now)}`, detail: `Limit poskytovatele (${next.paused.kind}): ${next.paused.line}` });
   else if (prev.paused && !next.paused && next.status !== 'exited' && next.status !== 'offline')
     out.push({ ...base, kind: 'worker.status', phase: 'work', state: 'progress', title: `${next.name} pokračuje po limitu`, detail: `${STATUS_CZ[next.status]}` });
   if (next.lost && !prev.lost)

@@ -1,11 +1,12 @@
 // A floor's dependency setup for its workers' fresh worktrees: `.agent-office/worktree-setup.json` in
 // the floor's checkout names one shell command (`npm ci && uv sync`, say) that runs in each new
 // worktree before its worker starts, and again before self-checks in a worktree it never ran in.
-// The worker's first prompt says how it went. A floor without the file gets no setup, as before.
+// The worker's first prompt says how it went; the log gets one line (the output's tail only on a failure). A floor without the file gets no setup, as before.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { shellCheck, type ExecCheck } from '../opora/self-checks.js';
+import { redactLines } from '../process/redact.js';
 
 /** Where a floor names its setup command, relative to its checkout. */
 export const SETUP_FILE = path.join('.agent-office', 'worktree-setup.json');
@@ -86,16 +87,24 @@ export class WorktreeSetup {
     return this.run(dir, config);
   }
 
-  /** Runs `config` in `dir` (the one already running there, if any), logs its tail and remembers it in the git dir. */
+  /**
+   * Runs `config` in `dir` (the one already running there, if any) and remembers it in the git dir. The
+   * log gets one line when it passes, and the tail of its output (redacted) only when it fails: a full
+   * npm/uv install on every new worktree buried the office's log.
+   */
   run(dir: string, config: WorktreeSetupConfig): Promise<SetupOutcome | undefined> {
     const busy = this.running.get(dir);
     if (busy) return busy;
-    this.log(`running \`${config.command}\` in ${dir}`, 'info');
+    const started = Date.now();
     const job = this.exec(config.timeoutMs)(config.command, dir).then((ran) => {
       const exitCode = ran.exitCode === null ? 127 : ran.exitCode;
       const outcome: SetupOutcome = { command: config.command, exitCode, lastLine: ran.timedOut ? 'timed out' : lastLine(ran.output) };
-      const tail = ran.output.split(/\r?\n/).filter((l) => l.trim()).slice(-LOG_TAIL_LINES).join('\n');
-      this.log(`\`${config.command}\` in ${dir} ${exitCode === 0 ? 'passed' : `failed with exit ${exitCode}`}${tail ? `:\n${tail}` : ''}`, exitCode === 0 ? 'info' : 'warn');
+      const took = `${Math.round((Date.now() - started) / 1000)} s`;
+      if (exitCode === 0) this.log(`\`${config.command}\` in ${dir} passed (${took})`, 'info');
+      else {
+        const tail = redactLines(ran.output.split(/\r?\n/).filter((l) => l.trim()).slice(-LOG_TAIL_LINES).join('\n'), 300, [dir]);
+        this.log(`\`${config.command}\` in ${dir} failed with exit ${exitCode}${ran.timedOut ? ' (timed out)' : ''} after ${took}${tail ? `:\n${tail}` : ''}`, 'warn');
+      }
       this.remember(dir, outcome);
       return outcome;
     }).finally(() => this.running.delete(dir));

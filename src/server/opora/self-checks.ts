@@ -4,6 +4,9 @@ import path from 'node:path';
 import { executionOf } from './upkeep-tools.js';
 import { emitProcess } from '../process/hub.js';
 import { selfCheckEvent } from '../process/opora-events.js';
+import { redact } from '../process/redact.js';
+import { cutText } from '../../shared/text-cut.js';
+import { checkSummary, describeFailed, ledgerEntry, outputTail, retries, type CheckRun, type LedgerCheck, type LedgerEntry } from './self-check-evidence.js';
 import { PendingSelfChecks, SELF_CHECK_BACKOFF, selfCheckDelay, type PendingSelfCheck } from './self-check-pending.js';
 
 /**
@@ -55,11 +58,14 @@ export function selfCheckTimeoutMs(env: NodeJS.ProcessEnv = process.env): number
   return (Number.isFinite(n) && n >= 1 ? Math.min(120, Math.floor(n)) : 20) * 60_000;
 }
 
-/** The platform's shell runs the command, keeping the last 4000 characters of what it printed. */
+/** What a check's run keeps of its output, for its last 40 lines; the evidence holds 4000 characters of them. */
+const RAW_OUTPUT = 16_000;
+
+/** The platform's shell runs the command, keeping the last 16 000 characters of what it printed. */
 export function shellCheck(timeoutMs: number, env: NodeJS.ProcessEnv = process.env): ExecCheck {
   return (command, cwd) => new Promise((resolve) => {
     let out = '', timedOut = false;
-    const keep = (d: Buffer | string) => { out = (out + String(d)).slice(-MAX_OUTPUT); };
+    const keep = (d: Buffer | string) => { out = (out + String(d)).slice(-RAW_OUTPUT); };
     const child = spawn(command, { cwd, env, shell: true, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
     child.stdout?.on('data', keep);
@@ -69,33 +75,42 @@ export function shellCheck(timeoutMs: number, env: NodeJS.ProcessEnv = process.e
   });
 }
 
-/** The last line of output worth reading, as the check's one-line summary. */
-function summaryOf(output: string, timedOut?: boolean): string | undefined {
-  if (timedOut) return 'timed out';
-  const line = output.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop();
-  return line ? line.slice(0, MAX_SUMMARY) : undefined;
-}
-
 /**
  * Runs each check in `cwd`, in order, and returns the evidence for `headSha`. A check that couldn't
  * start is `failed` with exit code 127, a timed-out one `failed` with 124: Canvas allows `skipped`
- * only for a check that deliberately didn't run, and `passed` only for exit code 0.
+ * only for a check that deliberately didn't run, and `passed` only for exit code 0. A red check runs
+ * once more and counts only when that fails too (self-check-evidence.ts); its summary says so. The
+ * output kept is the last 40 lines, redacted, with the worktree folded to `.`.
  */
 export async function runSelfChecks(commands: SelfCheckCommand[], cwd: string, headSha: string, exec: ExecCheck,
   now: () => number = Date.now): Promise<SelfChecks> {
+  return (await runSelfChecksKept(commands, cwd, headSha, exec, now)).selfChecks;
+}
+
+/** `runSelfChecks`, and what the office's ledger keeps of each check. */
+export async function runSelfChecksKept(commands: SelfCheckCommand[], cwd: string, headSha: string, exec: ExecCheck,
+  now: () => number = Date.now): Promise<{ selfChecks: SelfChecks; kept: LedgerCheck[] }> {
   if (!SHA.test(headSha)) throw new Error('self-checks need the 40-character head commit');
-  const checks: SelfCheck[] = [];
+  const checks: SelfCheck[] = [], kept: LedgerCheck[] = [];
+  const roots = [cwd];
   for (const { name, command } of commands.slice(0, MAX_CHECKS)) {
     const started = now();
-    const ran = await exec(command, cwd);
-    const exitCode = ran.exitCode === null ? 127 : ran.exitCode;
-    const output = ran.output.trim().slice(-MAX_OUTPUT);
-    const summary = summaryOf(ran.output, ran.timedOut);
-    checks.push({ name, command, exitCode, status: exitCode === 0 ? 'passed' : 'failed',
+    const runs: CheckRun[] = [];
+    do {
+      const ran = await exec(command, cwd);
+      runs.push({ exitCode: ran.exitCode === null ? 127 : ran.exitCode, output: ran.output, timedOut: ran.timedOut });
+    } while (runs.length < 2 && retries(runs[runs.length - 1]));
+    const last = runs[runs.length - 1];
+    const output = outputTail(last.output, roots);
+    const summary = checkSummary(runs, roots);
+    const status = last.exitCode === 0 ? 'passed' : 'failed';
+    checks.push({ name, command, exitCode: last.exitCode, status,
       ...(summary ? { summary } : {}), ...(output ? { output } : {}),
       durationSeconds: Math.max(0, Math.round((now() - started) / 100) / 10) });
+    kept.push({ name, command: cutText(redact(command, MAX_COMMAND, roots), MAX_COMMAND), exitCode: last.exitCode, status, attempts: runs.length,
+      ...(runs.length > 1 ? { firstExitCode: runs[0].exitCode } : {}), ...(output ? { tail: output } : {}) });
   }
-  return { headSha, checks };
+  return { selfChecks: { headSha, checks }, kept };
 }
 
 /** Whether `value` is evidence Canvas would take, with the same rules (validation, not repair). */
@@ -149,6 +164,12 @@ export class SelfCheckReporter {
   private timers = new Set<NodeJS.Timeout>();
   /** Readies a worktree before its checks run (the floor's dependency setup, worktree-setup.ts); a failure doesn't stop them. */
   prepare?: (dir: string) => Promise<unknown>;
+  /**
+   * Waits, before anything runs in a worktree, until the worker that was in it and its processes are
+   * gone (worktree-quiet.ts): checks racing a just-stopped worker for its files once failed for no
+   * reason of the commit's. What it resolves to (a `Quiet`) is logged when it had to wait.
+   */
+  settle?: (dir: string) => Promise<{ waitedMs: number; timedOut: boolean; busy: string[] } | undefined>;
   /** Evidence Canvas never answered for (a timeout, 5xx), kept on disk and posted again by `retryPending` (self-check-pending.ts). */
   readonly unsent: PendingSelfChecks;
   private retrying?: Promise<void>;
@@ -165,13 +186,23 @@ export class SelfCheckReporter {
     this.timers.clear();
   }
 
-  private ledger(): Record<string, SelfCheckOutcome> {
-    try { return JSON.parse(readFileSync(this.ledgerFile, 'utf8')) as Record<string, SelfCheckOutcome>; } catch { return {}; }
+  /** Each head's entry: what Canvas said, and each check's exit code and output tail (self-check-evidence.ts). */
+  private ledger(): Record<string, LedgerEntry> {
+    let raw: Record<string, unknown> = {};
+    try { raw = JSON.parse(readFileSync(this.ledgerFile, 'utf8')) as Record<string, unknown>; } catch { return {}; }
+    const out: Record<string, LedgerEntry> = {};
+    for (const [key, value] of Object.entries(raw)) { const e = ledgerEntry(value); if (e) out[key] = e; }
+    return out;
   }
-  private remember(key: string, outcome: SelfCheckOutcome) {
+  /** The ledger's entry for an execution's head, as the office last wrote it. */
+  entry(executionId: string, headSha: string): LedgerEntry | undefined {
+    return this.ledger()[`${executionId}@${headSha}`];
+  }
+  private remember(key: string, outcome: SelfCheckOutcome | 'reposting', checks?: LedgerCheck[]) {
     try {
       const all = this.ledger();
-      all[key] = outcome;
+      const prior = all[key];
+      all[key] = { outcome, at: new Date(this.now()).toISOString(), ...(checks ?? prior?.checks ? { checks: checks ?? prior?.checks } : {}) };
       mkdirSync(path.dirname(this.ledgerFile), { recursive: true, mode: 0o700 });
       writeFileSync(this.ledgerFile, JSON.stringify(all, null, 2), { mode: 0o600 });
     } catch { /* the next call runs them again; Canvas takes the same record idempotently */ }
@@ -180,7 +211,7 @@ export class SelfCheckReporter {
   /** The evidence run for this head, or the one already under way; resolves to what Canvas said. */
   report(subject: SelfCheckSubject): Promise<SelfCheckOutcome> {
     const key = `${subject.executionId}@${subject.headSha}`;
-    const prior = this.ledger()[key];
+    const prior = this.ledger()[key]?.outcome;
     // A new head for the execution: what still waits for an older one no longer counts.
     for (const gone of this.unsent.supersede(subject.executionId, subject.headSha)) this.pending.delete(gone);
     if (prior === 'recorded' || prior === 'conflict' || this.pending.has(key) || this.unsent.has(key)) return Promise.resolve('skipped');
@@ -194,20 +225,25 @@ export class SelfCheckReporter {
   }
 
   private async once(key: string, s: SelfCheckSubject): Promise<SelfCheckOutcome> {
+    const quiet = await this.settle?.(s.dir).catch(() => undefined);
+    if (quiet && (quiet.waitedMs > 0 || quiet.timedOut)) this.log(`🧪 Self-checks for ${s.executionId}: ${quiet.timedOut ? `the worktree was still busy (${quiet.busy.slice(0, 3).join(', ')}) after ${Math.round(quiet.waitedMs / 1000)} s; running them anyway` : `waited ${Math.round(quiet.waitedMs / 1000)} s for the worktree's last worker and processes to stop`}`, quiet.timedOut ? 'warn' : 'info');
     await this.prepare?.(s.dir).catch(() => undefined);
-    const selfChecks = await runSelfChecks(this.commands, s.dir, s.headSha, this.exec);
+    const { selfChecks, kept } = await runSelfChecksKept(this.commands, s.dir, s.headSha, this.exec);
     const outcome = await postSelfChecks(this.base, this.agent, this.transport, { project: s.project, workspace: s.workspace, executionId: s.executionId, selfChecks });
     const failed = selfChecks.checks.filter((c) => c.status !== 'passed').map((c) => c.name);
-    const what = failed.length ? `${failed.join(', ')} failed` : 'all passed';
-    emitProcess(this.agent, selfCheckEvent(s, failed, outcome));
+    const retried = kept.filter((c) => c.attempts > 1 && c.status === 'passed').map((c) => `${c.name} passed on a retry (first exit ${c.firstExitCode})`);
+    const what = (failed.length ? `failed: ${describeFailed(kept)}` : 'all passed') + (retried.length ? `; ${retried.join('; ')}` : '');
+    emitProcess(this.agent, selfCheckEvent(s, failed, outcome, kept));
     this.log(outcome === 'recorded' ? `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)}: ${what}; Canvas recorded them`
       : `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)} (${what}) were not recorded by Canvas (${outcome})${outcome === 'failed' ? '; kept to post again on the next polls' : ''}`, outcome === 'recorded' && !failed.length ? 'info' : 'warn');
     // 409 right after PR upkeep pushed is usually "not the PR's current head" yet: Canvas learns a new
     // head from its next reconciliation read (every few minutes), so the same evidence is posted again
     // for a while before the refusal counts. A different record for this head stays refused anyway.
+    // The ledger keeps the checks behind every outcome, so a red one can be read afterwards ('reposting'
+    // while a refused one is posted again: it doesn't count as Canvas's answer for this head yet).
+    this.remember(key, outcome === 'conflict' && this.retry.attempts > 0 ? 'reposting' : outcome, kept);
     if (outcome === 'conflict' && this.retry.attempts > 0) this.postLater(key, s, selfChecks, 1);
     else if (outcome === 'failed') this.keepUnsent(key, s, selfChecks, 1, this.now());
-    else this.remember(key, outcome);
     return outcome;
   }
 

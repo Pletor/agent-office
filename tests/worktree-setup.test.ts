@@ -79,7 +79,10 @@ test('prepare runs the setup in the worktree and appends the success line to the
   const prompt = await new WorktreeSetup(dir, log, exec).prepare(wt, 'Execute the card.');
   assert.deepEqual(runs, [{ command: 'npm ci && uv sync', cwd: wt, timeoutMs: 120_000 }]);
   assert.equal(prompt, `Execute the card.\n\n${setupPromptLine({ command: 'npm ci && uv sync', exitCode: 0 })}`);
-  assert.ok(lines.some((l) => l.level === 'info' && /passed:\nadded 300 packages\nResolved 40 packages/.test(l.message)), 'logs the output tail');
+  // One line on success: the install's output stays out of the office's log.
+  assert.equal(lines.length, 1);
+  assert.match(lines[0].message, /^`npm ci && uv sync` in .* passed \(\d+ s\)$/);
+  assert.equal(lines[0].level, 'info');
 });
 
 test('a failed setup still starts the worker, with one line saying so', async (t) => {
@@ -89,6 +92,16 @@ test('a failed setup still starts the worker, with one line saying so', async (t
   const prompt = await new WorktreeSetup(dir, log, exec).prepare(floor(t), 'Execute the card.');
   assert.equal(prompt, 'Execute the card.\n\nSetup `npm ci` failed with exit 1: npm ERR! missing package-lock.json; fix the environment before running checks.');
   assert.ok(lines.some((l) => l.level === 'warn' && /failed with exit 1/.test(l.message)));
+  // A failure keeps the output's tail.
+  assert.ok(lines.some((l) => /:\nnpm ERR! code EUSAGE\nnpm ERR! missing package-lock\.json$/.test(l.message)), 'logs the tail on failure');
+});
+
+test("a failed setup's logged tail hides tokens", async (t) => {
+  const dir = floor(t, { command: 'npm ci' });
+  const { exec } = fakeExec({ exitCode: 1, output: 'npm ERR! 401 token ghp_abcdefghijklmnopqrstuvwxyz0123456789 rejected\n' });
+  const { lines, log } = logger();
+  await new WorktreeSetup(dir, log, exec).prepare(floor(t), 'Execute the card.');
+  assert.ok(lines.some((l) => /\[skryto\]/.test(l.message)) && !lines.some((l) => /ghp_/.test(l.message)));
 });
 
 test('a worker hired without a prompt gets no setup line as its first prompt', async (t) => {

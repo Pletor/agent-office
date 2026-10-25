@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import headless from '@xterm/headless';
-import { detectLimitStop, parseReset, pauseCz, pauseLabel, workerStatusText } from '../src/shared/usage-limit.js';
+import { detectLimitStop, limitResumeIndex, parseReset, pauseCz, pauseLabel, workerStatusText } from '../src/shared/usage-limit.js';
 import { checkUsageLimit } from '../src/server/workers/usage-limit.js';
 import { workerEvents } from '../src/server/process/office-events.js';
 import { ExecutionClient } from '../src/server/opora/execution-client.js';
@@ -108,7 +108,7 @@ test('an exited worker or a shell is never paused', async () => {
 test('the process journal says the worker waits on the limit, and when it carries on', () => {
   const prev = { id: 'w1', name: 'Ada', kind: 'agent', status: 'working' } as WorkerInfo;
   const paused = { ...prev, paused: { reason: 'usage-limit' as const, kind: 'session', resetsAt: SIX_PRAGUE, since: NIGHT, line: "You've hit your session limit · resets 6am (Europe/Prague)" } };
-  const [e] = workerEvents(prev, paused);
+  const [e] = workerEvents(prev, paused, NIGHT);
   assert.equal(e.kind, 'worker.status');
   assert.equal(e.state, 'wait');
   assert.match(e.title, /^Ada čeká na limit do \d\d:\d\d$/);
@@ -137,4 +137,49 @@ test('authority: kept when the limit resets before the fixed deadline or there i
   assert.equal(controller.allowed('late'), false);
   assert.equal(controller.allowed('v1'), true);
   controller.shutdown();
+});
+
+// watch-wave1 F16: "continuing automatically at 2am" is a reset time, and a limit line the CLI has
+// since said is over doesn't pause (or re-pause) anyone.
+const HALF_PAST_MIDNIGHT = Date.UTC(2026, 9, 23, 22, 30); // 00:30 in Prague
+const TWO_PRAGUE = Date.UTC(2026, 9, 24, 0, 0);
+
+test('"Usage limit reached · continuing automatically at 2am" is read with its reset time', () => {
+  const s = detectLimitStop(screen('⎿  Usage limit reached · continuing automatically at 2am · esc to cancel'), HALF_PAST_MIDNIGHT, PRAGUE);
+  assert.equal(s?.kind, 'usage');
+  assert.equal(s?.resetsAt, TWO_PRAGUE);
+  assert.equal(parseReset('continuing automatically at 2:30am', HALF_PAST_MIDNIGHT, PRAGUE), TWO_PRAGUE + 30 * 60_000);
+  assert.equal(parseReset('continues at 2am', HALF_PAST_MIDNIGHT, PRAGUE), TWO_PRAGUE);
+  assert.match(pauseCz({ reason: 'usage-limit', kind: 'usage', resetsAt: s!.resetsAt, since: HALF_PAST_MIDNIGHT, line: s!.line }, HALF_PAST_MIDNIGHT, PRAGUE), /^čeká na limit do 02:00$/);
+});
+
+test('only lines after the last "Usage limit reset · continuing automatically" count', () => {
+  const lines = screen('⎿  Usage limit reached · continuing automatically at 2am · esc to cancel', '⎿  Usage limit reset · continuing automatically');
+  assert.equal(limitResumeIndex(lines), 2);
+  assert.equal(detectLimitStop(lines, TWO_PRAGUE + 60_000, PRAGUE), undefined, 'the stale limit line above the reset is the past');
+  assert.equal(limitResumeIndex(screen('● Continuing automatically')), 1);
+  // The stop's own "continuing automatically at 2am" is not a resume.
+  assert.equal(limitResumeIndex(screen('⎿  Usage limit reached · continuing automatically at 2am')), -1);
+  assert.equal(limitResumeIndex(screen('Continuing automatically at 2am')), -1);
+  // A new limit after the reset still counts.
+  const again = screen('Usage limit reset · continuing automatically', '● Bash(npm test)', "You've hit your session limit · resets 6am (Europe/Prague)");
+  assert.equal(detectLimitStop(again, NIGHT)?.kind, 'session');
+});
+
+test('a worker the CLI said carries on is not paused again by its stale limit line, even repainted', async () => {
+  const f = fakeWorker(16);
+  await f.write('● Working\r\n⎿  Usage limit reached · continuing automatically at 2am · esc to cancel\r\n\r\n> \r\n');
+  checkUsageLimit(f.w, f.events, HALF_PAST_MIDNIGHT);
+  assert.equal(f.info.paused?.kind, 'usage');
+  assert.ok(f.info.paused?.resetsAt, 'the reset time is read, not "obnovení neuvedeno"');
+  await f.write('⎿  Usage limit reset · continuing automatically\r\n');
+  checkUsageLimit(f.w, f.events, TWO_PRAGUE + 60_000);
+  assert.equal(f.info.paused, undefined, 'it carries on at the reset line');
+  // The resumed session repaints: the old limit line shows up again below.
+  await f.write('⎿  Usage limit reached · continuing automatically at 2am · esc to cancel\r\n> \r\n');
+  checkUsageLimit(f.w, f.events, TWO_PRAGUE + 70_000);
+  checkUsageLimit(f.w, f.events, TWO_PRAGUE + 80_000);
+  assert.equal(f.info.paused, undefined, 'no flap back to waiting on the limit');
+  assert.equal(f.updates.length, 2);
+  assert.equal(f.toasts.length, 1);
 });

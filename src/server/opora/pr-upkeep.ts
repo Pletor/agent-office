@@ -3,6 +3,9 @@ import path from 'node:path';
 import { resolvePrompt } from './conflict-resolver.js';
 import { HourlyBudget, type UpkeepConfig } from './upkeep-config.js';
 import { executionOf, isAncestor, throwaway, type Say, type UpkeepLedger, type UpkeepTools } from './upkeep-tools.js';
+import { NEEDS_HUMAN, NOTICE_START, withdrawNotice } from './upkeep-notice.js';
+
+export { NEEDS_HUMAN };
 
 /**
  * PR upkeep: keeps the office's own open pull requests (branch `opora/…` or an `Opora-Execution`
@@ -11,19 +14,22 @@ import { executionOf, isAncestor, throwaway, type Say, type UpkeepLedger, type U
  * fresh headless Claude (conflict-resolver.ts) restricted to that worktree. Either way the configured
  * check command has to pass before anything is pushed (`--force-with-lease` against the head it
  * read). What can't be fixed gets a comment with the conflict summary and the `opora-needs-human`
- * label. It never merges, and it tries a head commit at most `attemptsPerHead` times.
+ * label, only once the check failed twice and the head is still the one it read (another pass or
+ * office may have moved it meanwhile); a later pass that finds the PR up to date, or brings it there,
+ * takes that notice back (upkeep-notice.ts). It never merges, and it tries a head commit at most
+ * `attemptsPerHead` times.
  */
 
 export interface OporaPr {
   number: number; url: string; title?: string; body?: string;
   headRefName: string; baseRefName: string; headRefOid: string;
-  isCrossRepository?: boolean; mergeable?: string; mergeStateStatus?: string;
+  isCrossRepository?: boolean; mergeable?: string; mergeStateStatus?: string; labels?: { name?: string }[];
 }
-export type UpkeepOutcome = { number: number; state: 'current' | 'rebased' | 'resolved' | 'human' | 'skipped' | 'failed'; reason?: string };
+/** `cleared`: this pass took back an earlier "needs a human" notice on the PR (upkeep-notice.ts). */
+export type UpkeepOutcome = { number: number; state: 'current' | 'rebased' | 'resolved' | 'human' | 'skipped' | 'failed'; reason?: string; cleared?: true };
 type Rebased = { ok: true; resolved: string[] } | { ok: false; reason: string; conflicts: string[]; later?: boolean };
 
-export const NEEDS_HUMAN = 'opora-needs-human';
-const PR_FIELDS = 'number,url,title,body,headRefName,baseRefName,headRefOid,isCrossRepository,mergeable,mergeStateStatus';
+const PR_FIELDS = 'number,url,title,body,headRefName,baseRefName,headRefOid,isCrossRepository,mergeable,mergeStateStatus,labels';
 /** Conflicted commits one rebase may hand to the resolver before it gives up. */
 const MAX_ROUNDS = 6;
 const MARKER = /^(?:<{7}|>{7})(?: |$)/m;
@@ -63,7 +69,9 @@ export class PrUpkeep {
     const baseSha = (await git(['rev-parse', refs.base], repo)).trim();
     const headSha = (await git(['rev-parse', refs.head], repo)).trim();
     if (headSha !== pr.headRefOid) return { number: n, state: 'skipped', reason: 'its head moved while reading it' };
-    if (await isAncestor(git, repo, baseSha, headSha)) return { number: n, state: 'current' };
+    // A notice raised on an earlier head (here, or by another office: the label says so) is moot once the PR is current.
+    const noticed = !!pr.labels?.some((l) => l.name === NEEDS_HUMAN) || (!!this.ledger.peek(n)?.human && this.ledger.peek(n)?.head !== headSha);
+    if (await isAncestor(git, repo, baseSha, headSha)) return this.cleared(repository, repo, n, headSha, noticed, { number: n, state: 'current' });
     const entry = this.ledger.pr(n, headSha);
     if (entry.human) return { number: n, state: 'skipped', reason: 'waiting for a human' };
     if (entry.attempts >= this.config.attemptsPerHead) return { number: n, state: 'skipped', reason: 'out of attempts for this head' };
@@ -79,8 +87,13 @@ export class PrUpkeep {
         if (rebased.later) { entry.attempts--; this.ledger.save(); return { number: n, state: 'skipped', reason: rebased.reason }; }
         return await this.human(repository, repo, pr, headSha, rebased.reason, rebased.conflicts);
       }
-      const check = await this.tools.check(this.config.checkCommand, tree.dir);
-      if (!check.ok) return await this.human(repository, repo, pr, headSha, `\`${this.config.checkCommand}\` failed after the rebase`, rebased.resolved, check.output);
+      let check = await this.tools.check(this.config.checkCommand, tree.dir);
+      // A red check runs once more before anyone is called: one that fails for the machine's reasons passes then.
+      if (!check.ok) check = await this.tools.check(this.config.checkCommand, tree.dir);
+      if (!check.ok) {
+        if (await this.moved(repo, pr, headSha)) return { number: n, state: 'skipped', reason: 'its head moved while upkeep checked it' };
+        return await this.human(repository, repo, pr, headSha, `\`${this.config.checkCommand}\` failed twice after the rebase`, rebased.resolved, check.output);
+      }
       await git(['push', `--force-with-lease=refs/heads/${pr.headRefName}:${headSha}`, 'origin', `HEAD:refs/heads/${pr.headRefName}`], tree.dir);
       const newHead = (await git(['rev-parse', 'HEAD'], tree.dir)).trim();
       this.ledger.pr(n, newHead);
@@ -92,12 +105,14 @@ export class PrUpkeep {
           '', ...rebased.resolved.map((f) => `- \`${f}\``), '', `\`${this.config.checkCommand}\` passed before the push. Please review the resolution.`,
         ].join('\n'));
         this.say(`🛰️ Rebased ${repository}#${n} onto ${pr.baseRefName}; Claude resolved ${rebased.resolved.length} conflicted file${rebased.resolved.length === 1 ? '' : 's'} and the checks passed`, 'info');
-        return { number: n, state: 'resolved' };
+        return this.cleared(repository, repo, n, newHead, noticed, { number: n, state: 'resolved' });
       }
       this.say(`🛰️ Rebased ${repository}#${n} onto ${pr.baseRefName}; the checks passed`, 'info');
-      return { number: n, state: 'rebased' };
+      return this.cleared(repository, repo, n, newHead, noticed, { number: n, state: 'rebased' });
     } catch (error) {
       const reason = (error as Error).message;
+      // Someone else pushed meanwhile (another pass, another office keeping this repository): theirs stands, nothing for a human.
+      if (await this.moved(repo, pr, headSha)) return { number: n, state: 'skipped', reason: 'its head moved while upkeep worked on it' };
       if (entry.attempts >= this.config.attemptsPerHead) return await this.human(repository, repo, pr, headSha, `upkeep failed: ${reason}`, []);
       this.say(`🛰️ Upkeep of ${repository}#${n} failed (attempt ${entry.attempts}/${this.config.attemptsPerHead}): ${reason}`, 'warn');
       return { number: n, state: 'failed', reason };
@@ -151,13 +166,30 @@ export class PrUpkeep {
     try { return MARKER.test(readFileSync(path.join(dir, file), 'utf8')); } catch { return false; }
   }
 
+  /** Whether the PR's branch on GitHub is no longer at `headSha` (unknown counts as not moved). */
+  private async moved(repo: string, pr: OporaPr, headSha: string): Promise<boolean> {
+    const out = await this.tools.git(['ls-remote', 'origin', `refs/heads/${pr.headRefName}`], repo).catch(() => '');
+    const sha = out.trim().split(/\s+/)[0];
+    return /^[0-9a-f]{40}$/.test(sha ?? '') && sha !== headSha;
+  }
+
+  /** `outcome`, after taking back an earlier "needs a human" notice when there was one (upkeep-notice.ts). */
+  private async cleared(repository: string, repo: string, n: number, head: string, noticed: boolean, outcome: UpkeepOutcome): Promise<UpkeepOutcome> {
+    if (!noticed) return outcome;
+    const prior = this.ledger.peek(n);
+    if (prior?.human) { prior.human = false; this.ledger.save(); }
+    await withdrawNotice(this.tools.gh, repository, repo, n, head);
+    this.say(`🛰️ ${repository}#${n} no longer needs a human: it's up to date with its base, so upkeep took its notice back`, 'info');
+    return { ...outcome, cleared: true };
+  }
+
   /** Leaves the PR to a person: a comment with what went wrong, the label, and no more tries on this head. */
   private async human(repository: string, repo: string, pr: OporaPr, headSha: string, reason: string, files: string[], output?: string): Promise<UpkeepOutcome> {
     const entry = this.ledger.pr(pr.number, headSha);
     entry.human = true;
     this.ledger.save();
     await this.comment(repository, repo, pr.number, [
-      `🛰️ Agent Office couldn't bring this pull request up to date with \`${pr.baseRefName}\`: ${reason}.`,
+      `${NOTICE_START} with \`${pr.baseRefName}\`: ${reason}.`,
       ...(files.length ? ['', 'Conflicted files:', ...files.map((f) => `- \`${f}\``)] : []),
       ...(output ? ['', '<details><summary>Check output (tail)</summary>', '', '```', output.slice(-2000), '```', '</details>'] : []),
       '', `It needs a human: rebase it by hand. Upkeep tries again once its head changes. Head: ${headSha.slice(0, 12)}.`,

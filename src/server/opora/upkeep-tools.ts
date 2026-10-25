@@ -94,6 +94,8 @@ export class UpkeepLedger {
     if (entry?.head === head) return entry;
     return (this.data.prs[number] = { head, attempts: 0 });
   }
+  /** The PR's entry as it is, whatever head it's for (pr() would start a new one for another head). */
+  peek(number: number): PrEntry | undefined { return this.data.prs[number]; }
   get lastGreen() { return this.data.lastGreen; }
   set lastGreen(sha: string | undefined) { this.data.lastGreen = sha; this.save(); }
   get handledRed() { return this.data.handledRed; }

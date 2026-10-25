@@ -96,7 +96,7 @@ test('evidence Canvas never answered for is kept on disk and posted again, the s
   assert.equal(f.bodies[1], f.bodies[0], 'the same body, so Canvas takes it idempotently even if an earlier post got through');
   assert.equal(f.bodies[2], f.bodies[0]);
   assert.deepEqual(ran, ['npm test'], 'the checks ran once');
-  assert.equal(JSON.parse(readFileSync(ledger, 'utf8'))[`ex-1@${HEAD}`], 'recorded');
+  assert.equal(JSON.parse(readFileSync(ledger, 'utf8'))[`ex-1@${HEAD}`].outcome, 'recorded');
   assert.deepEqual(JSON.parse(readFileSync(path.join(dir, 'opora-self-checks-unsent.json'), 'utf8')), {});
   assert.match(logs.at(-1)!, /Canvas recorded them on try 3/);
   assert.equal(await restarted.report(subject), 'skipped');
