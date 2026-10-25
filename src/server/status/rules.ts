@@ -103,6 +103,10 @@ export interface RunningFacts {
   disk?: { sha?: string; dirty?: boolean };
   /** The client bundle's own stamp (dist/public/build-info.json): a stale client after a merge shows here. */
   client?: { sha?: string };
+  /** No client source changed between dist's stamp and the running commit (and between the bundle's and main):
+   *  a server-only merge, which the deploy script (aktualizovat-vse.ps1) rightly does not rebuild for. */
+  builtSameClient?: boolean;
+  clientSameCode?: boolean;
   /** HEAD of the install now. */
   headNow?: string;
   /** The running commit is an ancestor of the remote main (it's behind, not off on its own). */
@@ -127,13 +131,14 @@ export function runningReasons(r: RunningFacts, remote: string, remoteSha: strin
       );
     } else out.push({ level: 'bad', text: `Běží ${short(r.sha)}, který není v ${remote}`, where: r.sha, fix: 'dostaň změny do main přes PR, pak sestav z main a restartuj' });
   }
-  if (r.client?.sha && remoteSha && r.client.sha !== remoteSha) out.push({ level: r.dev ? 'warn' : 'bad', text: `Klient (dist/public) je sestavený z ${short(r.client.sha)}, ${remote} je ${short(remoteSha)}`, fix: 'npm run build a obnov stránku' });
+  if (r.client?.sha && remoteSha && r.client.sha !== remoteSha && !r.clientSameCode) out.push({ level: r.dev ? 'warn' : 'bad', text: `Klient (dist/public) je sestavený z ${short(r.client.sha)}, ${remote} je ${short(remoteSha)}`, fix: 'npm run build a obnov stránku' });
   if (r.dev) {
     out.push({ level: 'ok', text: 'Vývojový režim: klienta servíruje Vite přímo ze zdrojů' });
     return out;
   }
   if (r.built?.sha) {
-    if (r.built.sha !== r.sha) out.push({ level: 'bad', text: `dist je sestavený z ${short(r.built.sha)}, server běží z ${short(r.sha)}`, fix: 'npm run build a restartuj kancelář' });
+    if (r.built.sha !== r.sha && r.builtSameClient && !r.built.dirty) out.push({ level: 'ok', text: `dist je sestavený z ${short(r.built.sha)}; klient se od té doby nezměnil` });
+    else if (r.built.sha !== r.sha) out.push({ level: 'bad', text: `dist je sestavený z ${short(r.built.sha)}, server běží z ${short(r.sha)}`, fix: 'npm run build a restartuj kancelář' });
     else if (r.built.dirty) out.push({ level: 'bad', text: 'dist byl sestaven i s neuloženými změnami', fix: 'sestav čistě z main a restartuj kancelář' });
     else out.push({ level: 'ok', text: 'dist je sestavený z běžícího commitu' });
   } else if (r.indexMtime && r.commitTime && r.indexMtime >= r.commitTime) out.push({ level: 'ok', text: 'dist je novější než běžící commit (bez razítka sestavení)' });
