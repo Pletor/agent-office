@@ -561,3 +561,4 @@ The existing Office MCP server also exposes [accepted Harness equipment and Cont
 ### Harness evaluation
 
 The [paired agent experiment](docs/harness-ab-evaluation.md) records actual library use, independent acceptance results and a task/adapter capacity mismatch. It does not claim production readiness or a demonstrated general benefit.
+The [Harness composition contract](docs/harness-composed-contract.md) checks inherited choices, authenticated worker commands and unavailable optional verification services when the independent Harness modules are installed.
