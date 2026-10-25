@@ -25,6 +25,7 @@ export async function remoteHarness(argv) {
     body = JSON.stringify({ operation: action === '--publish-shared' ? 'publish' : 'recall' });
   }
   else if (action === '--tool-status' && args.length === 1 && !task) url.searchParams.set('stability', args[0]);
+  else if (action === '--verify-pair' && args.length === 1 && !task) { url.searchParams.set('verify', args[0]); body = '{}'; }
   else if (['--promote-tool', '--reconcile-tool'].includes(action) && !task && [3, 5].includes(args.length)
     && args[1] === '--revision' && /^(0|[1-9][0-9]*)$/.test(args[2]) && Number.isSafeInteger(Number(args[2]))
     && (args.length === 3 || (action === '--reconcile-tool' && args[3] === '--fallback-plan'))) {
@@ -63,11 +64,12 @@ export async function remoteHarness(argv) {
   else if (action === '--assign' && args.length === 2 && ['repository', 'task'].includes(args[0])) {
     const data = JSON.parse(readFileSync(args[1], 'utf8'));
     body = JSON.stringify({ scope: args[0], revision: data.revision, layer: data.layer });
-  } else if (action !== '--effective' || args.length) throw new Error('Usage: office-harness --recall-shared PUBLICATION --resource RESOURCE | --publish-shared PUBLICATION --resource RESOURCE | --tool-status PLAN | --promote-tool PLAN --revision N | --reconcile-tool PLAN --revision N [--fallback-plan PLAN] | --recover RESOURCE --from EXECUTION | --accepted-kit | --probe | --catalog | --kit PROBLEM id ... | --effective [--task ID] | --invocations [--task ID] [--resource ID] | --assign repository|task file.json [--task ID]');
+  } else if (action !== '--effective' || args.length) throw new Error('Usage: office-harness --recall-shared PUBLICATION --resource RESOURCE | --publish-shared PUBLICATION --resource RESOURCE | --tool-status PLAN | --verify-pair PLAN | --promote-tool PLAN --revision N | --reconcile-tool PLAN --revision N [--fallback-plan PLAN] | --recover RESOURCE --from EXECUTION | --accepted-kit | --probe | --catalog | --kit PROBLEM id ... | --effective [--task ID] | --invocations [--task ID] [--resource ID] | --assign repository|task file.json [--task ID]');
   const response = await fetch(url, {
     method: body ? 'POST' : 'GET', redirect: 'error',
     headers: { authorization: 'Bearer ' + (process.env.AGENT_OFFICE_HOOK_TOKEN ?? ''), 'content-type': 'application/json' },
-    body, signal: AbortSignal.timeout(30_000),
+    // A native verification rerun may take up to 150 s; everything else answers within 30 s.
+    body, signal: AbortSignal.timeout(action === '--verify-pair' ? 160_000 : 30_000),
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error ?? 'Harness request failed');

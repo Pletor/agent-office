@@ -94,3 +94,24 @@ the supplied execution identity is unchanged. This digest grants no authority
 and is not added to the result protocol. Results remain worker observations;
 native v2 ingestion and independent verification require compatible backend
 modules. Restart workers after updating the installed modules.
+
+# Independent native verification
+
+`--evaluate-pair` runs both versions in the worker and its results are the
+worker's own observations. When the project enables `OPORA_HARNESS_VERIFIER`
+in Opora, a worker can ask Opora to rerun the same accepted plan itself:
+
+```
+office-harness --verify-pair PLAN_RESOURCE
+```
+
+Office forwards the request under the worker's current execution; the worker
+never sees the execution token. Opora runs the pinned baseline and candidate in
+its own container (no network, read-only, its own budget) and answers with
+`status` (`reported`, `pending` or `recovery-required`), `outcome` (`passed`,
+`failed` or `inconclusive`), the report digest and the paired counts. Only a
+`reported` outcome other than `inconclusive` is `independentlyVerified`. The
+report feeds the project's fixture history, quarantine and tool lifecycle; it is
+fixture evidence, not production success, and grants no promotion. Asking again
+in the same execution returns the same report. An ended execution, a plan that
+is not in the accepted kit, or a project without the verifier policy is refused.

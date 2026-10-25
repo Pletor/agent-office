@@ -30,10 +30,10 @@ export function nativeHarnessGrant(controller: ExecutionController, dataDir: str
     const after = controller.assignmentFor(worker);
     if (!after || !isDeepStrictEqual(binding(after), binding(current))) throw failure();
   };
-  const post = async (endpoint: string, fields: Record<string, unknown>) => {
+  const post = async (endpoint: string, fields: Record<string, unknown>, timeoutMs = 8000) => {
     assertCurrent();
     const response = await transport(new URL(endpoint, base), {
-      method: 'POST', redirect: 'error', credentials: 'omit', signal: AbortSignal.timeout(8000),
+      method: 'POST', redirect: 'error', credentials: 'omit', signal: AbortSignal.timeout(timeoutMs),
       headers: { 'content-type': 'application/json', origin: base.origin, 'X-Opora-Actor': `agent; name=${controller.client.agent}` },
       body: JSON.stringify(fields),
     });
@@ -49,9 +49,10 @@ export function nativeHarnessGrant(controller: ExecutionController, dataDir: str
     assertCurrent();
     return value as unknown;
   };
-  const request = (endpoint: '/api/oporahub/harness-recovery' | '/api/oporahub/harness-verifier/eligibility', fields: Record<string, unknown>) =>
+  // A verifier run is bounded by Canvas (90 s plus container cleanup); everything else answers at once.
+  const request = (endpoint: '/api/oporahub/harness-recovery' | '/api/oporahub/harness-verifier/eligibility' | '/api/oporahub/harness-verifier/requests', fields: Record<string, unknown>) =>
     post(endpoint, { ...fields, project: current.project, workspace: current.workspace, executionId: current.executionId,
-      epoch: current.epoch, token: lease.token });
+      epoch: current.epoch, token: lease.token }, endpoint.endsWith('/requests') ? 150_000 : 8000);
   const publicationRequest = (endpoint: '/api/oporahub/harness-verifier/eligibility/shared' | '/api/oporahub/harness-shared-memory/publish' | '/api/oporahub/harness-shared-memory/recall', publication: string) =>
     post(endpoint, { publication });
   return { current, kit, peer: base.origin, assertCurrent, request, publicationRequest };
