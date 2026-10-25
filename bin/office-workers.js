@@ -10,6 +10,7 @@
 import { realpathSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { HARNESS_TOOLS, harnessMcpEnabled, runHarnessTool } from './harness-mcp-tools.js';
 
 const USAGE = `Usage:
   office-workers list [--json]                  everyone at a desk on this floor: status, task,
@@ -267,6 +268,7 @@ const MCP_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const WORKER_NOTE = 'A worker is named by its name (e.g. "Mochi") or its id, as list_workers shows them.';
 
 export const TOOLS = [
+  ...HARNESS_TOOLS,
   {
     name: 'list_workers',
     title: 'List workers',
@@ -370,6 +372,7 @@ const INSTRUCTIONS =
 
 /** Runs a tool; resolves to its text, and whether nothing it was asked came off, or throws with why it failed. */
 async function runTool(name, args, io) {
+  if (HARNESS_TOOLS.some(tool => tool.name === name)) return runHarnessTool(name, args, io);
   const a = args && typeof args === 'object' ? args : {};
   if (name === 'list_workers') return { text: JSON.stringify(await call('list', undefined, io), null, 1) };
   if (name === 'hire_worker') {
@@ -396,6 +399,7 @@ async function runTool(name, args, io) {
  * @param {{ env: Record<string, string | undefined>, fetch: typeof fetch }} io
  */
 export async function handleMcp(msg, io) {
+  const tools = harnessMcpEnabled(io.env) ? TOOLS : TOOLS.filter(tool => !HARNESS_TOOLS.includes(tool));
   if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
     return msg && typeof msg === 'object' && 'id' in msg && !('method' in msg) ? undefined : { jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32600, message: 'Invalid request' } };
   }
@@ -414,10 +418,10 @@ export async function handleMcp(msg, io) {
     case 'ping':
       return ok({});
     case 'tools/list':
-      return ok({ tools: TOOLS });
+      return ok({ tools });
     case 'tools/call': {
       const name = msg.params?.name;
-      if (!TOOLS.some((t) => t.name === name)) return { jsonrpc: '2.0', id: msg.id, error: { code: -32602, message: `Unknown tool: ${name}` } };
+      if (!tools.some((t) => t.name === name)) return { jsonrpc: '2.0', id: msg.id, error: { code: -32602, message: `Unknown tool: ${name}` } };
       try {
         const { text, isError } = await runTool(name, msg.params?.arguments, io);
         return ok({ content: [{ type: 'text', text }], ...(isError ? { isError: true } : {}) });

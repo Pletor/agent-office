@@ -556,3 +556,4 @@ Office startup releases abandoned preparation desks only after recording their r
 Staged integrations can supply an asynchronous `verify` check: dispatch temporarily binds the claimed execution to that worker, awaits verification before provider start, and releases the claim on refusal. With the matching Harness checker installed, AGENT_OFFICE_HARNESS_PREPARE_WORKER=1 attaches the automatic Node/context/documentation check; it requires staged preparation and context version 2.
 
 Staged Harness checks authenticate only during the fixed checker process, for accepted equipment and documentation routes under the current claim; ordinary worker access still requires a running provider.
+The existing Office MCP server also exposes [accepted Harness equipment and Context7 documentation](docs/harness-mcp-tools.md) to connected workers. The corresponding runtime modules and a current accepted execution are required.
