@@ -104,4 +104,7 @@ test('an unbound floor says when Opora is unreachable instead of asking to conne
   const floor = (connected: boolean) => ({ id: 'floor', opora: { view: () => ({ connected, url: 'http://127.0.0.1:1', project: null, workspace: null }) } }) as any;
   assert.match(hierarchyAbout(dir, floor(false)).notice, /^Opora není dostupná, patro proto zatím nelze připojit/);
   assert.match(hierarchyAbout(dir, floor(true)).notice, /^Připojte patro k projektu Opory/);
+  const open = { id: 'floor', opora: { view: () => ({ connected: true, url: 'http://127.0.0.1:1', project: { id: 'p1', name: 'Ample' }, workspace: 'draft' }) } } as any;
+  assert.match(hierarchyAbout(dir, open).notice, /tlačítkem „Připojit otevřenou Oporu“ \(okno Opory je teď v projektu „Ample“\); teprve potom se zobrazí Stránka až Karta/);
+  assert.equal(hierarchyAbout(dir, open).binding, undefined, 'an open Opora window never binds the floor by itself');
 });
