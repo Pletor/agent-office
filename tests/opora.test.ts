@@ -20,12 +20,12 @@ test('Opora dispatch embeds effective harness and refuses a missing resource bef
   const f = await fixture(t, (project, workspace, card) => harnessHandoff(root, root, oporaHarnessTask(project, workspace, card), false));
   root = f.dir;
   const profiles = new HarnessProfiles(root);
-  profiles.save(root, '', 'global', { language: { value: 'en' } }, 0);
-  profiles.save(root, oporaHarnessTask('p1', 'draft', 'c2'), 'task', { language: { value: 'cs' } }, 1);
+  await profiles.save(root, '', 'global', { language: { value: 'en' } }, 0);
+  await profiles.save(root, oporaHarnessTask('p1', 'draft', 'c2'), 'task', { language: { value: 'cs' } }, 1);
   assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
   assert.match(f.workers[0].prompt!, /"value": "cs"/);
   assert.match(f.workers[0].prompt!, /Snapshot SHA-256/);
-  profiles.save(root, '', 'repository', { missing: { resource: 'missing' } }, 2);
+  await profiles.save(root, '', 'repository', { missing: { resource: 'missing' } }, 2);
   assert.match((await f.bridge.take('c1', 'Ana'))!, /unavailable/);
   assert.equal(f.op.leases.has('c1'), false);
   assert.equal(f.workers.length, 1);

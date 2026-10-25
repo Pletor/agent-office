@@ -3,6 +3,7 @@ import { docsQuery } from './harness-docs.js';
 import { recommendationArgs } from './harness-recommend.js';
 import { searchCatalog } from './harness-search.js';
 import { harnessBundle } from '../dist/server/shared/harness.js';
+import { hierarchyCommand } from './harness-hierarchy.js';
 
 /** Worker-authenticated access; never fall back to local machine access when credentials exist. */
 export async function remoteHarness(argv) {
@@ -19,7 +20,8 @@ export async function remoteHarness(argv) {
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID ?? '');
   if (task) url.searchParams.set('task', task);
   let body, requestedKitSchema;
-  if (action === '--probe' && !args.length && !task) url.searchParams.set('capabilities', '1');
+  if (['--hierarchy', '--origin-history', '--configure', '--bind'].includes(action)) body = hierarchyCommand(action, args, task, url);
+  else if (action === '--probe' && !args.length && !task) url.searchParams.set('capabilities', '1');
   else if (['--docs-resolve', '--docs', '--docs-accepted'].includes(action)) {
     url.searchParams.set('docs', '1'); body = JSON.stringify(docsQuery(action, args));
   } else if (action === '--read' && args.length === 1) url.searchParams.set('read', args[0]);
