@@ -9,6 +9,7 @@ import { requestHandler } from '../src/server/http/router.js';
 import { harnessHierarchyRoute } from '../src/server/http/routes/harness-hierarchy.js';
 import { officeHarness } from '../src/server/harness/api.js';
 import { harnessHandoff } from '../src/server/harness/handoff.js';
+import { hierarchyAbout } from '../src/server/harness/hierarchy-context.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -96,4 +97,11 @@ test('bound hierarchy HTTP selects real scopes, fences moves, isolates projects 
   linked.project = { id: 'foreign', name: 'Foreign' };
   assert.equal((await call('&node=opora:p:w:card')).status, 503);
   assert.equal((await call('')).status, 200, 'project defaults remain editable during link drift');
+});
+
+test('an unbound floor says when Opora is unreachable instead of asking to connect it', t => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'harness-offline-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const floor = (connected: boolean) => ({ id: 'floor', opora: { view: () => ({ connected, url: 'http://127.0.0.1:1', project: null, workspace: null }) } }) as any;
+  assert.match(hierarchyAbout(dir, floor(false)).notice, /^Opora není dostupná, patro proto zatím nelze připojit/);
+  assert.match(hierarchyAbout(dir, floor(true)).notice, /^Připojte patro k projektu Opory/);
 });
