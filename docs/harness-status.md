@@ -95,8 +95,9 @@ se skutečnými procesy:
 - Pět Office proměnných zapnutých: karta bez výbavy proběhla beze změny až k lidské kontrole.
 - Karta s výbavou prošla celou cestou: kontext v2, preflight, claim, příprava, prompt,
   `--accepted-kit`, `--prepare-accepted`, `--invoke-node`, výsledek a měření v Canvasu.
-- Autopilot bere kartu s přijatou výbavou jen kancelář s kontextem v2. Kancelář ve v1 takovou
-  kartu přeskočí.
+- Autopilot bere kartu s přijatou výbavou jen kancelář s kontextem v2 a jen od Canvasu
+  s #88, který takovou kartu nabízí jako claim. Kancelář ve v1 ji přeskočí. Se starším Canvasem
+  je karta blokovaná a vezme se jen ručně.
 - Nový repozitář, kterému Claude Code ještě nedůvěřuje, zastaví workera na dotazu na důvěru
   („Waiting on a setup prompt“). Proto zapínejte na repozitáři, ve kterém už workeři běželi.
 
@@ -107,12 +108,13 @@ OpenVikingu a použití MCP nástrojů výbavy workerem. Politiky Canvasu proto 
 Vazby smyčky:
 - Doporučený kit se do karty dostane návrhem změny, který přijme člověk (záměrně ne automaticky).
 - Nezávislé ověření spustí worker příkazem `office-harness --verify-pair PLAN`.
-- Doporučení čte nativní výsledky Canvasu.
+- Doporučení čte nativní výsledky Canvasu. Zkušenost uloženou v OpenVikingu do doporučení
+  nevrací; načte ji až přijatý pracovník příkazem `--recall-shared`.
 
 ## Kde je změna
 
 Sloučeno 25. 10. 2026: Office #48, #55, #56, #57, #60, #62–#65, #69, #72, #80, #84–#86,
-#90–#96 a Canvas #46, #74, #78, #82. Staré návrhy #22–#31 zůstávají otevřené
+#90–#106 a Canvas #46, #74, #78, #82, #87, #88. Staré návrhy #22–#31 zůstávají otevřené
 k rozhodnutí; jejich nepřevzaté části popisuje audit knihovny.
 
 Novější izolovaná zkouška prošla skutečným spuštěním připnutého skriptu, šesti
