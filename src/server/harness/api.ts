@@ -9,6 +9,8 @@ import { HarnessLibrary, harnessSources } from './catalog.js';
 import { oporaHarnessTask } from '../../shared/harness-cascade.js';
 import { documentationRequest } from './documentation-api.js';
 import { runnerProbeRequest } from './runner-probe-api.js';
+import { buildHarnessKit } from './kit.js';
+import { recommendationRequest } from './recommendation-api.js';
 
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean) {
   try {
@@ -52,8 +54,19 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
   // Workers without an identified administrator owner may read only project-published resources.
   const active = plan?.workerId === id && (plan.mode === 'opora' || plan.mode === 'router');
   const admin = !!active && (!plan.owner || ctx.accounts.get(plan.owner)?.role === 'admin');
+  if (url.searchParams.has('recommend')) return recommendationRequest(ctx, floor, req, res, url, admin);
+  if (req.method === 'GET' && url.searchParams.has('read')) {
+    const library = new HarnessLibrary(harnessSources(floor.dir, admin)); await library.list();
+    const entry = await library.read(url.searchParams.get('read') ?? '');
+    return entry ? send(res, 200, entry) : send(res, 404, { error: 'Resource is unavailable for this worker.' });
+  }
   if (req.method === 'GET' && url.searchParams.has('catalog')) {
     return send(res, 200, await new HarnessLibrary(harnessSources(floor.dir, admin), new HarnessRegistry(ctx.cfg.dataDir)).list());
+  }
+  if (req.method === 'GET' && url.searchParams.has('kit')) {
+    try { return send(res, 200, await buildHarnessKit(new HarnessLibrary(harnessSources(floor.dir, admin)),
+      url.searchParams.get('problem') ?? '', url.searchParams.getAll('resource')), { 'cache-control': 'no-store' }); }
+    catch (err) { return send(res, err instanceof HarnessError ? err.status : 400, { error: (err as Error).message }, { 'cache-control': 'no-store' }); }
   }
   return harnessProfileRequest(ctx, floor, req, res, url, admin, admin, false);
 }

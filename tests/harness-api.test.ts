@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Ctx } from '../src/server/office/context.js';
 import { requestHandler } from '../src/server/http/router.js';
-import { harnessProfileRoute } from '../src/server/http/routes/harness.js';
+import { harnessProfileRoute, harnessRoute } from '../src/server/http/routes/harness.js';
 import { officeHarness } from '../src/server/harness/api.js';
 
 test('profile HTTP and hook API enforce session, origin, admin, planner and revision boundaries', async (t) => {
@@ -22,7 +23,7 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
     auth: { fromRequest: (req: http.IncomingMessage) => req.headers['x-test-session'] === 'admin' ? {} : req.headers['x-test-session'] === 'member' ? { account: { role: 'member' } } : undefined },
     workerFloor: () => floor,
   } as unknown as Ctx;
-  const handler = requestHandler(ctx, [harnessProfileRoute]);
+  const handler = requestHandler(ctx, [harnessProfileRoute, harnessRoute]);
   const server = http.createServer((req, res) => req.url?.startsWith('/office/') ? void officeHarness(ctx, req, res, new URL(req.url, 'http://x')) : void handler(req, res));
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   ctx.cfg.port = (server.address() as { port: number }).port;
@@ -35,6 +36,24 @@ test('profile HTTP and hook API enforce session, origin, admin, planner and revi
     headers: { 'x-test-session': session, origin, authorization: auth, 'content-type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
+  const kit = '/api/harness/kit?floor=floor&problem=ts.references&resource=guide:testing';
+  assert.equal((await call(kit)).status, 401);
+  const built = await call(kit, 'member');
+  assert.equal(built.status, 200); assert.equal((await built.json()).schema, 'harness.kit/1');
+  const hookKit = '/office/harness?kit=1&worker=ordinary&problem=ts.references&resource=guide:testing';
+  assert.equal((await call(hookKit)).status, 401);
+  const workerKit = await call(hookKit, '', undefined, base, 'Bearer test-token');
+  assert.equal(workerKit.status, 200); assert.equal(workerKit.headers.get('cache-control'), 'no-store');
+  assert.equal((await workerKit.json()).resources[0].resource, 'guide:testing');
+  const previousPublished = process.env.AGENT_OFFICE_HARNESS_DIR;
+  const published = path.join(dir, 'machine'); mkdirSync(published);
+  writeFileSync(path.join(published, 'machine-only.md'), 'Published machine fixture');
+  process.env.AGENT_OFFICE_HARNESS_DIR = published;
+  t.after(() => { if (previousPublished === undefined) delete process.env.AGENT_OFFICE_HARNESS_DIR; else process.env.AGENT_OFFICE_HARNESS_DIR = previousPublished; });
+  const privateId = createHash('sha256').update(path.resolve(published, 'machine-only.md')).digest('hex').slice(0, 24);
+  const privateKit = '/office/harness?kit=1&worker=ordinary&problem=setup&resource=' + privateId;
+  assert.equal((await call(privateKit, '', undefined, base, 'Bearer test-token')).status, 404);
+  assert.equal((await call(privateKit.replace('ordinary', 'planner'), '', undefined, base, 'Bearer test-token')).status, 200);
   assert.equal((await call(api)).status, 401);
   assert.equal((await call(api, 'member', data)).status, 403);
   assert.equal((await call(api, 'admin', data, 'https://evil.example')).status, 403);
