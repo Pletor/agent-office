@@ -1,0 +1,61 @@
+import type http from 'node:http';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import type { Ctx } from '../office/context.js';
+import type { Floor } from '../floor.js';
+import { send } from '../http/util.js';
+import { HarnessLibrary, harnessSources } from './catalog.js';
+import { HarnessProfiles, HarnessError } from './profiles.js';
+import { sharedReader } from './native-shared.js';
+import { nativeHistory, noHistory } from './native-outcomes.js';
+import { nativePairedHistory, noPairedHistory } from './native-paired.js';
+import { nativeFixtureHistory, noFixtureHistory } from './native-verifier.js';
+import { recommendHarness, validateRecommendation } from './recommend.js';
+import { recommendationLifecycle } from './recommendation-lifecycle.js';
+import { oporaHarnessTask } from '../../shared/harness-cascade.js';
+import { requireKitV2 } from './kit-compatibility.js';
+import { recommendationSelection } from './recommendation-selection.js';
+
+async function profile(dataDir: string, floor: Floor, task: string) {
+  const module = new URL('./hierarchy-context.js', import.meta.url);
+  const installed = existsSync(fileURLToPath(module)) || existsSync(fileURLToPath(module).replace(/\.js$/, '.ts'));
+  if (installed && (!task || task.startsWith('opora:'))) {
+    // Optional peer module: absent on legacy installations; an installed but broken resolver never falls back.
+    const resolver = await import(module.href);
+    const context = await resolver.hierarchyContext(dataDir, floor, task);
+    return { view: new HarnessProfiles(dataDir).view(floor.dir, context.path), pathDigest: context.digest };
+  }
+  return { view: new HarnessProfiles(dataDir).view(floor.dir, task), pathDigest: '' };
+}
+const peerKey = (floor: Floor) => { const view = floor.opora.view(); return JSON.stringify([view.url, view.project?.id, view.workspace, view.connected]); };
+
+export async function recommendationRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean) {
+  if (req.method !== 'GET') return send(res, 405, { error: 'Use GET' });
+  try {
+    const problem = url.searchParams.get('problem') ?? '', capabilities = url.searchParams.getAll('capability');
+    validateRecommendation(problem, capabilities);
+    const task = url.searchParams.get('task') ?? '', view = floor.opora.view(), peer = peerKey(floor);
+    const kitSchema = url.searchParams.get('kitSchema') ?? 'harness.kit/1';
+    if (!['harness.kit/1', 'harness.kit/2'].includes(kitSchema)) throw new HarnessError('Unsupported requested kit schema.');
+    if (kitSchema === 'harness.kit/2' && (!view.connected || !view.project || !view.workspace))
+      throw new HarnessError('Accepted kit v2 requires a connected Opora project/workspace.', 409);
+    if (task.startsWith('opora:') && (!view.project || !view.workspace || !task.startsWith(oporaHarnessTask(view.project.id, view.workspace, '')))) throw new HarnessError('Task is outside the linked project/workspace.', 403);
+    const before = await profile(ctx.cfg.dataDir, floor, task);
+    const [history, paired, fixtures] = view.connected && view.project && view.workspace
+      ? await Promise.all([nativeHistory(view.url, view.project.id, view.workspace), nativePairedHistory(view.url, view.project.id, view.workspace), nativeFixtureHistory(view.url, view.project.id, view.workspace)])
+      : [noHistory('floor-not-connected'), noPairedHistory('floor-not-connected'), noFixtureHistory('floor-not-connected')];
+    const lifecycle = view.connected && view.project && view.workspace
+      ? await recommendationLifecycle(ctx.cfg.dataDir, floor.dir,
+        { peer: new URL(view.url).origin, project: view.project.id, workspace: view.workspace, problem }, before.view.revision,
+        () => { if (peerKey(floor) !== peer) throw new HarnessError('Native scope changed during assessment.', 409); }) : undefined;
+    const result = await recommendHarness(new HarnessLibrary(harnessSources(floor.dir, local)),
+      problem, capabilities, { ...before.view, revision: lifecycle?.revision ?? before.view.revision }, history, paired, fixtures, lifecycle,
+      view.connected && view.project && view.workspace ? sharedReader(view.url) : undefined);
+    if (kitSchema === 'harness.kit/2') await requireKitV2(view.url, view.project!.id, view.workspace!);
+    const output = kitSchema === 'harness.kit/2'
+      ? await recommendationSelection(result, before.view, capabilities) : result;
+    const after = await profile(ctx.cfg.dataDir, floor, task);
+    if (peerKey(floor) !== peer || (lifecycle?.revision ?? before.view.revision) !== after.view.revision || before.pathDigest !== after.pathDigest) throw new HarnessError('Scope or profiles changed during preparation. Retry.', 409);
+    return send(res, 200, { ...output, context: { task, project: view.project?.id ?? null, workspace: view.workspace, pathDigest: before.pathDigest } });
+  } catch (err) { return send(res, err instanceof HarnessError ? err.status : 400, { error: (err as Error).message }); }
+}

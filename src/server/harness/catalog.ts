@@ -74,6 +74,7 @@ export function harnessSources(project: string, local: boolean, env: NodeJS.Proc
     { name: 'Project instructions', dir: project, files: ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'], ns: 'project', prefix: '' },
     ...['.harness', '.agents/skills', '.claude/skills', '.claude/commands', '.claude/rules', '.cursor/rules', '.github/instructions'].map((p) => ({ name: 'Project / ' + p, dir: path.join(project, p), boundary: project, ns: 'project', prefix: p })),
   ];
+  // A separate, intentionally public collection; never reinterpret private machine folders as shared.
   if (env.AGENT_OFFICE_SHARED_HARNESS_DIR) sources.push({ name: 'Shared harness', dir: path.resolve(env.AGENT_OFFICE_SHARED_HARNESS_DIR), ns: 'shared', prefix: '', pinned: true });
   if (!local) return sources;
   if (env.AGENT_OFFICE_HARNESS_DIR) sources.push({ name: 'Published machine harness', dir: path.resolve(env.AGENT_OFFICE_HARNESS_DIR), ns: 'published', prefix: '', pinned: true });
