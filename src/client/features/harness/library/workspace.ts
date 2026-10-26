@@ -4,12 +4,14 @@ import { h } from '../../../ui/dom';
 import { capabilityCards } from './capabilities';
 import { CATEGORY_HINTS, CATEGORY_NAMES } from './names';
 import { latestDraft } from '../hierarchy/drafts';
+import type { HarnessHierarchyView } from '../../../../shared/harness-navigation';
 import './style.css';
 
-type Page = 'resources' | 'overview' | 'equipment' | 'runtime';
+type Page = 'boxes' | 'resources' | 'overview' | 'equipment' | 'runtime';
 type Tone = 'ok' | 'warn' | 'bad' | 'wait';
 const LEVELS = ['Globál', 'Projekt / repozitář', 'Stránka', 'Vrstva', 'Oblast', 'Sektor', 'Karta'];
 const PAGES: [Page, string, string][] = [
+  ['boxes', 'Schránky', 'Co je v nich a balíček'],
   ['overview', 'Přehled', 'Jak knihovna funguje'], ['resources', 'Prostředky', 'Číst a sestavit balíček'],
   ['equipment', 'Výbava', 'Co dostane která úroveň'], ['runtime', 'Pro agenty', 'Příkazy u karty'],
 ];
@@ -24,7 +26,7 @@ const AGENT_STEPS: [string, string][] = [
 const resources = (n: number) => n + (n === 1 ? ' prostředek' : n >= 2 && n <= 4 ? ' prostředky' : ' prostředků');
 
 /** A shell around the existing reader and editor, so optional hierarchy modules keep ownership. */
-export function libraryWorkspace(el: HTMLElement, floor: () => string, signal: AbortSignal, options: { beforeNavigate?: (page: Page) => boolean } = {}) {
+export function libraryWorkspace(el: HTMLElement, floor: () => string, signal: AbortSignal, options: { beforeNavigate?: (page: Page) => boolean; boxes?: HTMLElement; hierarchy?: (view: HarnessHierarchyView | null) => void } = {}) {
   let catalog: HarnessCatalog | undefined, ticket = 0;
   const summary = h('p.harness-library-summary', { role: 'status' }, 'Načítání knihovny…');
   const availability = h('div.harness-availability');
@@ -63,7 +65,7 @@ export function libraryWorkspace(el: HTMLElement, floor: () => string, signal: A
     h('p.harness-muted', {}, 'Ke každému výsledku patří verze, otisk, velikost vzorku a rozlišení mezi hlášením agenta a lidským potvrzením. Úspěšnost v provozu se tu neodhaduje.'));
   const buttons = new Map<Page, HTMLButtonElement>();
   const navigation = h('nav.harness-navigation', { 'aria-label': 'Stránky knihovny' },
-    ...PAGES.map(([page, name, hint]) => {
+    ...PAGES.filter(([page]) => page !== 'boxes' || options.boxes).map(([page, name, hint]) => {
       const button = h('button', { type: 'button', onclick: () => show(page) }, h('strong', {}, name), h('small', {}, hint));
       buttons.set(page, button); return button;
     }), summary);
@@ -71,7 +73,7 @@ export function libraryWorkspace(el: HTMLElement, floor: () => string, signal: A
   const project = el.querySelector<HTMLSelectElement>('[aria-label="Projekt knihovny"]');
   if (project) navigation.prepend(h('label.harness-project', {}, 'Patro', project));
   el.querySelector(':scope > header')!.after(navigation);
-  el.querySelector('.harness-body')!.before(overview, runtime);
+  el.querySelector('.harness-body')!.before(...(options.boxes ? [options.boxes] : []), overview, runtime);
   el.classList.add('harness-workspace');
   function show(page: Page) {
     if (options.beforeNavigate?.(page) === false) return;
@@ -82,6 +84,7 @@ export function libraryWorkspace(el: HTMLElement, floor: () => string, signal: A
     if (editor) editor.open = page === 'equipment';
     if (page === 'resources') el.querySelector<HTMLInputElement>('.harness-toolbar input[type=search]')?.focus({ preventScroll: true });
     if (page === 'overview' || page === 'runtime') (page === 'overview' ? overview : runtime).focus({ preventScroll: true });
+    if (page === 'boxes') options.boxes?.focus({ preventScroll: true });
   }
   async function support() {
     const seq = ++ticket, project = floor();
@@ -96,6 +99,7 @@ export function libraryWorkspace(el: HTMLElement, floor: () => string, signal: A
         path.dataset.support = 'legacy';
         levels.set('warn', 'Tři', 'Starší server: jen Globál → Projekt → Karta. Úrovně Stránka až Sektor tu nelze upravit.');
         binding.set('wait', '–', 'Tento server připojení neposkytuje.'); editing.set('wait', '–', 'Upravuje se jen ve starším editoru.');
+        options.hierarchy?.(null);
         return;
       }
       if (!response.ok) throw new Error(response.status === 401 ? 'Přihlaste se znovu.' : 'Hierarchie není dostupná; zkontrolujte přístup nebo nastavení serveru.');
@@ -103,6 +107,7 @@ export function libraryWorkspace(el: HTMLElement, floor: () => string, signal: A
       if (signal.aborted || seq !== ticket || project !== floor()) return;
       if (data.schema !== 'harness.hierarchy/1' || typeof data.writable !== 'boolean') throw new Error('Server nepotvrdil podporu hierarchie.');
       path.dataset.support = 'seven';
+      options.hierarchy?.(data);
       levels.set('ok', 'Sedm', 'Globál až Karta.');
       binding.set(data.bound ? 'ok' : 'warn', data.bound ? 'Ano' : 'Ne', data.bound
         ? 'Úrovně Stránka až Karta odpovídají plátnu Opory.' + (data.notice ? ' ' + data.notice : '')
@@ -110,11 +115,12 @@ export function libraryWorkspace(el: HTMLElement, floor: () => string, signal: A
       editing.set(data.writable ? 'ok' : 'wait', data.writable ? 'Ano' : 'Čtení', data.writable ? 'Výbavu můžete upravovat a ukládat.' : 'Pouze ke čtení; výbavu upravuje správce nebo jeho orchestrátor.');
     } catch (error) {
       if (signal.aborted || seq !== ticket) return;
+      options.hierarchy?.(null);
       levels.set('bad', 'Chyba', (error as Error).message); binding.set('wait', '–', 'Neznámé.'); editing.set('wait', '–', 'Neznámé.');
     }
   }
   // A draft kept by ✕ or Esc reopens on Equipment, where its notice is (docs/harness-hierarchy.md).
-  show(latestDraft(floor()) ? 'equipment' : 'overview');
+  show(latestDraft(floor()) ? 'equipment' : options.boxes ? 'boxes' : 'overview');
   return { show, catalog(value: HarnessCatalog) {
     catalog = value;
     const found = catalog.sources.filter(source => source.available).length;

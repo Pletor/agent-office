@@ -5,6 +5,7 @@ import { hierarchyPanel } from './hierarchy/editor';
 import { libraryKeys } from './keyboard';
 import type { HarnessProjectChoice } from '../../../shared/harness-navigation';
 import { libraryWorkspace } from './library/workspace';
+import { boxesPage } from './library/boxes';
 import { categoryName, CATEGORY_NAMES } from './library/names';
 
 let active: Modal | undefined;
@@ -45,7 +46,13 @@ export function openHarness(floor: string) {
     h('div.body.harness-body', {}, cascade.el, h('aside', {}, status, list, sources), h('section.harness-reader', { 'aria-live': 'polite' }, back, title, origin, h('div.harness-actions', {}, add, assign), retryRead, text)),
     h('footer', {}, count, clear, download, copy),
   );
-  const workspace = libraryWorkspace(el, () => floor, abort.signal);
+  const boxes = boxesPage({
+    floor: () => floor, signal: abort.signal, selected: () => selected,
+    toggle(id) { if (selected.has(id)) selected.delete(id); else if (selected.size < 24) selected.add(id); render(); },
+    replace(ids) { selected = new Set(ids.filter((id) => catalog?.entries.some((e) => e.id === id))); render(); },
+    browse(value) { workspace.show('resources'); category.value = value; render(); },
+  });
+  const workspace = libraryWorkspace(el, () => floor, abort.signal, { boxes: boxes.el, hierarchy: (view) => boxes.hierarchy(view) });
   const keys = libraryKeys(el, filter, list, () => workspace.show('resources'));
   active = openModal(el, { doing: '📚 v knihovně Harness', reading: true, onClose: () => { closed = true; abort.abort(); active = undefined; keys.release(); } });
   // Delay focus past the E that opened the shelf; Overview never summons a phone keyboard.
@@ -81,6 +88,7 @@ export function openHarness(floor: string) {
     else if (!entries.length) list.append(note('Žádný prostředek neodpovídá.', h('button.btn', { type: 'button', onclick: () => { filter.value = category.value = source.value = ''; render(); filter.focus(); } }, 'Zrušit filtry')));
     list.removeAttribute('aria-busy');
     update();
+    boxes.refresh();
   }
   async function read(id: string, open = false) {
     const ticket = ++request;
@@ -121,6 +129,7 @@ export function openHarness(floor: string) {
       catalog = result;
       cascade.catalog(result);
       workspace.catalog(result);
+      boxes.catalog(result);
       selected = new Set([...selected].filter((id) => result.entries.some((e) => e.id === id)));
       source.replaceChildren(h('option', { value: '' }, 'Všechny zdroje'), ...[...new Set(result.entries.map((e) => e.source))].map((s) => h('option', { value: s }, s)));
       sources.replaceChildren(h('summary', {}, 'Zdroje a dostupnost'), ...result.sources.map((s) => h('p', {}, (s.available ? '✓ ' : '— ') + s.name + (s.available ? '' : ' · nenalezeno'))),
