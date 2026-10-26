@@ -83,7 +83,7 @@
 @media (max-width: 900px) { .harness-status-row { grid-template-columns: 1fr; gap: 4px; } }
 @media (max-width: 700px) {
   .modal.harness-workspace { display: flex; flex-direction: column; }
-  .harness-workspace > .harness-navigation { flex: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 8px; gap: 4px; overflow: visible; border-right: 0; border-bottom: 3px solid var(--ink); }
+  .harness-workspace > .harness-navigation { flex: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); padding: 8px; gap: 4px; overflow: visible; border-right: 0; border-bottom: 3px solid var(--ink); }
   .harness-navigation button { padding: 8px 4px; text-align: center; border-radius: 10px; }
   .harness-navigation button strong { font-size: 13px; }
   .harness-navigation small, .harness-library-summary { display: none; }
