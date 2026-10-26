@@ -6,6 +6,7 @@ import { chromium } from 'playwright-core';
 import { HarnessLibrary, harnessSources } from '../dist/server/server/harness/catalog.js';
 import { buildHarnessKit } from '../dist/server/server/harness/kit.js';
 import { emptyLayers, resolveHarness } from '../dist/server/shared/harness-cascade.js';
+import { isItemPath, itemView } from '../dist/server/server/harness/items.js';
 const library = new HarnessLibrary(harnessSources(process.cwd(), true));
 const catalog = await library.list();
 const browser = await chromium.launch({ channel: process.platform === 'win32' ? 'msedge' : 'chrome', headless: true });
@@ -16,15 +17,22 @@ const start = catalog.entries.find(entry => entry.id === 'guide:instructions');
 try {
   for (const [width, height] of [[1440, 900], [390, 844]]) {
     const page = await browser.newPage({ viewport: { width, height } });
-    const errors = [], kits = [];
+    const errors = [], kits = [], proposals = [];
     page.on('pageerror', error => errors.push(error.message));
     const layers = emptyLayers(); layers.global = { 'rules.quality': { resource: 'guide:testing' } };
     await page.route('**/api/harness**', async route => {
       const endpoint = new URL(route.request().url());
       const send = (data, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
       if (endpoint.pathname.endsWith('/hierarchy')) return send({ schema: 'harness.hierarchy/1', floor: 'lab', target: '', level: 'repository', revision: 3, path: [], layers,
-        effective: resolveHarness(layers, []), bound: null, linked: null, bindingRevision: 0, pathDigest: '', choices: [], notice: '', writable: true, globalWrite: true, canBind: false, preview: '', warning: '' });
-      if (endpoint.pathname.endsWith('/file')) return send(await library.read(endpoint.searchParams.get('id')));
+        effective: resolveHarness(layers, []), bound: { project: 'p1', workspace: 'w1' }, linked: null, bindingRevision: 1, pathDigest: '', choices: [{ key: 'opora:p1:w1:k1', name: 'H07 Editor výbavy', level: 'task', ancestry: {} }], notice: '', writable: true, globalWrite: true, canBind: false, preview: '', warning: '' });
+      if (endpoint.pathname.endsWith('/file')) {
+        const entry = await library.read(endpoint.searchParams.get('id'));
+        return send(isItemPath(entry.path) ? { ...entry, item: itemView(entry, catalog.entries) } : entry);
+      }
+      if (endpoint.pathname.endsWith('/propose')) {
+        proposals.push(route.request().postDataJSON());
+        return send({ id: 'c1', card: 'k1', resources: 4, opora: 'http://127.0.0.1:8740' });
+      }
       if (endpoint.pathname.endsWith('/kit')) {
         kits.push(endpoint.searchParams.getAll('resource'));
         try { return send(await buildHarnessKit(library, endpoint.searchParams.get('problem'), endpoint.searchParams.getAll('resource'))); }
@@ -89,10 +97,29 @@ try {
     await page.getByText(/Neuložené úpravy pro Projekt/).waitFor();
     await page.getByRole('button', { name: 'Zahodit změny a načíst', exact: true }).click();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no horizontal scroll');
+    // A defined skill: what it is, what it is made of; its parts travel with it into the kit, and the kit goes into a card.
+    await page.getByRole('navigation', { name: 'Stránky knihovny' }).getByRole('button', { name: /Schránky/ }).click();
+    await page.locator('.harness-box[data-box="3"]').click();
+    const skillRow = page.locator('.harness-box-detail .harness-box-item').filter({ has: page.getByText('Definice', { exact: true }) }).filter({ hasText: 'ts-references' });
+    await skillRow.waitFor();
+    await skillRow.getByRole('button', { name: 'Prohlédnout' }).click();
+    const definition = page.getByRole('region', { name: 'Definice' });
+    await definition.getByText(/Z čeho se skládá · 3 částí/).waitFor();
+    await definition.getByText('node scripts/ts-refs.mjs refs SYMBOL', { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(shots, `harness-boxes-definition-${width}.png`) });
+    await page.getByRole('region', { name: 'Náhled' }).getByRole('button', { name: 'Přidat do balíčku' }).click();
+    await pack.getByRole('button', { name: 'Složit a ověřit' }).click();
+    await pack.getByText(/Včetně 3 částí definic/).waitFor();
+    await pack.getByLabel('Karta v Opoře').selectOption('opora:p1:w1:k1');
+    await pack.getByRole('button', { name: 'Poslat do karty v Opoře' }).click();
+    await pack.getByText('Návrh je v Opoře').waitFor();
+    assert.equal(proposals.at(-1).card, 'opora:p1:w1:k1');
+    assert.ok(proposals.at(-1).resources.length >= 3, 'the package is sent, the server adds the parts');
+    await page.screenshot({ path: path.join(shots, `harness-boxes-sent-${width}.png`) });
     await page.keyboard.press('Escape');
     assert.equal(await page.getByRole('dialog').count(), 0);
     assert.deepEqual(errors, []);
     await page.close();
   }
-  console.log('PASS: twelve boxes open first, used vs library per box, office functions with commands, inspect with text and phase, one package with the footer, server kit verification, stale after change, recommendation with reasons, package assigned to the open level, orchestrator commands, 1440/390 without horizontal scroll, Esc');
+  console.log('PASS: twelve boxes open first, used vs library per box, office functions with commands, inspect with text and phase, one package with the footer, server kit verification, stale after change, recommendation with reasons, package assigned to the open level, orchestrator commands, a definition with its parts, the kit sent into an Opora card, 1440/390 without horizontal scroll, Esc');
 } finally { await browser.close(); }

@@ -1,0 +1,12 @@
+{
+  "schema": "harness.item/1",
+  "kind": "script",
+  "name": "ts-refs",
+  "summary": "Definice a reference symbolu v TypeScriptu přes jazykový server repozitáře (tsc --lsp), místo hledání textem.",
+  "when": "Když agent potřebuje vědět, kde je symbol deklarovaný a kde všude se používá.",
+  "run": { "runner": "node", "entry": "scripts/ts-refs.mjs", "args": ["refs", "SYMBOL"] },
+  "parts": [{ "path": "scripts/ts-refs.mjs", "role": "script" }],
+  "deterministic": true,
+  "outputs": "Seřazené řádky soubor:řádek:sloupec; exit 0 s výsledky, 1 když symbol v src/ není, 2 při chybě.",
+  "verify": "node .harness/scripts/ts-refs.mjs refs resourceModel vrátí stejné řádky při každém běhu."
+}

@@ -242,6 +242,8 @@ export class HarnessLibrary {
     } catch { return { skip: 'unreadable' }; } finally { await handle.close(); }
   }
   private title(file: string): string {
+    // A definition (docs/harness-items.md) is named after what it defines.
+    if (/\.item\.json$/i.test(file)) return path.basename(file).replace(/\.item\.json$/i, '');
     return /^SKILL\.md$/i.test(path.basename(file)) ? path.basename(path.dirname(file)) + ' / SKILL.md' : path.basename(file);
   }
   /** Where an ID points: the current element, a tombstone of one listed before, or nothing. Aliases resolve too. */

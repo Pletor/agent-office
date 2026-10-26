@@ -1,0 +1,13 @@
+{
+  "schema": "harness.item/1",
+  "kind": "hook",
+  "name": "typecheck-on-edit",
+  "summary": "Po každé úpravě souboru .ts zkontroluje typy projektu a chyby vrátí agentovi hned, ne až v CI.",
+  "when": "Vždy, když agent upravuje TypeScript.",
+  "trigger": { "event": "PostToolUse", "matcher": "Edit|Write|MultiEdit" },
+  "run": { "runner": "node", "entry": "scripts/typecheck-changed.mjs", "args": [] },
+  "parts": [{ "path": "scripts/typecheck-changed.mjs", "role": "script" }],
+  "deterministic": true,
+  "outputs": "Exit 0, když jsou typy v pořádku; exit 2 a nejvýše 20 chyb (nejdřív z upraveného souboru) na stderr.",
+  "verify": "Úprava s chybou typu vrátí exit 2 a řádek error TS s cestou upraveného souboru."
+}

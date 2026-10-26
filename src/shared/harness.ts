@@ -38,7 +38,26 @@ export interface HarnessCatalog {
   sources: { name: string; available: boolean }[];
   limited: boolean;
 }
-export interface HarnessText extends HarnessEntry { text: string }
+/**
+ * A defined thing in the library (docs/harness-items.md): what it is, what triggers it, what runs
+ * deterministically and which files it is made of. It lives in a `*.item.json` next to its parts.
+ */
+export interface HarnessItem {
+  schema: 'harness.item/1';
+  kind: 'skill' | 'hook' | 'script' | 'command';
+  name: string; summary: string; when?: string;
+  /** Hooks only: the runner event, and for tool events the tool it matches. */
+  trigger?: { event: string; matcher?: string };
+  /** What runs: always a pinned part, never a free command line. */
+  run?: { runner: 'node'; entry: string; args: string[] };
+  parts: { path: string; role: 'instructions' | 'reference' | 'script' | 'example' | 'asset' }[];
+  deterministic: boolean; outputs?: string; verify?: string;
+}
+/** A definition as read: parsed with its parts resolved to catalog entries, or why it is refused. */
+export type HarnessItemView =
+  | { definition: HarnessItem; parts: { path: string; role: string; id: string; title: string; category: HarnessCategory }[] }
+  | { error: string };
+export interface HarnessText extends HarnessEntry { text: string; item?: HarnessItemView }
 /**
  * How an ID resolves against the library: present; known to the installation but not available here
  * (a tombstone when `missingSince` is set, otherwise an element of another project); or never seen.

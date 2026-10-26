@@ -52,6 +52,10 @@ export async function remoteHarness(argv) {
     if (requestedKitSchema === 'harness.kit/2') url.searchParams.set('kitSchema', requestedKitSchema);
     for (const capability of input.capabilities) url.searchParams.append('capability', capability);
   } else if (action === '--catalog' && !args.length) url.searchParams.set('catalog', '1');
+  else if (action === '--propose' && args.length >= 3 && args.length <= 26 && !task) {
+    url.searchParams.set('propose', '1');
+    body = JSON.stringify({ card: args[0], problem: args[1], resources: args.slice(2) });
+  }
   else if (action === '--kit' && args.length >= 1) {
     url.searchParams.set('kit', '1');
     url.searchParams.set('problem', args.shift());
@@ -64,7 +68,7 @@ export async function remoteHarness(argv) {
   else if (action === '--assign' && args.length === 2 && ['repository', 'task'].includes(args[0])) {
     const data = JSON.parse(readFileSync(args[1], 'utf8'));
     body = JSON.stringify({ scope: args[0], revision: data.revision, layer: data.layer });
-  } else if (action !== '--effective' || args.length) throw new Error('Usage: office-harness --recall-shared PUBLICATION --resource RESOURCE | --publish-shared PUBLICATION --resource RESOURCE | --tool-status PLAN | --verify-pair PLAN | --promote-tool PLAN --revision N | --reconcile-tool PLAN --revision N [--fallback-plan PLAN] | --recover RESOURCE --from EXECUTION | --accepted-kit | --probe | --catalog | --kit PROBLEM id ... | --effective [--task ID] | --invocations [--task ID] [--resource ID] | --assign repository|task file.json [--task ID]');
+  } else if (action !== '--effective' || args.length) throw new Error('Usage: office-harness --recall-shared PUBLICATION --resource RESOURCE | --publish-shared PUBLICATION --resource RESOURCE | --tool-status PLAN | --verify-pair PLAN | --promote-tool PLAN --revision N | --reconcile-tool PLAN --revision N [--fallback-plan PLAN] | --recover RESOURCE --from EXECUTION | --accepted-kit | --probe | --catalog | --kit PROBLEM id ... | --propose CARD-KEY PROBLEM id ... | --effective [--task ID] | --invocations [--task ID] [--resource ID] | --assign repository|task file.json [--task ID]');
   const response = await fetch(url, {
     method: body ? 'POST' : 'GET', redirect: 'error',
     headers: { authorization: 'Bearer ' + (process.env.AGENT_OFFICE_HOOK_TOKEN ?? ''), 'content-type': 'application/json' },

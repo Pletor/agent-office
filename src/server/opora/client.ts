@@ -180,6 +180,17 @@ export class OporaClient {
     return this.post('/api/oporahub/process-events', { events });
   }
 
+  /** The plan's accepted head, graph digest and every card's live and accepted specification (docs/oporahub-*.md in Canvas). */
+  changesetContext(project: string, workspace: string): Promise<{ acceptedHead?: unknown; graphDigest?: unknown; readOnly?: unknown;
+    documents?: { nodeId: string; revision: number; fields: Record<string, unknown> }[]; acceptedDocuments?: { nodeId: string }[] }> {
+    return this.get('/api/oporahub/changesets/context', { project, workspace });
+  }
+
+  /** A proposed specification change; only a person accepts it in Opora. */
+  proposeChangeset(body: unknown): Promise<{ id?: unknown; accepted?: unknown }> {
+    return this.post('/api/oporahub/changesets', body);
+  }
+
   private get<T>(path: string, query: Record<string, string> = {}): Promise<T> {
     const url = new URL(path, this.base);
     for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);

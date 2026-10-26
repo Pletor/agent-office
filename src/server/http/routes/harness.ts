@@ -7,6 +7,7 @@ import { HarnessRegistry } from '../../harness/registry.js';
 import { recommendationRequest } from '../../harness/recommendation-api.js';
 import { buildHarnessKit } from '../../harness/kit.js';
 import { HarnessError } from '../../harness/profiles.js';
+import { isItemPath, itemView } from '../../harness/items.js';
 
 /** Machine-owned resources are visible only to admins or the machine's shared-password session. */
 export const harnessRoute: Route = {
@@ -27,7 +28,8 @@ export const harnessRoute: Route = {
     const headers = { 'cache-control': 'no-store' };
     if (path === '/api/harness') return send(res, 200, catalog, headers);
     const entry = await library.read(url.searchParams.get('id') ?? '');
-    return entry ? send(res, 200, entry, headers) : send(res, 404, { error: 'Resource is unavailable; refresh the library.' }, headers);
+    if (!entry) return send(res, 404, { error: 'Resource is unavailable; refresh the library.' }, headers);
+    return send(res, 200, isItemPath(entry.path) ? { ...entry, item: itemView(entry, catalog.entries) } : entry, headers);
   },
 };
 

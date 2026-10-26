@@ -21,6 +21,7 @@ import { acceptedKitRequest } from './accepted-kit.js';
 import { recoveryRequest } from './recovery-api.js';
 import { stabilityRequest } from './stability-api.js';
 import { verificationRequest } from './verify-api.js';
+import { proposeRequest } from './propose.js';
 import { sharedMemoryRequest } from './shared-memory-api.js';
 
 export async function harnessProfileRequest(ctx: Ctx, floor: Floor, req: http.IncomingMessage, res: http.ServerResponse, url: URL, local: boolean, writable: boolean, globalWrite: boolean) {
@@ -81,6 +82,10 @@ export async function officeHarness(ctx: Ctx, req: http.IncomingMessage, res: ht
     const entry = await library.read(url.searchParams.get('read') ?? '');
     return entry ? send(res, 200, entry) : send(res, 404, { error: 'Resource is unavailable for this worker.' });
   }
+  // The active orchestrator of an administrator proposes a kit into a card, as Schránky → Poslat do karty does.
+  if (url.searchParams.has('propose')) return req.method !== 'POST' ? send(res, 405, { error: 'Use POST' }) : !admin
+    ? send(res, 403, { error: 'Výbavu do karty posílá jen aktivní orchestrátor správce.' })
+    : proposeRequest(floor, new HarnessLibrary(harnessSources(floor.dir, admin), new HarnessRegistry(ctx.cfg.dataDir)), req, res);
   if (url.searchParams.has('hierarchy')) return harnessHierarchyRequest(ctx, floor, req, res, url,
     { local: admin, writable: admin, globalWrite: false, actor: 'worker:' + id });
   if (req.method === 'GET' && url.searchParams.has('catalog')) {
