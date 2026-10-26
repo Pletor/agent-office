@@ -67,6 +67,7 @@ try {
     await pack.getByText('Ověřeno serverem').waitFor();
     assert.deepEqual(kits.at(-1), ['guide:instructions']);
     await pack.getByText('Bez kontroly', { exact: true }).waitFor();
+    await pack.getByText('Jak to udělá orchestrátor Opory').click();
     await pack.getByText('office-harness --kit bugfix guide:instructions', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(shots, `harness-boxes-verified-${width}.png`), fullPage: false });
     await page.locator('.harness-box[data-box="9"]').click();
@@ -81,11 +82,17 @@ try {
     assert.equal(await pack.getByText('Bez kontroly', { exact: true }).count(), 0, 'testing in the package clears the warning');
     await boxes.evaluate(node => node.scrollTo(0, 0));
     await page.screenshot({ path: path.join(shots, `harness-boxes-${width}.png`) });
+    // Přiřadit do výbavy switches the whole package on at the level open in Výbava; saving stays explicit.
+    await pack.getByRole('button', { name: 'Přiřadit do výbavy' }).click();
+    await page.getByRole('checkbox', { name: start.title, exact: true }).waitFor();
+    assert.equal(await page.getByRole('checkbox', { name: start.title, exact: true }).isChecked(), true, 'package resource switched on in the draft');
+    await page.getByText(/Neuložené úpravy pro Projekt/).waitFor();
+    await page.getByRole('button', { name: 'Zahodit změny a načíst', exact: true }).click();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no horizontal scroll');
     await page.keyboard.press('Escape');
     assert.equal(await page.getByRole('dialog').count(), 0);
     assert.deepEqual(errors, []);
     await page.close();
   }
-  console.log('PASS: twelve boxes open first, used vs library per box, office functions with commands, inspect with text and phase, one package with the footer, server kit verification, stale after change, recommendation with reasons, 1440/390 without horizontal scroll, Esc');
+  console.log('PASS: twelve boxes open first, used vs library per box, office functions with commands, inspect with text and phase, one package with the footer, server kit verification, stale after change, recommendation with reasons, package assigned to the open level, orchestrator commands, 1440/390 without horizontal scroll, Esc');
 } finally { await browser.close(); }

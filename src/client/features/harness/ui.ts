@@ -51,6 +51,10 @@ export function openHarness(floor: string) {
     toggle(id) { if (selected.has(id)) selected.delete(id); else if (selected.size < 24) selected.add(id); render(); },
     replace(ids) { selected = new Set(ids.filter((id) => catalog?.entries.some((e) => e.id === id))); render(); },
     browse(value) { workspace.show('resources'); category.value = value; render(); },
+    async assign(ids) {
+      workspace.show('equipment');
+      if (!await cascade.assignMany(ids)) toast('Výbavu tu nelze upravit: jen pro čtení, nebo se ještě načítá.', 'warn');
+    },
   });
   const workspace = libraryWorkspace(el, () => floor, abort.signal, { boxes: boxes.el, hierarchy: (view) => boxes.hierarchy(view) });
   const keys = libraryKeys(el, filter, list, () => workspace.show('resources'));

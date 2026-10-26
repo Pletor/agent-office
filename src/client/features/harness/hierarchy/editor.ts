@@ -151,5 +151,12 @@ export function hierarchyPanel(floor: string, signal: AbortSignal) {
     el.open = true; if (!view) await first();
     if (!writable()) return;
     draft = setResource(view!, draft, entry.id, true); changed();
+  },
+  /** A whole package from Schránky, switched on at the level open in Výbava; saving stays explicit. */
+  async assignMany(ids: string[]) {
+    el.open = true; if (!view) await first();
+    if (!writable() || !ids.length) return false;
+    for (const id of ids) draft = setResource(view!, draft, id, true);
+    changed(); return true;
   } };
 }

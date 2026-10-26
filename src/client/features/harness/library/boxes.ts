@@ -12,8 +12,18 @@ export interface BoxesHost {
   /** The library's one package (the footer's Vybráno N / 24): the boxes and the reader fill the same set. */
   selected(): ReadonlySet<string>; toggle(id: string): void; replace(ids: string[]): void;
   browse(category: HarnessCategory): void;
+  /** Switch the package on at the level open in Výbava (Projekt, or a canvas node once the floor is bound to Opora). */
+  assign(ids: string[]): void;
 }
 const LIMIT = 8;
+/** The orchestrator's path through the same library, with the same rights as a person in the browser. */
+const ORCHESTRATOR: [string, string][] = [
+  ['Najde prostředky ve schránkách', 'office-harness --search "slova" --category CATEGORY'],
+  ['Nechá si doporučit balíček pro typ úkolu', 'office-harness --recommend PROBLEM'],
+  ['Složí a ověří balíček (otisky, limit 24 / 96 KiB)', 'office-harness --kit PROBLEM IDS'],
+  ['Přiřadí ho úrovni: projekt, stránka až karta canvasu', 'office-harness --configure LEVEL vrstva.json --task KEY'],
+  ['Vloží kit do návrhu karty; po přijetí člověkem ho worker přečte', 'office-harness --accepted-kit'],
+];
 /** replaceChildren with the optional parts left out. */
 const parts = (...children: (Node | string | null | false)[]) => children.filter((child): child is Node | string => !!child);
 const resources = (n: number) => n + (n >= 2 && n <= 4 ? ' prostředky' : ' prostředků');
@@ -159,7 +169,11 @@ export function boxesPage(host: BoxesHost) {
         h('div.harness-box-actions', {},
           h('button.btn.primary', { type: 'button', onclick: () => void navigator.clipboard.writeText(json()).then(() => toast('Kit zkopírován'), () => toast('Schránka nefunguje; použijte Stáhnout kit.', 'warn')) }, 'Zkopírovat kit'),
           h('button.btn', { type: 'button', onclick: () => { const url = URL.createObjectURL(new Blob([json()], { type: 'application/json' })); h('a', { href: url, download: 'harness-kit.json' }).click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } }, 'Stáhnout kit'))) : null,
-      h('p.harness-pack-agent', {}, 'Agent: ', command(`office-harness --kit ${problem} ${ids || 'ID …'}`), ' ', command('office-harness --recommend ' + problem))));
+      chosen.length ? h('div.harness-pack-assign', {},
+        h('div', {}, h('strong', {}, 'Přiřadit workerům'), h('span', {}, ' Zapne balíček na úrovni otevřené ve Výbavě: Projekt (repozitář), nebo stránka až karta na canvasu Opory. Pak Uložit výbavu; dostane ho každá další práce na té úrovni.')),
+        h('button.btn', { type: 'button', onclick: () => host.assign(chosen.map(entry => entry.id)) }, 'Přiřadit do výbavy')) : null,
+      h('details.harness-pack-orchestrator', {}, h('summary', {}, 'Jak to udělá orchestrátor Opory'),
+        h('ol', {}, ...ORCHESTRATOR.map(([what, how]) => h('li', {}, h('span', {}, what), command(how.replace('PROBLEM', problem).replace('IDS', ids || 'ID …'))))))));
   }
   return {
     el, refresh: render,
