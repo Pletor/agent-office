@@ -1,0 +1,16 @@
+{
+  "schema": "harness.item/1",
+  "kind": "skill",
+  "name": "ts-references",
+  "summary": "Jak najít definici a všechna použití symbolu v TypeScriptu deterministicky přes jazykový server, a ověřit je.",
+  "when": "Před změnou funkce, typu nebo konstanty, kterou může používat jiný soubor.",
+  "run": { "runner": "node", "entry": "scripts/ts-refs.mjs", "args": ["refs", "SYMBOL"] },
+  "parts": [
+    { "path": "skills/ts-references/SKILL.md", "role": "instructions" },
+    { "path": "skills/ts-references/references/lsp-vs-grep.md", "role": "reference" },
+    { "path": "scripts/ts-refs.mjs", "role": "script" }
+  ],
+  "deterministic": false,
+  "outputs": "Seznam míst ke změně, každé ověřené čtením souboru.",
+  "verify": "Každé místo z ts-refs je v seznamu, nebo je u něj důvod, proč se nemění."
+}

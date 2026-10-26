@@ -86,3 +86,13 @@
   .harness-box-item > div { grid-column: 1 / -1; }
   .harness-box-facts { grid-template-columns: 1fr; }
 }
+
+/* A definition in the preview, and sending a verified package into a card. */
+.harness-item { margin: 0 0 12px; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); }
+.harness-item > p { margin: 0 0 8px; font-size: 14px; font-weight: 600; line-height: 1.5; }
+.harness-item-parts { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 13px; }
+.harness-item-part { border: 0; background: none; padding: 0; font: 800 13px var(--font); color: var(--accent); text-decoration: underline; cursor: pointer; }
+.harness-pack-send { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 10px 0; padding: 8px 12px; border: 2px solid var(--ink); border-radius: 12px; background: #fff; }
+.harness-pack-send select { min-height: 40px; max-width: 100%; padding: 4px 8px; font: 700 14px var(--font); border: 2px solid var(--ink); border-radius: 10px; background: #fff; color: var(--ink); }
+.harness-pack-send small { flex-basis: 100%; color: var(--muted); font-weight: 700; }
+.harness-pack-sent { margin: 10px 0; font-size: 14px; font-weight: 700; }
