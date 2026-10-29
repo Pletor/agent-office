@@ -130,6 +130,20 @@ export class OporaClient {
     return digestAgentState(await this.get<unknown>('/api/oporahub/agent-state', { project, workspace }));
   }
 
+  /**
+   * Whether the project is planned by OPORA's heart: its brain gate is on (GET /api/brain/gate-setting).
+   * An Opora without the brain answers 404, which is off.
+   */
+  async heartOn(project: string): Promise<boolean> {
+    try {
+      const g = await this.get<{ enabled?: unknown }>('/api/brain/gate-setting', { project });
+      return g.enabled === true;
+    } catch (err) {
+      if (err instanceof OporaError && err.status === 404) return false;
+      throw err;
+    }
+  }
+
   /** One drawing layer's Excalidraw scene: a card's or sector's own (its id), or a storyboard moment's (`sb/<card>/<moment>`). */
   async drawing(project: string, workspace: string, layer: string): Promise<{ elements: Record<string, unknown>[] }> {
     const d = await this.get<{ scene?: { elements?: unknown } }>('/api/drawing', { project, workspace, layer });

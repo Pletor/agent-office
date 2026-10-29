@@ -33,6 +33,8 @@ export interface LaunchInput<S, P> {
   cwd: string;
   /** What prepare set up on this floor. */
   setup: P;
+  /** Tools its seat lets it use without asking (see WorkerLaunchOptions); a provider without such a list ignores it. */
+  allowedTools?: string[];
 }
 
 export interface LaunchPlan {

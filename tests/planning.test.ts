@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { PlanningRoom, type PlanningQueue, type PlanningWorkers } from '../src/server/planning.js';
+import { HEART_PLANNER_TOOLS, PlanningRoom, heartPlannerLaunch, type PlanningQueue, type PlanningWorkers } from '../src/server/planning.js';
+import { claude } from '../src/server/providers/claude.js';
+import { restoreWorkers, saveWorkers } from '../src/server/workers/persist.js';
+import { newWorker } from '../src/server/workers/worker.js';
+import { newTracker } from '../src/server/usage.js';
+import type { Worker, WorkerLaunchOptions } from '../src/server/workers/types.js';
 import { DESK_BY_ID, nextFreeSeat, vacantSeats } from '../src/shared/layout.js';
 import { PLANNER_SEAT, PLANNING_ROOM, inPlanningRoom, planTasks, planTitle } from '../src/shared/planning.js';
 import { PROMPTS } from '../src/shared/prompts.js';
@@ -181,4 +186,92 @@ test('stop sends the planner home and says who stopped it', (t) => {
   assert.equal(room.state().current!.reason, 'stopped by Ben');
   assert.equal(f.workers.length, 0);
   assert.equal(room.stop('Ben'), 'Nobody is planning right now');
+});
+
+/** A planning room whose floor is linked to Opora, with or without the heart, recording what its planner was seated with. */
+function oporaRoom(f: ReturnType<typeof fixture>, heart: boolean) {
+  const seated: { prompt: string; launch?: WorkerLaunchOptions }[] = [];
+  const manager: PlanningWorkers = {
+    list: () => f.workers,
+    seat(by, prompt, provider, _model, _effort, _owner, launch) {
+      seated.push({ prompt, launch });
+      const worker: WorkerInfo = { id: `w${f.workers.length}`, deskId: PLANNER_SEAT.id, kind: 'agent', provider, prompt, name: 'Planny', color: '#9b5de5', status: 'working', acked: false, createdBy: by, createdAt: Date.now(), cols: 80, rows: 24, viewers: [], viewerIds: [], via: 'planning' };
+      f.workers.push(worker);
+      return worker;
+    },
+    kill: () => Promise.resolve({}),
+  };
+  const room = new PlanningRoom(f.dir, path.join(f.dir, '.agent-office'), manager, { add: () => undefined, state: () => ({ tasks: [], maxWorkers: 1 }) }, {
+    update: () => undefined,
+    toast: (text) => void f.toasts.push(text),
+    hiringPaused: () => undefined,
+    prompt: (id) => PROMPTS[id].text,
+    opora: () => ({ base: 'http://127.0.0.1:8740', project: 'p1', name: 'Shop', workspace: 'work1', focus: 'Web › Kontakt', heart, floor: 'shop' }),
+  });
+  return { room, seated };
+}
+
+test('in a project OPORA’s heart plans, the planner relays the task to the heart, with its tools allowed', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const { room, seated } = oporaRoom(f, true);
+  t.after(() => room.shutdown());
+  assert.equal(room.start({ goal: 'Kontaktní formulář s ověřením e-mailu', mode: 'opora', provider: 'claude' }, 'Ana'), undefined);
+  const { prompt, launch } = seated[0];
+  assert.match(prompt, /relay it verbatim/);
+  assert.match(prompt, /Kontaktní formulář s ověřením e-mailu/);
+  assert.match(prompt, /Focus \(what the cell works on.*\): Web › Kontakt\./);
+  assert.match(prompt, /opora_gate\.py session --project p1 --workspace work1 --name orchestrator-shop/);
+  assert.match(prompt, /opora_gate\.py tell/);
+  assert.match(prompt, /\/api\/brain\/heart\/status --project p1/);
+  assert.match(prompt, new RegExp(path.basename(room.state().current!.file).replace(/\./g, '\.')));
+  assert.doesNotMatch(prompt, /\{\{/);
+  assert.doesNotMatch(prompt, /canvas-plan batch/);
+  assert.deepEqual(launch?.allowedTools, [...HEART_PLANNER_TOOLS]);
+  for (const tool of ['Bash(python:*)', 'Read', 'Grep', 'Glob']) assert.ok(launch!.allowedTools!.includes(tool), tool);
+  assert.ok(!launch!.allowedTools!.some((x) => /dangerously/i.test(x)));
+  assert.deepEqual(launch?.env, { OPORA_BASE_URL: 'http://127.0.0.1:8740', OPORA_AGENT_NAME: 'orchestrator-shop' });
+  assert.equal(room.state().current!.heart, true);
+  assert.equal(room.state().current!.mode, 'opora');
+  assert.match(f.toasts.at(-1)!, /heart/);
+});
+
+test('without the heart, planning onto Opora and routing stay as they were, with no extra tools', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const { room, seated } = oporaRoom(f, false);
+  t.after(() => room.shutdown());
+  assert.equal(room.start({ goal: 'A contact form', mode: 'opora' }, 'Ana'), undefined);
+  assert.match(seated[0].prompt, /canvas-plan batch/);
+  assert.equal(seated[0].launch, undefined);
+  assert.equal(room.state().current!.heart, undefined);
+  assert.equal(room.clear('Ana'), undefined);
+  f.workers.length = 0;
+  // The router is the router, heart or not.
+  const heart = oporaRoom(f, true);
+  t.after(() => heart.room.shutdown());
+  assert.equal(heart.room.start({ goal: '', mode: 'router' }, 'Ana'), undefined);
+  assert.match(heart.seated[0].prompt, /You're the router/);
+  assert.equal(heart.seated[0].launch, undefined);
+});
+
+test('Claude gets the tools its seat allows as --allowedTools, before the prompt; none without', () => {
+  const launch = (allowedTools?: string[]) => claude.launch({ h: { info: { id: 'w1' } } as never, args: [], prompt: 'go', cwd: '.', setup: { settings: 's.json', dir: '.' }, allowedTools }).args;
+  const args = launch(['Bash(python:*)', 'Read']);
+  const at = args.indexOf('--allowedTools');
+  assert.deepEqual(args.slice(at, at + 3), ['--allowedTools', 'Bash(python:*)', 'Read']);
+  assert.deepEqual(args.slice(-2), ['--', 'go']);
+  assert.ok(!args.includes('--dangerously-skip-permissions'));
+  assert.equal(launch().includes('--allowedTools'), false);
+  assert.equal(launch([]).includes('--allowedTools'), false);
+});
+
+test('a worker’s launch options are saved and come back after a restart', (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'office-launch-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'workers.json');
+  const info = { id: 'w1', kind: 'agent', provider: 'claude', deskId: PLANNER_SEAT.id, name: 'Planny', color: '#fff', status: 'idle', acked: true, createdBy: 'Ana', createdAt: 1, cols: 80, rows: 24, viewers: [], viewerIds: [] } as WorkerInfo;
+  const w = newWorker(info, newTracker());
+  w.launch = heartPlannerLaunch('http://127.0.0.1:8740', 'shop');
+  saveWorkers(file, [w], true);
+  const back = new Map<string, Worker>();
+  restoreWorkers(file, back, 'claude', () => false);
+  assert.deepEqual(back.get('w1')?.launch, w.launch);
 });

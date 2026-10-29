@@ -89,6 +89,8 @@ function fakeOpora(dir: string) {
   const page: { headers: Record<string, string> } = { headers: { 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'" } };
   // Shop's workspaces; a test adds `main` and a work one (`work1`, with a card of its own).
   const workspaces: { id: string; label?: string }[] = [{ id: 'draft' }];
+  // The projects whose brain gate is on (OPORA's heart plans them); none by default.
+  const heartOn = new Set<string>();
   const projects = [{ id: 'other', name: 'Other', sourcePath: '/elsewhere' }, { id: 'p1', name: 'Shop', sourcePath: dir.toUpperCase() === dir ? dir : dir.replace(/\//g, '\\') }];
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
@@ -142,6 +144,8 @@ function fakeOpora(dir: string) {
       switch (url.pathname) {
         case '/api/health':
           return send(200, { status: 'ok' });
+        case '/api/brain/gate-setting':
+          return send(200, { project: url.searchParams.get('project'), enabled: heartOn.has(String(url.searchParams.get('project'))) });
         case '/api/bootstrap':
           return send(200, { projects });
         case '/api/project-workspaces':
@@ -179,7 +183,7 @@ function fakeOpora(dir: string) {
       send(404, { detail: 'nope' });
     });
   });
-  return { server, calls, leases, projects, page, workspaces, stepCards, agentState };
+  return { server, calls, leases, projects, page, workspaces, stepCards, agentState, heartOn };
 }
 
 async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeEvents['prepareTask']) {
@@ -612,4 +616,48 @@ test('while Opora waits on a person to accept the baseline, nothing is claimed a
   await f.bridge.poll();
   assert.equal(f.state().humanWait, undefined);
   assert.ok(f.op.calls.some((c) => c.path === '/api/oporahub/executions/claim'));
+});
+
+/** What OPORA's wall lets an agent write in a project its heart plans (Opora's determinism/wall.py LANE). */
+const WALL_LANE = ['/api/oporahub/executions', '/api/oporahub/process-events', '/api/oporahub/execution-observers', '/api/oporahub/harness-',
+  '/api/oporahub/github-evidence', '/api/oporahub/review-jobs', '/api/oporahub/review-identities/claim', '/api/oporahub/verifications',
+  '/api/desktop-v3/agent-output', '/api/desktop-v3/agent-messages', '/api/desktop-v3/agent-message-receipt', '/api/desktop-v3/agent-workspace', '/api/desktop-v3/lease'];
+const inLane = (p: string) => WALL_LANE.some((x) => (x.endsWith('-') ? p.startsWith(x) : p === x || p.startsWith(x + '/')));
+
+test('the bridge says when OPORA’s heart plans the linked project, read again with the canvas', async (t) => {
+  const f = await fixture(t);
+  assert.equal(f.state().heart, false);
+  assert.ok(f.op.calls.some((c) => c.method === 'GET' && c.path === '/api/brain/gate-setting'));
+  f.op.heartOn.add('p1');
+  await f.bridge.repoll();
+  assert.equal(f.state().heart, true);
+  // Another project, not planned by the heart.
+  assert.equal(f.bridge.link('other'), undefined);
+  await f.bridge.repoll();
+  assert.equal(f.state().heart, false);
+});
+
+test('an Opora without the brain (gate-setting 404) is planned the old way', async (t) => {
+  const f = await fixture(t);
+  f.op.server.removeAllListeners('request');
+  const { server: plain } = fakeOpora(f.dir);
+  f.op.server.on('request', (req, res) => {
+    if (req.url?.startsWith('/api/brain/')) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end('{"detail":"Not Found"}'); }
+    plain.emit('request', req, res);
+  });
+  await f.bridge.repoll();
+  assert.equal(f.state().connected, true);
+  assert.equal(f.state().heart, false);
+});
+
+test('in a project the heart plans, taking a card and letting it go writes only in the wall’s lane', async (t) => {
+  const f = await fixture(t);
+  f.op.heartOn.add('p1');
+  await f.bridge.repoll();
+  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
+  f.bridge.onWorkerGone(f.workers[0].id);
+  await new Promise((r) => setTimeout(r, 50));
+  const writes = f.op.calls.filter((c) => c.method !== 'GET' && c.method !== 'HEAD').map((c) => c.path);
+  assert.ok(writes.some((p) => p === '/api/oporahub/executions/claim'));
+  assert.deepEqual(writes.filter((p) => !inLane(p)), []);
 });

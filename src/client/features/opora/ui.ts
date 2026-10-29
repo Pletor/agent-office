@@ -59,6 +59,8 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
     h('span.pill', { class: linked ? 'done' : 'needs_input' }, linked ? 'linked' : s.connected ? 'not linked' : 'not running'),
     h('b', {}, s.project ? s.project.name : 'Opora Canvas'),
     s.workspace ? h('span.muted', {}, `workspace ${workspaceName(s, s.workspace)}`) : null,
+    // OPORA's heart plans this project (its brain gate is on): the planner relays the task to it.
+    linked && s.heart ? h('span.pill', { class: 'working', title: 'OPORA’s heart plans this project: the planner hands your task to it, the office hands its cards out' }, '💗 heart plans') : null,
     h('span.muted', {}, s.checkedAt ? `read ${timeAgo(new Date(s.checkedAt).toISOString())}` : ''),
     // The real Opora on the whole screen, as O at the boss's chair opens it, or in the same named tab, on this floor's project.
     s.connected ? h('button.btn.small.primary', { type: 'button', title: 'Opora Canvas on the whole screen, inside the office', onclick: () => actions.openFull() }, '⛶ Open Opora full screen') : null,
@@ -94,12 +96,14 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
         'section.opora-plan',
         {},
         h('h3', {}, '🧭 Plan on the canvas'),
-        h('p.muted', {}, 'The planner at the room’s table lays the work out on Opora as sectors and cards (it shows you the batch before writing it), or routes the cards that have no pipeline yet. Design work goes to the design pipeline.'),
+        h('p.muted', {}, s.heart
+          ? 'OPORA’s heart plans this project: the planner at the room’s table hands your task to the heart word for word, waits for its plan and writes down what it planned and asked you. The office hands the heart’s cards out.'
+          : 'The planner at the room’s table lays the work out on Opora as sectors and cards (it shows you the batch before writing it), or routes the cards that have no pipeline yet. Design work goes to the design pipeline.'),
         dictateField(goal),
         h(
           'div.opora-row',
           {},
-          h('button.btn.primary', { type: 'button', disabled: busy, onclick: () => goal.value.trim() && net.send({ t: 'planning.start', goal: goal.value, mode: 'opora' }) }, '🗺️ Plan onto the canvas'),
+          h('button.btn.primary', { type: 'button', disabled: busy, onclick: () => goal.value.trim() && net.send({ t: 'planning.start', goal: goal.value, mode: 'opora' }) }, s.heart ? '💗 Tell the heart' : '🗺️ Plan onto the canvas'),
           h('button.btn', { type: 'button', disabled: busy, onclick: () => net.send({ t: 'planning.start', goal: '', mode: 'router' }) }, '🔀 Route the cards'),
           busy ? h('button.btn', { type: 'button', onclick: () => actions.showPlanning() }, '✍️ The planner is at it…') : null,
         ),

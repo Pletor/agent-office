@@ -51,6 +51,16 @@ export interface RunAs {
   apply(owner: string, env: Record<string, string>, dirs: string[]): Record<string, string>;
 }
 
+/**
+ * What a seat starts its worker with on every launch, beyond the office's own: tools its agent may use
+ * without asking (Claude's --allowedTools; other providers ignore it) and environment variables. The
+ * heart's planner gets them (see planning.ts), so it never stops on an approval prompt.
+ */
+export interface WorkerLaunchOptions {
+  allowedTools?: string[];
+  env?: Record<string, string>;
+}
+
 export interface Worker {
   info: WorkerInfo;
   /** Allocated but not committed to a task; must never auto-resume after a crash. */
@@ -59,6 +69,8 @@ export interface Worker {
   stopPreparation?: () => void;
   /** The account that hired it, whose sign-ins it runs on. None: the office's own. */
   owner?: string;
+  /** What its seat starts it with on every launch, a resume included (see WorkerLaunchOptions). */
+  launch?: WorkerLaunchOptions;
   pty?: Pty;
   /**
    * A DeepSeek Harness worker's ACP connection. It has no PTY: ACP updates are rendered into the

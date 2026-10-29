@@ -30,6 +30,8 @@ export interface Plan {
   goal: string;
   /** What the planner does (file when it's missing: plans from before there were others). */
   mode?: PlanMode;
+  /** An `opora` plan in a project OPORA's heart plans: the planner relayed the task to the heart (planning.heart). */
+  heart?: true;
   by: string;
   /** The account that asked for it: the planner, and the tasks it queues, run on its sign-ins. */
   owner?: string;

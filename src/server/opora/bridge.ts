@@ -362,7 +362,7 @@ export class OporaBridge {
     try {
       await this.client.health();
     } catch (err) {
-      Object.assign(s, { connected: false, embeddable: false, embedOrigins: undefined, error: (err as Error).message, project: null, linkedBy: undefined, projects: [], workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], humanWait: undefined, scope: [], checkedAt: Date.now() });
+      Object.assign(s, { connected: false, embeddable: false, embedOrigins: undefined, error: (err as Error).message, project: null, linkedBy: undefined, projects: [], workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], humanWait: undefined, heart: undefined, scope: [], checkedAt: Date.now() });
       return;
     }
     // Whether Opora lets the office frame it, for O at the boss's chair to open it inside the office.
@@ -382,7 +382,7 @@ export class OporaBridge {
       const lost = this.chosen && !chosen ? `The project this floor was linked to (${this.chosen}) isn't on Opora any more: ${byFolder ? `reading ${byFolder.name}, the one for this floor's folder, instead` : 'pick another'}` : undefined;
       const project = chosen ?? byFolder;
       if (!project) {
-        Object.assign(s, { connected: true, error: lost ?? `No Opora project plans this floor's folder (${this.floor.dir}): pick one in the 🛰️ Opora window, or add the folder in Opora as a local or git project`, project: null, linkedBy: undefined, workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], humanWait: undefined, scope: [], checkedAt: Date.now() });
+        Object.assign(s, { connected: true, error: lost ?? `No Opora project plans this floor's folder (${this.floor.dir}): pick one in the 🛰️ Opora window, or add the folder in Opora as a local or git project`, project: null, linkedBy: undefined, workspace: null, workspaces: [], workspaceBy: undefined, sectors: [], cards: [], humanWait: undefined, heart: undefined, scope: [], checkedAt: Date.now() });
         return;
       }
       // The workspace someone picked while it's still there, else `main`, else the first; a picked one that's gone says so.
@@ -410,6 +410,8 @@ export class OporaBridge {
       const agent = await this.client.agentState(project.id, workspace).catch(() => null);
       if (agent) for (const c of cards) if (agent.ready.has(c.id)) c.ready = true;
       s.humanWait = agent?.humanWait;
+      // Planned by OPORA's heart: the planner relays the task to it (planning.heart). Unread, the last answer for the same project stands.
+      s.heart = await this.client.heartOn(project.id).catch(() => (s.project?.id === project.id ? s.heart : undefined));
       this.noteReady(`${project.id}/${workspace}`, cards);
       Object.assign(s, { connected: true, error: [lost, gone, this.focusLost()].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : 'default', sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
     } catch (err) {

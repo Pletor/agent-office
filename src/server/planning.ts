@@ -6,14 +6,30 @@ import { PLANNER_SEAT, PLANS_DIR, PLAN_LIMITS, planTasks, planTitle } from '../s
 import { fillPrompt, type PromptId } from '../shared/prompts.js';
 import { forgetForOpora, markForOpora, seatForOpora, withReaBrief } from './rea/index.js';
 import type { AgentEffort, AgentProvider, Plan, PlanMode, PlanRecord, PlanningState, QueueState, WorkerInfo } from '../shared/protocol.js';
+import type { WorkerLaunchOptions } from './workers/types.js';
 
 const MODE_PROMPT: Record<PlanMode, PromptId> = { file: 'planning.plan', opora: 'planning.opora', router: 'planning.router' };
+
+/**
+ * What the heart's planner may do without asking (Opora's docs/brain-heart-orchestrator.md §8): run the
+ * opora-control-center skill's scripts, read, and write its summary under PLANS_DIR. Only those, so the
+ * relay never stops on an approval prompt; never --dangerously-skip-permissions.
+ */
+export const HEART_PLANNER_TOOLS: readonly string[] = ['Bash(python:*)', 'Bash(python3:*)', 'Read', 'Grep', 'Glob', `Edit(./${PLANS_DIR}/**)`, `Write(./${PLANS_DIR}/**)`];
+
+/** How the heart's planner is started: its tools, and Opora's address and its agent name for the skill's scripts. */
+export function heartPlannerLaunch(base: string | undefined, floor: string | undefined): WorkerLaunchOptions {
+  return {
+    allowedTools: [...HEART_PLANNER_TOOLS],
+    env: { ...(base ? { OPORA_BASE_URL: base } : {}), OPORA_AGENT_NAME: `orchestrator-${floor || 'office'}` },
+  };
+}
 
 /** What the planning room needs from the worker manager. Narrow on purpose, so a test can fake it. */
 export interface PlanningWorkers {
   list(): WorkerInfo[];
   /** Seats the planner in the planning room's chair (see PLANNER_SEAT). */
-  seat(by: string, prompt: string, provider: AgentProvider | undefined, model: string | undefined, effort: AgentEffort | undefined, owner?: string): WorkerInfo | string;
+  seat(by: string, prompt: string, provider: AgentProvider | undefined, model: string | undefined, effort: AgentEffort | undefined, owner?: string, launch?: WorkerLaunchOptions): WorkerInfo | string;
   kill(id: string): Promise<{ note?: string; error?: string }>;
 }
 
@@ -30,8 +46,11 @@ export interface PlanningEvents {
   hiringPaused(): string | undefined;
   /** A prompt's text as the office has it now (rewritten in ⚙️ Settings, or the default). */
   prompt(id: PromptId): string;
-  /** Where Opora is, and the floor's project and workspace on it once it's linked (see opora/bridge.ts). */
-  opora?(): { base: string; project?: string; name?: string; workspace?: string; focus?: string };
+  /**
+   * Where Opora is, and the floor's project and workspace on it once it's linked (see opora/bridge.ts);
+   * `heart` when OPORA's heart plans that project, `floor` the floor's id (the orchestrator's name there).
+   */
+  opora?(): { base: string; project?: string; name?: string; workspace?: string; focus?: string; heart?: boolean; floor?: string };
   /** The overview of the card picked for the orchestrator at the right board, a block of data to add to the planner's brief. */
   brief?(): string | undefined;
 }
@@ -96,19 +115,23 @@ export class PlanningRoom {
     const title = planTitle(goal, req.title || (mode === 'router' ? 'Routing the Opora cards' : undefined));
     const file = this.freeFile(title);
     mkdirSync(path.join(this.dir, PLANS_DIR), { recursive: true });
-    const filled = fillPrompt(this.events.prompt(MODE_PROMPT[mode]), { goal, file: path.join(this.dir, file), base: opora?.base, project: opora?.project, name: opora?.name ?? opora?.project, workspace: opora?.workspace, focus: opora?.focus ? `Stay inside what the cell works on (switched at the 🎚️ switchboard): ${opora.focus}. Read, plan and route only there.` : '' });
+    // A project OPORA's heart plans: the planner relays the task to the heart and never plans cards itself.
+    const heart = mode === 'opora' && opora?.heart === true;
+    const focus = !opora?.focus ? '' : heart ? `Focus (what the cell works on, switched at the 🎚️ switchboard): ${opora.focus}.` : `Stay inside what the cell works on (switched at the 🎚️ switchboard): ${opora.focus}. Read, plan and route only there.`;
+    const filled = fillPrompt(this.events.prompt(heart ? 'planning.heart' : MODE_PROMPT[mode]), { goal, file: path.join(this.dir, file), base: opora?.base, project: opora?.project, name: opora?.name ?? opora?.project, workspace: opora?.workspace, focus, floor: opora?.floor || 'office' });
     const focused = this.events.brief?.();
     // The card picked for the orchestrator at the right board: its overview, as data, after the brief.
     const prompt = focused ? `${filled}\n\n${focused}\nThe office keeps this overview up to date in ${path.join(this.dir, '.agent-office', 'orchestrator-focus.md')} while the card stays picked.` : filled;
     // Planning onto the canvas, the planner gets 🔬 REA when it's on, to take a reference app apart first (see rea/).
-    const seat = (brief: string) => this.workers.seat(by, brief, req.provider, req.model, req.effort, owner);
-    const seated = mode === 'opora' ? seatForOpora(() => seat(withReaBrief(prompt, this.events.prompt))) : seat(prompt);
+    const seat = (brief: string, launch?: WorkerLaunchOptions) => this.workers.seat(by, brief, req.provider, req.model, req.effort, owner, launch);
+    const seated = heart ? seat(prompt, heartPlannerLaunch(opora?.base, opora?.floor)) : mode === 'opora' ? seatForOpora(() => seat(withReaBrief(prompt, this.events.prompt))) : seat(prompt);
     if (typeof seated === 'string') return seated;
     this.current = {
       id: randomBytes(4).toString('hex'),
       title,
       goal,
       mode,
+      ...(heart ? { heart: true as const } : {}),
       by,
       ...(owner ? { owner } : {}),
       startedAt: Date.now(),
@@ -123,7 +146,7 @@ export class PlanningRoom {
       ...(req.effort ? { effort: req.effort } : {}),
     };
     this.changed();
-    this.events.toast(`🧭 ${by} asked ${seated.name} to plan “${title}”`, 'info');
+    this.events.toast(heart ? `🧭 ${by} asked ${seated.name} to hand “${title}” to OPORA's heart` : `🧭 ${by} asked ${seated.name} to plan “${title}”`, 'info');
     return undefined;
   }
 
@@ -277,7 +300,7 @@ export class PlanningRoom {
       if (!existsSync(this.statePath)) return;
       const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as Partial<PlanningState>;
       if (saved.current && typeof saved.current.id === 'string' && Array.isArray(saved.current.tasks)) this.current = saved.current;
-      if (this.current?.mode === 'opora' && this.current.workerId) markForOpora(this.current.workerId);
+      if (this.current?.mode === 'opora' && !this.current.heart && this.current.workerId) markForOpora(this.current.workerId);
       if (Array.isArray(saved.past)) this.past = saved.past.slice(0, PAST);
     } catch {
       // a broken file starts the room empty

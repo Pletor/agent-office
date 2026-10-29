@@ -308,7 +308,7 @@ export class Floor {
       dataDir,
       {
         list: () => this.workers.list(),
-        seat: (by, prompt, provider, model, effort, owner) => this.workers.spawn(PLANNER_SEAT.id, by, prompt, false, 'agent', provider, model, effort, undefined, owner, [], 'planning'),
+        seat: (by, prompt, provider, model, effort, owner, launch) => this.workers.spawn(PLANNER_SEAT.id, by, prompt, false, 'agent', provider, model, effort, undefined, owner, [], 'planning', undefined, launch),
         kill: (id) => this.workers.kill(id),
       },
       this.queue,
@@ -325,7 +325,7 @@ export class Floor {
         prompt: (id) => harnessPlannerBrief(ctx.prompts.text(id), id),
         opora: () => {
           const o = this.opora.view();
-          return { base: o.url, project: o.project?.id, name: o.project?.name, workspace: o.workspace ?? undefined, focus: this.opora.focusLine() };
+          return { base: o.url, project: o.project?.id, name: o.project?.name, workspace: o.workspace ?? undefined, focus: this.opora.focusLine(), heart: o.heart === true, floor: def.id };
         },
         brief: () => [this.orchestrator?.brief(), this.sessions?.brief()].filter(Boolean).join('\n\n') || undefined,
       },
