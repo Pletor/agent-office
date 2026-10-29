@@ -8,7 +8,7 @@ import { reportedUsage } from '../reported-usage.js';
 import { restoreTracker, trackerUsage } from '../usage.js';
 import { workedMs } from './clock.js';
 import { midTurn } from './lifecycle.js';
-import type { Worker } from './types.js';
+import type { Worker, WorkerLaunchOptions } from './types.js';
 import { COLORS, newWorker } from './worker.js';
 import { validRepos } from './worktree.js';
 
@@ -17,10 +17,11 @@ const RUNNING = new Set<unknown>(['starting', 'idle', 'working', 'done', 'needs_
 
 /** Saves every worker; `stopping`: the office is closing for good, so nobody is in the middle of anything. */
 export function saveWorkers(file: string, workers: Iterable<Worker>, stopping: boolean) {
-  const saved = [...workers].map(({ info, owner, tracker, state, hookToken, pty, bootBlocked, interrupted, preparing }) => ({
+  const saved = [...workers].map(({ info, owner, launch, tracker, state, hookToken, pty, bootBlocked, interrupted, preparing }) => ({
     preparing: preparing || undefined,
     id: info.id,
     owner,
+    launch,
     kind: info.kind,
     provider: info.provider,
     model: info.model,
@@ -57,11 +58,21 @@ export function saveWorkers(file: string, workers: Iterable<Worker>, stopping: b
   }
 }
 
+/** A saved WorkerLaunchOptions, kept only as far as it's well formed. */
+function launchOptions(raw: unknown): WorkerLaunchOptions | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const tools = Array.isArray(r.allowedTools) ? r.allowedTools.filter((t): t is string => typeof t === 'string' && !!t) : [];
+  const env = r.env && typeof r.env === 'object' ? Object.entries(r.env as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string') : [];
+  if (!tools.length && !env.length) return undefined;
+  return { ...(tools.length ? { allowedTools: tools } : {}), ...(env.length ? { env: Object.fromEntries(env) } : {}) };
+}
+
 /** Takes back the workers saved in `file` into `workers`, each at its desk (while it is free), all of them offline. */
 export function restoreWorkers(file: string, workers: Map<string, Worker>, defaultProvider: AgentProvider, deskOccupied: (deskId: string) => boolean) {
   if (!existsSync(file)) return;
   try {
-    const saved = JSON.parse(readFileSync(file, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; tracker?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown } & Record<string, unknown>)[];
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; launch?: unknown; tracker?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown } & Record<string, unknown>)[];
     for (const s of saved) {
       if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || deskOccupied(s.deskId)) continue;
       const tracker = restoreTracker(s.tracker);
@@ -106,6 +117,7 @@ export function restoreWorkers(file: string, workers: Map<string, Worker>, defau
       const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
       w.preparing = s.preparing === true || undefined;
       if (typeof s.owner === 'string' && s.owner) w.owner = s.owner;
+      w.launch = launchOptions(s.launch);
       usage?.restore?.(w.state, s);
       w.screenDirty = false;
       if (typeof s.pty?.id === 'string') {

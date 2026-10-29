@@ -31,7 +31,7 @@ import { WIN, binScript, defaultShell, resolveCommand, shellRun, shq, writeOffic
 import { prependOfficeCommandPath } from './command-path.js';
 import { CARRY_ON_PROMPT, WorkerTasks } from './tasks.js';
 import { flushScreens, fullScreens, newTerm, offlineBanner, screenText, type HeadlessTerminal } from './terminal.js';
-import type { HookEnv, OpenedPr, RepoSource, RunAs, Worker, WorkerContext, WorkerEvents, WorkerHandle } from './types.js';
+import type { HookEnv, OpenedPr, RepoSource, RunAs, Worker, WorkerContext, WorkerEvents, WorkerHandle, WorkerLaunchOptions } from './types.js';
 import { clamp, safeEq, truncate } from './util.js';
 import { COLORS, NAMES, newWorker } from './worker.js';
 import { WorkerTrees, lostMessage } from './worktree.js';
@@ -222,7 +222,7 @@ export class WorkerManager {
    * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares. `repos` are
    * other floors' repositories a worker in its own worktree works in too (see WorkerTrees.makeWorkspace).
    */
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = [], via?: WorkerInfo['via'], stage?: typeof STAGED_START): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = [], via?: WorkerInfo['via'], stage?: typeof STAGED_START, launch?: WorkerLaunchOptions): WorkerInfo | string {
     if (this.closing) return 'Office is shutting down'; // No new allocations once shutdown begins.
     // Nobody picked (a board agent, say): the office's default worker, model and effort included.
     if (kind === 'agent' && provider === undefined) ({ provider, model, effort } = this.officeDefault);
@@ -296,6 +296,7 @@ export class WorkerManager {
     };
     const w = newWorker(info, newTracker());
     w.owner = owner; w.preparing = stage === STAGED_START || undefined;
+    if (launch?.allowedTools?.length || (launch?.env && Object.keys(launch.env).length)) w.launch = launch;
     this.workers.set(id, w);
     if (info.prompt) this.tasks.notePrompt(w, info.prompt);
     const first = seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt;
@@ -666,7 +667,7 @@ export class WorkerManager {
     const commandPath = isShell ? undefined : configured ? this.agentPath : resolveCommand(command);
     const base = isShell ? (WIN && !process.env.SHELL ? [] : ['-l']) : configured ? [...this.agentArgs] : [];
     // Its provider's command line, and anything it sets for this run (see ProviderAdapter.launch).
-    const plan: LaunchPlan = adapter ? adapter.launch({ h: this.handleOf(w), args: base, prompt, resumeSessionId, station: DESK_BY_ID.get(info.deskId)?.station, cwd, setup: this.setups[adapter.id] }) : { args: base };
+    const plan: LaunchPlan = adapter ? adapter.launch({ h: this.handleOf(w), args: base, prompt, resumeSessionId, station: DESK_BY_ID.get(info.deskId)?.station, cwd, setup: this.setups[adapter.id], allowedTools: w.launch?.allowedTools }) : { args: base };
     const { args } = plan;
     if (plan.rotateToken) w.hookToken = randomBytes(16).toString('hex');
     const env = childEnv();
@@ -677,7 +678,7 @@ export class WorkerManager {
       AGENT_OFFICE_HOOK_URL: this.hook.url,
       AGENT_OFFICE_HOOK_TOKEN: w.hookToken,
     });
-    Object.assign(env, plan.env);
+    Object.assign(env, plan.env, w.launch?.env);
     // Whichever agent it runs, a worker reaches the office's workers with office-workers, and a board
     // agent the queue with office-queue.
     if (this.officeBin) prependOfficeCommandPath(env, this.officeBin);

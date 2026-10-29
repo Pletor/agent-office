@@ -106,6 +106,11 @@ export interface OporaState {
   cards: OporaCard[];
   /** What waits on a person in Opora (from its agent-state), when anything does. */
   humanWait?: OporaHumanWait;
+  /**
+   * The linked project is planned by OPORA's heart (its brain gate is on, GET /api/brain/gate-setting):
+   * the orchestrator then hands the person's task to the heart instead of planning cards itself.
+   */
+  heart?: boolean;
   /** The project's architecture, cascading: environments, domains, pages, subpages (see shared/opora-scope.ts). */
   scope: OporaScopeNode[];
   /**

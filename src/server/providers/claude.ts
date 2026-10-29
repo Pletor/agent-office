@@ -203,7 +203,7 @@ export const claude: ProviderAdapter<undefined, ClaudeSetup> = {
     mcp: mcpScript ? writeClaudeMcpConfig(dataDir, mcpScript) : undefined,
     dir: dataDir,
   }),
-  launch({ h: { info }, args, prompt, resumeSessionId, station, setup }) {
+  launch({ h: { info }, args, prompt, resumeSessionId, station, setup, allowedTools }) {
     args.unshift('--settings', setup.settings);
     // The office's MCP server: its workers, to list, hire, send home and tell (see office-workers.ts).
     // Ahead of --settings, which ends the list --mcp-config takes. 🔬 REA's is a file of its own, for
@@ -215,6 +215,8 @@ export const claude: ProviderAdapter<undefined, ClaudeSetup> = {
     if (info.effort) args.push('--effort', info.effort);
     // The queue agent only ever adds to the queue: without these it can't touch the checkout's files.
     if (station === 'queue') args.push('--disallowedTools', ...QUEUE_AGENT_DISALLOWED_TOOLS);
+    // Tools its seat lets it use unasked (the heart's planner, see planning.ts): never --dangerously-skip-permissions.
+    if (allowedTools?.length) args.push('--allowedTools', ...allowedTools);
     if (resumeSessionId) args.push('--resume', resumeSessionId);
     // `--` so a prompt like "- fix login" is never parsed as a CLI option.
     if (prompt) args.push('--', prompt);
