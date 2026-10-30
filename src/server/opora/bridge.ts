@@ -441,8 +441,10 @@ export class OporaBridge {
     const now = new Set(cards.filter((c) => c.status === 'frontier').map((c) => c.id));
     const orchestrator = this.floor.orchestrator?.();
     if (this.readyOf !== of) this.handed.clear();
+    // The heart's plan is what Canvas says is ready to claim (or routed), not the architecture around it.
     const known = heart ? undefined : this.ready && this.readyOf === of ? this.ready : null;
-    if (orchestrator && known !== null) for (const id of now) if (!known?.has(id) && !this.handed.has(id)) this.handed.set(id, { ...orchestrator });
+    const work = heart ? new Set(cards.filter((c) => c.status === 'frontier' && (c.ready || c.profile)).map((c) => c.id)) : now;
+    if (orchestrator && known !== null) for (const id of work) if (!known?.has(id) && !this.handed.has(id)) this.handed.set(id, { ...orchestrator });
     this.ready = now;
     this.readyOf = of;
   }
