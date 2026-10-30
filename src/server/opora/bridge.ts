@@ -423,7 +423,7 @@ export class OporaBridge {
       if (agent) for (const c of cards) if (agent.ready.has(c.id)) c.ready = true;
       s.humanWait = agent?.humanWait;
       // Planned by OPORA's heart: the planner relays the task to it (planning.heart). Unread, the last answer for the same project stands.
-      this.noteReady(`${project.id}/${workspace}`, cards);
+      this.noteReady(`${project.id}/${workspace}`, cards, !!followed && workspace === followed.id);
       Object.assign(s, { connected: true, error: [lost, gone, this.focusLost()].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : followed ? 'heart' : 'default', followHeart: !!followed, sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
     } catch (err) {
       Object.assign(s, { connected: true, error: (err as Error).message, checkedAt: Date.now() });
@@ -433,13 +433,16 @@ export class OporaBridge {
   /**
    * Marks the cards that turned ready since the last read as the orchestrator's while it's on a plan
    * onto Opora: it laid them out, or routed them. The first read (or one of another workspace) only
-   * notes what's ready, so the cards that were there before aren't taken for its.
+   * notes what's ready, so the cards that were there before aren't taken for its. In the workspace the
+   * floor follows for OPORA's heart, every ready card is the heart's plan for it: the heart often opens
+   * that workspace in the same batch that lays the cards out, so the first read of it counts too.
    */
-  private noteReady(of: string, cards: OporaCard[]) {
+  private noteReady(of: string, cards: OporaCard[], heart = false) {
     const now = new Set(cards.filter((c) => c.status === 'frontier').map((c) => c.id));
     const orchestrator = this.floor.orchestrator?.();
-    if (this.ready && this.readyOf === of && orchestrator) for (const id of now) if (!this.ready.has(id)) this.handed.set(id, { ...orchestrator });
     if (this.readyOf !== of) this.handed.clear();
+    const known = heart ? undefined : this.ready && this.readyOf === of ? this.ready : null;
+    if (orchestrator && known !== null) for (const id of now) if (!known?.has(id) && !this.handed.has(id)) this.handed.set(id, { ...orchestrator });
     this.ready = now;
     this.readyOf = of;
   }
