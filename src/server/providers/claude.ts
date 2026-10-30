@@ -214,6 +214,7 @@ export const claude: ProviderAdapter<undefined, ClaudeSetup> = {
     // A model/effort chosen for this worker overrides whatever --agent-args set office-wide.
     if (info.model) args.push('--model', info.model);
     if (info.effort) args.push('--effort', info.effort);
+    if (info.advisor) args.push('--advisor', info.advisor);
     // The queue agent only ever adds to the queue: without these it can't touch the checkout's files.
     if (station === 'queue') args.push('--disallowedTools', ...QUEUE_AGENT_DISALLOWED_TOOLS);
     // Tools its seat lets it use unasked (the heart's planner, see planning.ts): never --dangerously-skip-permissions.

@@ -35,6 +35,8 @@ export interface WorkerInfo {
   model?: string;
   /** Reasoning effort requested for this worker, when one was chosen. */
   effort?: AgentEffort;
+  /** Model the Claude CLI consults as its advisor (`--advisor`), set for an Opora card's worker by the card's effort. */
+  advisor?: string;
   deskId: string;
   name: string;
   color: string;

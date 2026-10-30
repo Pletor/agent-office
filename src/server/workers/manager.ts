@@ -20,6 +20,7 @@ import { PROVIDERS, providerAdapter, titleNoise, type LaunchPlan, type ProviderF
 import { launchAcp } from './acp.js';
 import { clockWork } from './clock.js';
 import { WorkerLaunchGuards } from './launch-guards.js';
+import { fillCardModel } from '../opora/card-model.js';
 import { STAGED_START, stagedWorker, stageTimeout, stopPreparations, type WorkerStageOptions } from './staged-start.js';
 import { occupiedDesk, serviceOwners } from './queries.js';
 import { recoverPreparations } from './preparation-recovery.js';
@@ -237,6 +238,9 @@ export class WorkerManager {
     // Nobody picked (a board agent, say): the office's default worker, model and effort included.
     if (kind === 'agent' && provider === undefined) ({ provider, model, effort } = this.officeDefault);
     const selectedProvider = kind === 'agent' ? provider : undefined;
+    // An Opora card's worker: the card's model and effort where nobody chose (a person's pick or the floor's default stays).
+    const cardPick: { provider?: string; model?: string; effort?: AgentEffort; advisor?: string } = { provider: selectedProvider, model, effort };
+    if (launch?.cardModel) { fillCardModel(cardPick, launch.cardModel); ({ model, effort } = cardPick); }
     const modelError = validateWorkerModel(kind, selectedProvider, model);
     if (modelError) return modelError;
     const effortError = validateWorkerEffort(kind, selectedProvider, effort);
@@ -286,6 +290,7 @@ export class WorkerManager {
       provider: selectedProvider,
       model: takesModel(selectedProvider) ? model : undefined,
       effort: takesEffort(selectedProvider) ? effort : undefined,
+      ...(cardPick.advisor ? { advisor: cardPick.advisor } : {}),
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
       color: kind === 'shell' ? '#8d99ae' : agent ? agent.color : COLORS[Math.floor(Math.random() * COLORS.length)],

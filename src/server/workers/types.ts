@@ -1,6 +1,7 @@
 // The shapes the workers' modules and the provider adapters (server/providers/) share.
 import type serialize from '@xterm/addon-serialize';
 import type { Run, WorkerInfo, WorkerStatus } from '../../shared/protocol.js';
+import type { CardModel } from '../opora/card-model.js';
 import type { DshSession } from '../dsh.js';
 import type { PromptSource } from '../prompts.js';
 import type { Pty } from '../ptys.js';
@@ -59,6 +60,8 @@ export interface RunAs {
 export interface WorkerLaunchOptions {
   allowedTools?: string[];
   env?: Record<string, string>;
+  /** An Opora card's model, effort and advisor, filled in at spawn where nobody chose (opora/card-model.ts); not saved, the worker's own fields are. */
+  cardModel?: CardModel;
 }
 
 export interface Worker {
