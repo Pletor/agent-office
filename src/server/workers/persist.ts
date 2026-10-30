@@ -27,6 +27,7 @@ export function saveWorkers(file: string, workers: Iterable<Worker>, stopping: b
     provider: info.provider,
     model: info.model,
     effort: info.effort,
+    advisor: info.advisor,
     deskId: info.deskId,
     name: info.name,
     color: info.color,
@@ -73,7 +74,7 @@ function launchOptions(raw: unknown): WorkerLaunchOptions | undefined {
 export function restoreWorkers(file: string, workers: Map<string, Worker>, defaultProvider: AgentProvider, deskOccupied: (deskId: string) => boolean) {
   if (!existsSync(file)) return;
   try {
-    const saved = JSON.parse(readFileSync(file, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; launch?: unknown; tracker?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown } & Record<string, unknown>)[];
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; advisor?: unknown; launch?: unknown; tracker?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown } & Record<string, unknown>)[];
     for (const s of saved) {
       if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || deskOccupied(s.deskId)) continue;
       const tracker = restoreTracker(s.tracker);
@@ -91,6 +92,7 @@ export function restoreWorkers(file: string, workers: Map<string, Worker>, defau
         provider,
         model: savedModel(provider, s.model),
         effort: savedEffort(provider, s.effort),
+        ...(provider === 'claude' && typeof s.advisor === 'string' && s.advisor ? { advisor: s.advisor } : {}),
         deskId: s.deskId,
         name: s.name ?? 'Worker',
         color: s.color ?? COLORS[0],

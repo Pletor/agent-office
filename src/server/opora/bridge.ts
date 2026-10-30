@@ -13,6 +13,7 @@ import { oporaProcess } from './process.js';
 import { ExecutionDispatch, type ExecutionHeld } from './execution-dispatch.js';
 import { requestExecutionStop } from './execution-stop.js';
 import { prepareDesignBrief } from './design-brief.js';
+import type { CardModel } from './card-model.js';
 import type { StagedWorker } from '../workers/staged-start.js';
 import { createReviewRunner, type ReviewJobRunner } from './review-runner.js';
 import { createOporaUpkeep, type OporaUpkeep } from './upkeep-runner.js';
@@ -30,7 +31,7 @@ export interface BridgeFloor {
   list(): WorkerInfo[];
   stop?(workerId: string): Promise<unknown>;
   /** Seats a worker at `deskId`, in its own worktree when the project is a git repo. */
-  seat(deskId: string, by: string, prompt: string, owner?: string): WorkerInfo | string;
+  seat(deskId: string, by: string, prompt: string, owner?: string, cardModel?: CardModel): WorkerInfo | string;
   prepareWorker?(deskId: string, by: string, owner?: string): Promise<StagedWorker>;
   /** The desks a worker can be hired at now, in order (the back office's as far as it's built). */
   desks(): string[];
@@ -280,12 +281,12 @@ export class OporaBridge {
       dispatched = await this.executions.dispatch({ project: project.id, workspace, nodeId: card.id },
         () => this.events.prepareTask?.(project.id, workspace, card.id, owner) ?? Promise.resolve(''),
         // The desk is picked when the worker sits down, so Takes in quick succession don't all pick the same one.
-        prompt => seatForOpora(() => { const desk = freeDesk(); return desk ? this.floor.seat(desk, by, prompt, owner) : full; }), prompt => withReaBrief(prompt, this.events.prompt),
+        (prompt, cardModel) => seatForOpora(() => { const desk = freeDesk(); return desk ? this.floor.seat(desk, by, prompt, owner, cardModel) : full; }), prompt => withReaBrief(prompt, this.events.prompt),
         () => prepareDesignBrief({ client: this.client, prompt: this.events.prompt, card, base: this.state.url, project: project.id, workspace, repoDir: this.floor.dir, dataDir: this.dataDir, log: m => console.warn(`[opora] ${m}`) }),
         this.floor.prepareWorker ? async () => {
           const desk = freeDesk(); if (!desk) throw new Error(full);
           const worker = await this.floor.prepareWorker!(desk, by, owner);
-          return { ...worker, start: (prompt: string) => seatForOpora(() => worker.start(prompt)) };
+          return { ...worker, start: (prompt: string, cardModel?: CardModel) => seatForOpora(() => worker.start(prompt, cardModel)) };
         } : undefined);
     } catch (error) { return (error as Error).message; }
     const seated = dispatched.worker;

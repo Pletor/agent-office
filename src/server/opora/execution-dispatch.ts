@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { WorkerInfo } from '../../shared/protocol.js';
 import type { WorkerLaunchGuard } from '../workers/launch-guards.js';
+import { cardEffortOf, cardModel, type CardModel } from './card-model.js';
 import { verifyWorkerReadiness, type PreparedWorker } from './execution-worker-readiness.js';
 import { ExecutionClient, validateExecution, type ExecutionLease, type ExecutionScope } from './execution-client.js';
 import { ExecutionController } from './execution-controller.js';
@@ -92,7 +93,7 @@ export class ExecutionDispatch {
       }
     },
   };
-  async dispatch(scope: ExecutionScope, prepare: () => Promise<string>, seat: (prompt: string) => WorkerInfo | string, decorate: (prompt: string) => string = value => value,
+  async dispatch(scope: ExecutionScope, prepare: () => Promise<string>, seat: (prompt: string, cardModel?: CardModel) => WorkerInfo | string, decorate: (prompt: string) => string = value => value,
     /** A design card's addendum (design-brief.ts), read before the claim like `prepare`. */
     design: () => Promise<string> = async () => '', prepareWorker?: () => Promise<PreparedWorker>) {
     return this.controller.guarded(scope, async () => {
@@ -111,7 +112,7 @@ export class ExecutionDispatch {
           const prompt = (this.contextVersion === 2 ? immutablePrompt : decorate(immutablePrompt)).trim();
           this.seating = { ...grant, prompt, resume };
           let worker: WorkerInfo | string, unpicked: ResumePlan | undefined;
-          try { worker = reserved ? reserved.start(prompt) : seat(prompt); } finally { seatedId = this.seating?.workerId; unpicked = this.seating?.resume; this.seating = undefined; }
+          try { const cardPick = cardModel(cardEffortOf(grant.lease.assignment)); worker = reserved ? reserved.start(prompt, cardPick) : seat(prompt, cardPick); } finally { seatedId = this.seating?.workerId; unpicked = this.seating?.resume; this.seating = undefined; }
           if (typeof worker === 'string') throw new Error(worker);
           seatedId = worker.id;
           // Launched after its worktree setup: the commits go on its branch at that launch (guard.check).

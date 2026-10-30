@@ -1,4 +1,5 @@
 import type { AgentEffort, AgentProvider, WorkerInfo } from '../../shared/protocol.js';
+import { fillCardModel, type CardModel } from '../opora/card-model.js';
 import type { Worker } from './types.js';
 
 export const STAGED_START = Symbol('worker preparation');
@@ -16,7 +17,7 @@ export interface StagedWorker {
   /** Optional worker-local readiness check after claim, before provider launch. */
   verify?(signal: AbortSignal): Promise<void>;
   /** Consumes this preparation once. Existing launch guards still decide whether work may start. */
-  start(prompt: string): WorkerInfo | string;
+  start(prompt: string, card?: CardModel): WorkerInfo | string;
   /** Releases the desk and uses the normal worktree preservation policy. Idempotent. */
   cancel(): Promise<{ note?: string; error?: string }>;
 }
@@ -76,7 +77,7 @@ export function stagedWorker(w: Worker, cwd: string, timeoutMs: number, host: St
       } catch (error) { void cancel().catch(() => {}); throw error; }
       finally { if (preparation === task) preparation = undefined; }
     },
-    start(prompt) {
+    start(prompt, card) {
       if (state !== 'pending') return 'Worker preparation was already consumed or cancelled';
       if (preparation) return 'Worker preparation is still running';
       if (performance.now() >= deadline || !host.current()) {
@@ -85,6 +86,7 @@ export function stagedWorker(w: Worker, cwd: string, timeoutMs: number, host: St
       if (typeof prompt !== 'string' || !prompt.trim()) return 'Prepared worker needs a task prompt';
       state = 'failed'; clearTimeout(timer);
       const before = w.info.prompt;
+      if (card) fillCardModel(w.info, card);
       w.preparing = undefined; w.info.prompt = prompt.trim();
       try {
         const error = host.start(w.info.prompt);
