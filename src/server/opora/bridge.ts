@@ -48,6 +48,8 @@ export interface BridgeEvents {
   /** Optional task context, prepared before claiming a lease; failure prevents dispatch. */
   prepareTask?(project: string, workspace: string, card: string, owner?: string): Promise<string>;
   update(state: OporaState): void;
+  /** The floor was linked to another project: what was picked in the old one (the orchestrator's card) goes. */
+  relinked?(): void;
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
   prompt(id: PromptId): string;
 }
@@ -178,12 +180,14 @@ export class OporaBridge {
     const held = this.runs.filter((r) => r.state !== 'gone').length;
     if (held && target !== this.state.project?.id) return `The office is on ${held} card${held === 1 ? '' : 's'} of ${this.state.project?.name ?? 'the linked project'}: let ${held === 1 ? 'it' : 'them'} finish (or send the workers home) before linking the floor to another project`;
     // Another project has other workspaces and another architecture: it starts on its default one, on the whole of it.
-    if (target !== this.state.project?.id) {
+    const moved = target !== this.state.project?.id;
+    if (moved) {
       this.chosenWorkspace = undefined;
       this.focus = [];
     }
     this.chosen = projectId ?? undefined;
     this.changed();
+    if (moved) this.events.relinked?.();
     return undefined;
   }
 

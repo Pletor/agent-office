@@ -197,6 +197,7 @@ async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeE
   const url = `http://127.0.0.1:${(op.server.address() as AddressInfo).port}`;
   const workers: WorkerInfo[] = [];
   const toasts: string[] = [];
+  const relinks: number[] = [];
   let state: OporaState | undefined;
   const floor: BridgeFloor = {
     id: 'shop',
@@ -212,14 +213,14 @@ async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeE
     deskOccupied: (d) => workers.some((w) => w.deskId === d),
     labels: () => ({ 'desk-3': { text: 'Design', color: '#000', by: 'a', at: 0 } }),
   };
-  const bridge = new OporaBridge(floor, dir, { prepareTask, update: (s) => void (state = s), toast: (x) => void toasts.push(x), prompt: (id) => PROMPTS[id].text }, url);
+  const bridge = new OporaBridge(floor, dir, { prepareTask, update: (s) => void (state = s), relinked: () => void relinks.push(Date.now()), toast: (x) => void toasts.push(x), prompt: (id) => PROMPTS[id].text }, url);
   t.after(() => {
     bridge.shutdown();
     op.server.close();
     rmSync(dir, { recursive: true, force: true });
   });
   await bridge.poll();
-  return { bridge, floor, op, workers, toasts, url, dir, state: () => state! };
+  return { bridge, floor, op, workers, toasts, relinks, url, dir, state: () => state! };
 }
 
 test('bridge prepares the selected desk before claiming and starts through the Opora seating wrapper', async t => {
@@ -357,7 +358,11 @@ test('a floor linked to a project by choice reads that project’s cards, and un
   const f = await fixture(t);
   assert.deepEqual(f.state().projects, [{ id: 'other', name: 'Other' }, { id: 'p1', name: 'Shop' }]);
   assert.equal(f.state().linkedBy, 'folder');
+  // Linking the project it's on already moves nothing; another project says it moved (the orchestrator lets its card go).
+  assert.equal(f.bridge.link('p1'), undefined);
+  assert.equal(f.relinks.length, 0);
   assert.equal(f.bridge.link('other'), undefined);
+  assert.equal(f.relinks.length, 1);
   await f.bridge.repoll();
   assert.deepEqual(f.state().project, { id: 'other', name: 'Other' });
   assert.equal(f.state().linkedBy, 'choice');

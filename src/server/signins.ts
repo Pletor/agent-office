@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { claudeProjectKey } from './providers/claude-trust.js';
 import * as pty from '@lydell/node-pty';
 import type { SignInKind, SignInState, SignInsState } from '../shared/protocol.js';
 
@@ -587,11 +588,13 @@ export class SignIns {
     } catch {
       return;
     }
-    const trusted = (d: string) => office?.projects?.[d]?.hasTrustDialogAccepted === true;
-    if (!dirs.some(trusted)) return;
+    // Claude names folders by absolute path with forward slashes (on Windows too).
+    const keys = dirs.map(claudeProjectKey);
+    const trusted = (k: string) => office?.projects?.[k]?.hasTrustDialogAccepted === true;
+    if (!keys.some(trusted)) return;
     this.seed(configDir, (c) => {
       c.projects ??= {};
-      for (const d of dirs) c.projects[d] = { ...c.projects[d], hasTrustDialogAccepted: true };
+      for (const k of keys) c.projects[k] = { ...c.projects[k], hasTrustDialogAccepted: true };
     });
   }
 

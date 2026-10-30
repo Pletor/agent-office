@@ -352,6 +352,8 @@ export class Floor {
       dataDir,
       {
         update: (state) => ctx.emit(this, { t: 'opora', state }),
+        // Built just after the bridge: the card picked in the project the floor left goes, with its overview.
+        relinked: () => this.orchestrator?.relinked(),
         prepareTask: (project, workspace, card, owner) => ctx.prepareTask?.(def.dir, project, workspace, card, owner) ?? Promise.resolve(''),
         toast: (text, level) => ctx.toast(this, text, level),
         prompt: (id) => ctx.prompts.text(id),

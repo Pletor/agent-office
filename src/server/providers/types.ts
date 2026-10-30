@@ -89,6 +89,11 @@ export interface ProviderAdapter<S = undefined, P = undefined> {
   /** The sign-in a worker hired by an account needs on that account (see RunAs). */
   signIn?: 'claude';
   /**
+   * Answers its own "do you trust this folder?" for `dirs` ahead of a run of `command` with `env`:
+   * only ever the floor and the worktrees and workspaces the office made in it (see claude-trust.ts).
+   */
+  trust?(env: Record<string, string>, dirs: string[], command: string): void;
+  /**
    * It says itself when it's up (a SessionStart hook): until then it's 'starting', and still silent
    * 12s in, its desk shows this and needs a human. Without it, it's idle as soon as it runs.
    */
