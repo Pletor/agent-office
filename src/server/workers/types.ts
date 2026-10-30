@@ -65,6 +65,12 @@ export interface Worker {
   info: WorkerInfo;
   /** Allocated but not committed to a task; must never auto-resume after a crash. */
   preparing?: boolean;
+  /**
+   * A fresh worker waiting on its worktree's dependency setup (worktree-setup.ts): it starts, with its
+   * first prompt, only when that's done, so nothing else may start it meanwhile (a wake would start it
+   * with no prompt, and the prompt would be dropped). Saved, so an office restart runs the setup again.
+   */
+  settingUp?: boolean;
   /** Detaches preparation timers when this manager closes; retained work is recovered by its successor. */
   stopPreparation?: () => void;
   /** The account that hired it, whose sign-ins it runs on. None: the office's own. */

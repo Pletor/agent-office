@@ -167,7 +167,16 @@ export class WorkerManager {
     // Terminals nobody saved a claim on (their worker was sent home as the office went down).
     this.host.killUnclaimed();
     // Whoever's worktree was deleted while the office was down stays asleep, marked lost, rather than failing to start.
-    for (const w of this.workers.values()) this.worktrees.checkLost(w);
+    // Whoever was still waiting on its worktree's setup has it run again, and starts with its task after.
+    for (const w of this.workers.values()) {
+      const lost = this.worktrees.checkLost(w);
+      if (!w.settingUp) continue;
+      w.settingUp = undefined;
+      if (lost) continue;
+      const station = DESK_BY_ID.get(w.info.deskId)?.station;
+      w.info.status = 'starting';
+      this.startFresh(w, station && w.info.prompt ? `${stationBrief(station, this.prompts)}\n\n${w.info.prompt}` : w.info.prompt, true);
+    }
     this.wakeAll();
     // It may have switched branches while the office was down, its terminal still going.
     void this.syncBranches();
@@ -301,10 +310,16 @@ export class WorkerManager {
     this.workers.set(id, w);
     if (info.prompt) this.tasks.notePrompt(w, info.prompt);
     const first = seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt;
-    launchAllocatedWorker(w, first, () => worktree && wt ? this.worktrees.setup.prepare(path.join(this.dir, wt.path), first) : undefined,
-      () => this.workers.get(id) === w, p => this.launch(w, p, undefined));
+    this.startFresh(w, first, !!(worktree && wt));
     this.persist();
     return info;
+  }
+
+  /** A new worker's first start: after its worktree's dependency setup (`setUp`), when the floor has one. */
+  private startFresh(w: Worker, first: string | undefined, setUp: boolean) {
+    const { id, worktree } = w.info;
+    launchAllocatedWorker(w, first, () => setUp && worktree ? this.worktrees.setup.prepare(path.join(this.dir, worktree.path), first) : undefined,
+      () => this.workers.get(id) === w, p => this.launch(w, p, undefined));
   }
 
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
@@ -312,6 +327,7 @@ export class WorkerManager {
     if (this.closing) return 'Office is shutting down'; const w = this.workers.get(id);
     if (!w) return 'No such worker'; if (w.preparing) return 'Worker preparation has not been committed; cancel it or finish preparation';
     if (w.pty || w.dsh) return 'Worker is already running';
+    if (w.settingUp) return 'Worker is still setting up its worktree; it starts with its task once that is done';
     const denied = this.launchGuards.check(w.info); if (denied) return denied;
     if (this.worktrees.checkLost(w, true)) return lostMessage(w.info);
     clockWork(w.info, 'starting');
@@ -637,7 +653,7 @@ export class WorkerManager {
   // ---------------------------------------------------------------------------
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
-    if (this.closing || w.preparing) return; const { info } = w; // A pending preparation may finish after shutdown.
+    if (this.closing || w.preparing || w.settingUp) return; const { info } = w; // A pending preparation may finish after shutdown.
     const denied = this.launchGuards.check(info); if (denied) { info.status = 'exited'; info.activity = denied; this.emitUpdate(w); return; }
     // Its folder was deleted meanwhile: it waits, marked lost, for someone to rebuild it or send it home.
     if (this.worktrees.checkLost(w)) {
