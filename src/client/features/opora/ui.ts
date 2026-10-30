@@ -1,6 +1,6 @@
 import './ui.css';
-import { OPORA_LIMITS, OPORA_TAB } from '../../../shared/opora';
-import type { OporaCard, OporaState } from '../../../shared/protocol';
+import { OPORA_LIMITS, OPORA_NO_HANDOUT, OPORA_TAB } from '../../../shared/opora';
+import type { OporaCard, OporaCardRun, OporaState } from '../../../shared/protocol';
 import type { Net } from '../../net';
 import { store } from '../../state';
 import { dictateField } from '../../ui/dictate';
@@ -26,6 +26,12 @@ const STATUS_WORDS: Record<OporaCard['status'], string> = {
   closed: 'closed',
   needsRouting: 'needs a pipeline',
 };
+
+/** Opora's gauge in a few words: `M · sonnet+opus/high`, the worker a Take seats for it. */
+export function runWords(run: OporaCardRun | undefined): string {
+  if (!run || run.handout === false) return '';
+  return `${run.label ?? '?'} · ${run.model}${run.advisor ? `+${run.advisor}` : ''}/${run.effort}`;
+}
 
 /**
  * The 🛰️ Opora window: the Opora Control Center's link to Opora Canvas. Opora plans (areas, sectors,
@@ -165,8 +171,10 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
                 'li',
                 { class: c.group },
                 h('span.opora-card-name', {}, `${c.group === 'design' ? '🎨 ' : ''}${c.name}`),
-                h('span.muted', {}, [STATUS_WORDS[c.status], c.stage ?? c.profile].filter(Boolean).join(' · ')),
-                c.status === 'frontier' && !held.has(c.id) ? h('button.btn.small', { type: 'button', disabled: blocked, title: blocked ? 'Opora waits on a person first (see above)' : 'Claim it on Opora and seat a worker for it', onclick: () => net.send({ t: 'opora.take', cardId: c.id }) }, '▶ Take') : null,
+                h('span.muted', {}, [STATUS_WORDS[c.status], c.stage ?? c.profile, runWords(c.run)].filter(Boolean).join(' · ')),
+                c.run?.humanReview ? h('span.pill', { title: 'Critical risk: a person reviews it in Opora' }, '👤 review') : null,
+                c.run?.handout === false ? h('span.muted', { title: 'Opora’s gauge: too big for one worker' }, OPORA_NO_HANDOUT) : null,
+                c.status === 'frontier' && !held.has(c.id) && c.run?.handout !== false ? h('button.btn.small', { type: 'button', disabled: blocked, title: blocked ? 'Opora waits on a person first (see above)' : 'Claim it on Opora and seat a worker for it', onclick: () => net.send({ t: 'opora.take', cardId: c.id }) }, '▶ Take') : null,
               ),
             ),
           ),

@@ -13,7 +13,7 @@ import { oporaProcess } from './process.js';
 import { ExecutionDispatch, type ExecutionHeld } from './execution-dispatch.js';
 import { requestExecutionStop } from './execution-stop.js';
 import { prepareDesignBrief } from './design-brief.js';
-import type { CardModel } from './card-model.js';
+import { NO_HANDOUT_REASON, type CardModel } from './card-model.js';
 import type { StagedWorker } from '../workers/staged-start.js';
 import { createReviewRunner, type ReviewJobRunner } from './review-runner.js';
 import { createOporaUpkeep, type OporaUpkeep } from './upkeep-runner.js';
@@ -271,6 +271,8 @@ export class OporaBridge {
     if (lost) return lost;
     if (!inFocus(this.state.scope, this.focus, card.id)) return `“${card.name}” is outside what the cell works on: switch it on at the 🎚️ switchboard first`;
     if (card.status !== 'frontier') return `“${card.name}” isn’t free to take (${card.status})`;
+    // Opora's gauge says it's too big for one worker (run.handout: false): not even claimed.
+    if (card.run?.handout === false) return `“${card.name}”: ${NO_HANDOUT_REASON}`;
     if (this.runs.some((r) => r.cardId === cardId && r.state !== 'gone')) return `The office is already on “${card.name}”`;
     const freeDesk = () => deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
     const full = 'Every desk is taken: send someone home, or build the back office out';
@@ -288,7 +290,11 @@ export class OporaBridge {
           const worker = await this.floor.prepareWorker!(desk, by, owner);
           return { ...worker, start: (prompt: string, cardModel?: CardModel) => seatForOpora(() => worker.start(prompt, cardModel)) };
         } : undefined);
-    } catch (error) { return (error as Error).message; }
+    } catch (error) {
+      // The claim's own run said XL: the autopilot passes it over until Canvas's next word on it.
+      if ((error as Error).message === NO_HANDOUT_REASON) card.run = { ...(card.run ?? { effort: 'medium', model: 'sonnet', humanReview: false }), handout: false };
+      return (error as Error).message;
+    }
     const seated = dispatched.worker;
     this.runs.unshift({
       cardId: card.id,
@@ -421,7 +427,7 @@ export class OporaBridge {
       // Plan-step cards are ready by Canvas's own rule, routed pipeline or not (docs/opora-execution.md).
       // The same read says what waits on a person (agent-state.ts); an older Canvas without it has no notice.
       const agent = await this.client.agentState(project.id, workspace).catch(() => null);
-      if (agent) for (const c of cards) if (agent.ready.has(c.id)) c.ready = true;
+      if (agent) for (const c of cards) { if (agent.ready.has(c.id)) c.ready = true; const run = agent.runs.get(c.id); if (run) c.run = run; }
       s.humanWait = agent?.humanWait;
       // Planned by OPORA's heart: the planner relays the task to it (planning.heart). Unread, the last answer for the same project stands.
       this.noteReady(`${project.id}/${workspace}`, cards, !!followed && workspace === followed.id);
@@ -470,6 +476,8 @@ export class OporaBridge {
       }
       // Outside the focus it's not the cell's to do; no desk free is for the next read.
       if (/outside what the cell works on/.test(err)) this.handed.delete(id);
+      // An XL is the heart's to split: said once, and the hand-out goes on with the next card.
+      else if (err.includes(NO_HANDOUT_REASON)) { this.handed.delete(id); this.events.toast(`🧭 The orchestrator's “${card.name}” isn't handed out: ${NO_HANDOUT_REASON}`, 'warn'); }
       else {
         if (!who.warned) this.events.toast(`🧭 The orchestrator's “${card.name}” waits for a department: ${err}`, 'warn');
         who.warned = true;
@@ -482,7 +490,7 @@ export class OporaBridge {
   private async autopilot() {
     if (this.focusLost() || this.waitNotice.holds(this.state.humanWait, '🛰️ The autopilot')) return;
     const busy = () => this.runs.filter((r) => r.state !== 'gone').length;
-    const free = this.state.cards.filter((c) => c.status === 'frontier' && (c.profile || c.ready) && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone') && !this.reportedBefore(c.id));
+    const free = this.state.cards.filter((c) => c.status === 'frontier' && (c.profile || c.ready) && c.run?.handout !== false && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone') && !this.reportedBefore(c.id));
     for (const card of free) {
       if (busy() >= this.state.maxRuns) return;
       const err = await this.take(card.id, this.autopilotBy || 'Autopilot', this.autopilotOwner);

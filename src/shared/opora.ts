@@ -8,6 +8,8 @@ import type { OporaCard, OporaCardStatus, OporaGroup, OporaState } from './proto
 export const OPORA_DEFAULT_URL = 'http://127.0.0.1:8740';
 /** The most cards the office works on at once from Opora, and the default. */
 export const OPORA_LIMITS = { maxRuns: 8, defaultRuns: 2 } as const;
+/** Why a card Opora's gauge sizes XL (`run.handout: false`) isn't handed to a worker (Opora metriky-a-spoustece §3). */
+export const OPORA_NO_HANDOUT = 'XL – srdce ji rozdělí';
 
 export const EMPTY_OPORA: OporaState = {
   url: OPORA_DEFAULT_URL,

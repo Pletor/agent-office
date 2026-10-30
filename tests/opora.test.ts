@@ -721,3 +721,19 @@ test('in a project the heart plans, taking a card and letting it go writes only 
   assert.ok(writes.some((p) => p === '/api/oporahub/executions/claim'));
   assert.deepEqual(writes.filter((p) => !inLane(p)), []);
 });
+
+test('an XL card by Opora gauge is not handed out: Take refuses before any claim, a critical one carries its review mark', async (t) => {
+  const f = await fixture(t);
+  Object.assign(f.op.agentState, { cards: [
+    { nodeId: 'c2', gauge: { run: { label: 'XL', effort: 'xhigh', model: 'sonnet', advisor: 'opus', handout: false, humanReview: false } } },
+    { nodeId: 'c1', gauge: { run: { label: 'S', effort: 'medium', model: 'sonnet', advisor: 'opus', handout: true, humanReview: true } } },
+  ] });
+  t.after(() => { delete f.op.agentState.cards; });
+  await f.bridge.poll();
+  const cards = f.state().cards;
+  assert.equal(cards.find((c) => c.id === 'c2')?.run?.handout, false);
+  assert.equal(cards.find((c) => c.id === 'c1')?.run?.humanReview, true);
+  assert.match((await f.bridge.take('c2', 'Ana'))!, /XL – srdce ji rozdělí/);
+  assert.equal(f.op.calls.some((c) => c.path === '/api/oporahub/executions/claim'), false);
+  assert.equal(f.workers.length, 0);
+});

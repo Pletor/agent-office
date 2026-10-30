@@ -3,11 +3,14 @@
 
 import type { OporaHumanWait } from '../../shared/protocol/opora.js';
 import { contextVersionFromEnvironment, type ContextVersion } from './execution-context.js';
+import { readRun, type CardRun } from './card-model.js';
 
 /** What one agent-state read gives the bridge. */
 export interface AgentStateDigest {
   /** The cards with a ready `claim` action (accepted plan steps, budget, no unfinished predecessor). */
   ready: Set<string>;
+  /** Each card's run profile (`cards[].gauge.run`, Opora metriky-a-spoustece §3), by its id; empty from an older Canvas. */
+  runs: Map<string, CardRun>;
   /** What waits on a person, or undefined when nothing does (or Canvas didn't say). */
   humanWait?: OporaHumanWait;
 }
@@ -37,7 +40,11 @@ export function digestAgentState(doc: unknown, contextVersion: ContextVersion = 
   const decisions = rows(d.decisions)
     .filter((x) => typeof x.actionId === 'string' && humanOnly.has(x.actionId) && text(x.kind))
     .map((x) => ({ kind: text(x.kind), title: text(x.title) || text(x.kind) }));
-  if (!decisions.length) return { ready };
+  const runs = new Map(rows(d.cards).flatMap((c) => {
+    const run = typeof c.nodeId === 'string' ? readRun(rec(c.gauge)?.run) : undefined;
+    return run ? [[c.nodeId as string, run] as const] : [];
+  }));
+  if (!decisions.length) return { ready, runs };
   const stages = rows(d.stages)
     .filter((s) => (s.health === 'blocking' || s.health === 'waiting') && text(s.id))
     .map((s) => ({ id: text(s.id), health: s.health as 'blocking' | 'waiting', reason: text(s.reason), count: typeof s.count === 'number' && Number.isFinite(s.count) ? Math.max(0, Math.floor(s.count)) : 0 }));
@@ -46,6 +53,7 @@ export function digestAgentState(doc: unknown, contextVersion: ContextVersion = 
   const noBaseline = decisions.some((x) => x.kind === 'accept_baseline') || stages.some((s) => s.health === 'blocking' && s.reason === 'no_accepted_baseline');
   return {
     ready,
+    runs,
     humanWait: {
       decisions: decisions.slice(0, HUMAN_WAIT_LIMITS.decisions),
       stages: stages.slice(0, HUMAN_WAIT_LIMITS.stages),
