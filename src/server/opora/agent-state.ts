@@ -13,6 +13,8 @@ export interface AgentStateDigest {
   runs: Map<string, CardRun>;
   /** What waits on a person, or undefined when nothing does (or Canvas didn't say). */
   humanWait?: OporaHumanWait;
+  /** The heads Canvas asks self-check evidence for (a ready `review.self_checks`, docs/oporahub-review-jobs.md). */
+  selfChecks: { executionId: string; headSha: string }[];
 }
 
 /** Bounds on what goes onto the floor's state, whatever Canvas sends. */
@@ -44,7 +46,13 @@ export function digestAgentState(doc: unknown, contextVersion: ContextVersion = 
     const run = typeof c.nodeId === 'string' ? readRun(rec(c.gauge)?.run) : undefined;
     return run ? [[c.nodeId as string, run] as const] : [];
   }));
-  if (!decisions.length) return { ready, runs };
+  const selfChecks = actions.filter((a) => a.verb === 'review.self_checks' && a.status === 'ready').flatMap((a) => {
+    const p = rec(a.preconditions);
+    const executionId = p?.executionId, headSha = p?.headSha;
+    return typeof executionId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(executionId) && typeof headSha === 'string' && /^[a-f0-9]{40}$/.test(headSha)
+      ? [{ executionId, headSha }] : [];
+  });
+  if (!decisions.length) return { ready, runs, selfChecks };
   const stages = rows(d.stages)
     .filter((s) => (s.health === 'blocking' || s.health === 'waiting') && text(s.id))
     .map((s) => ({ id: text(s.id), health: s.health as 'blocking' | 'waiting', reason: text(s.reason), count: typeof s.count === 'number' && Number.isFinite(s.count) ? Math.max(0, Math.floor(s.count)) : 0 }));
@@ -54,6 +62,7 @@ export function digestAgentState(doc: unknown, contextVersion: ContextVersion = 
   return {
     ready,
     runs,
+    selfChecks,
     humanWait: {
       decisions: decisions.slice(0, HUMAN_WAIT_LIMITS.decisions),
       stages: stages.slice(0, HUMAN_WAIT_LIMITS.stages),

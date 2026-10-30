@@ -16,7 +16,8 @@ import { PendingSelfChecks, SELF_CHECK_BACKOFF, selfCheckDelay, type PendingSelf
  * claim, not independent verification, and is shaped and bounded here exactly as Canvas validates it
  * (unknown keys are refused there). It runs when the office hands a pull request off
  * (execution-dispatch.ts, isolated-pull-request.ts) and on every new head PR upkeep pushes
- * (upkeep-runner.ts). Off until `AGENT_OFFICE_OPORA_SELF_CHECKS` names the checks.
+ * (upkeep-runner.ts), and when Canvas's agent-state asks for them (`review.self_checks`, `requested`).
+ * Off until `AGENT_OFFICE_OPORA_SELF_CHECKS` names the checks.
  */
 
 export interface SelfCheckCommand { name: string; command: string }
@@ -26,7 +27,8 @@ export interface SelfCheck {
 }
 export interface SelfChecks { headSha: string; checks: SelfCheck[] }
 export interface SelfCheckScope { project: string; workspace: string }
-export type SelfCheckOutcome = 'recorded' | 'not-deployed' | 'conflict' | 'failed' | 'skipped';
+/** `disabled`: Canvas has automated review off (409 `review_jobs_disabled`), no answer for this head yet. */
+export type SelfCheckOutcome = 'recorded' | 'not-deployed' | 'conflict' | 'disabled' | 'failed' | 'skipped';
 /** Runs one shell command in `cwd`; resolves (never rejects) with its exit code (null: it never ran) and the tail of its output. */
 export type ExecCheck = (command: string, cwd: string) => Promise<{ exitCode: number | null; output: string; timedOut?: boolean }>;
 
@@ -135,7 +137,11 @@ export function validSelfChecks(value: unknown): value is SelfChecks {
   });
 }
 
-/** POST /api/oporahub/review-jobs/self-checks as the office's agent. 404: Canvas predates it; 409: refused (a different record for this head, or not its current head). */
+/**
+ * POST /api/oporahub/review-jobs/self-checks as the office's agent. 404: Canvas predates it; 409: refused (a
+ * different record for this head, or not its current head), except 409 `review_jobs_disabled`: Canvas has
+ * automated review off and judged nothing, so it is `disabled` and the same evidence goes again later.
+ */
 export async function postSelfChecks(base: string, agent: string, transport: typeof fetch,
   body: SelfCheckScope & { executionId: string; selfChecks: SelfChecks }): Promise<Exclude<SelfCheckOutcome, 'skipped'>> {
   try {
@@ -145,11 +151,21 @@ export async function postSelfChecks(base: string, agent: string, transport: typ
       body: JSON.stringify({ project: body.project, workspace: body.workspace, executionId: body.executionId, selfChecks: body.selfChecks }),
     });
     if (response.ok) return 'recorded';
-    return response.status === 404 ? 'not-deployed' : response.status === 409 ? 'conflict' : 'failed';
+    if (response.status === 409) return (await refusalCode(response)) === 'review_jobs_disabled' ? 'disabled' : 'conflict';
+    return response.status === 404 ? 'not-deployed' : 'failed';
   } catch { return 'failed'; }
 }
 
+async function refusalCode(response: Response): Promise<string | undefined> {
+  try { const body = await response.json() as { code?: unknown }; return typeof body?.code === 'string' ? body.code : undefined; } catch { return undefined; }
+}
+
+/** An outcome Canvas gave no answer for (a timeout, 5xx, review off): the evidence is kept and posted again. */
+const unanswered = (outcome: SelfCheckOutcome) => outcome === 'failed' || outcome === 'disabled';
+
 export interface SelfCheckSubject extends SelfCheckScope { executionId: string; headSha: string; dir: string }
+/** A worktree at the head Canvas asks evidence for, and how to remove it again (self-check-requests.ts). */
+export type HeadCheckout = () => Promise<{ dir: string; cleanup(): Promise<void> }>;
 
 /**
  * Runs the checks once per (execution, head commit) and posts them; a second call for the same head,
@@ -173,6 +189,8 @@ export class SelfCheckReporter {
   /** Evidence Canvas never answered for (a timeout, 5xx), kept on disk and posted again by `retryPending` (self-check-pending.ts). */
   readonly unsent: PendingSelfChecks;
   private retrying?: Promise<void>;
+  /** Heads Canvas asked evidence for (agent-state `review.self_checks`) that this process already ran once. */
+  private asked = new Set<string>();
   constructor(private base: string, private agent: string, private commands: SelfCheckCommand[], private ledgerFile: string,
     private exec: ExecCheck, private transport: typeof fetch = fetch, private log: (message: string, level: 'info' | 'warn') => void = () => {},
     private retry: { everyMs: number; attempts: number } = SELF_CHECK_RETRY, private backoff = SELF_CHECK_BACKOFF,
@@ -215,9 +233,34 @@ export class SelfCheckReporter {
     // A new head for the execution: what still waits for an older one no longer counts.
     for (const gone of this.unsent.supersede(subject.executionId, subject.headSha)) this.pending.delete(gone);
     if (prior === 'recorded' || prior === 'conflict' || this.pending.has(key) || this.unsent.has(key)) return Promise.resolve('skipped');
+    return this.enqueue(key, () => this.once(key, subject));
+  }
+
+  /**
+   * Canvas's agent-state asks for this head's evidence (`review.self_checks` ready): it has no record
+   * for it. Runs the checks in `checkout` (a worktree at the head) unless Canvas recorded them, they are
+   * under way or waiting to be posted again. A ledger `conflict` doesn't stop it (an older office took
+   * Canvas's "review is off" for one), but each head is asked for at most once per office process.
+   */
+  requested(subject: SelfCheckScope & { executionId: string; headSha: string }, checkout: HeadCheckout): Promise<SelfCheckOutcome> {
+    const key = `${subject.executionId}@${subject.headSha}`;
+    for (const gone of this.unsent.supersede(subject.executionId, subject.headSha)) this.pending.delete(gone);
+    const prior = this.ledger()[key]?.outcome;
+    if (prior === 'recorded' || this.asked.has(key) || this.pending.has(key) || this.unsent.has(key)) return Promise.resolve('skipped');
     const busy = this.running.get(key);
     if (busy) return busy;
-    const job = this.queue.catch(() => undefined).then(() => this.once(key, subject));
+    this.asked.add(key);
+    this.log(`🧪 Canvas asks for self-checks of ${subject.executionId} at ${subject.headSha.slice(0, 12)}${prior ? ` (the office's last answer: ${prior})` : ''}: running them`, 'info');
+    return this.enqueue(key, async () => {
+      const head = await checkout().catch((e: Error) => { this.log(`🧪 Self-checks for ${subject.executionId}: no worktree at ${subject.headSha.slice(0, 12)} (${e.message})`, 'warn'); throw e; });
+      try { return await this.once(key, { ...subject, dir: head.dir }); } finally { await head.cleanup().catch(() => undefined); }
+    });
+  }
+
+  private enqueue(key: string, run: () => Promise<SelfCheckOutcome>): Promise<SelfCheckOutcome> {
+    const busy = this.running.get(key);
+    if (busy) return busy;
+    const job = this.queue.catch(() => undefined).then(run);
     this.queue = job;
     const tracked = job.catch((): SelfCheckOutcome => 'failed').finally(() => this.running.delete(key));
     this.running.set(key, tracked);
@@ -235,7 +278,7 @@ export class SelfCheckReporter {
     const what = (failed.length ? `failed: ${describeFailed(kept)}` : 'all passed') + (retried.length ? `; ${retried.join('; ')}` : '');
     emitProcess(this.agent, selfCheckEvent(s, failed, outcome, kept));
     this.log(outcome === 'recorded' ? `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)}: ${what}; Canvas recorded them`
-      : `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)} (${what}) were not recorded by Canvas (${outcome})${outcome === 'failed' ? '; kept to post again on the next polls' : ''}`, outcome === 'recorded' && !failed.length ? 'info' : 'warn');
+      : `🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)} (${what}) were not recorded by Canvas (${outcome === 'disabled' ? 'its automated review is off' : outcome})${unanswered(outcome) ? '; kept to post again on the next polls' : ''}`, outcome === 'recorded' && !failed.length ? 'info' : 'warn');
     // 409 right after PR upkeep pushed is usually "not the PR's current head" yet: Canvas learns a new
     // head from its next reconciliation read (every few minutes), so the same evidence is posted again
     // for a while before the refusal counts. A different record for this head stays refused anyway.
@@ -243,7 +286,7 @@ export class SelfCheckReporter {
     // while a refused one is posted again: it doesn't count as Canvas's answer for this head yet).
     this.remember(key, outcome === 'conflict' && this.retry.attempts > 0 ? 'reposting' : outcome, kept);
     if (outcome === 'conflict' && this.retry.attempts > 0) this.postLater(key, s, selfChecks, 1);
-    else if (outcome === 'failed') this.keepUnsent(key, s, selfChecks, 1, this.now());
+    else if (unanswered(outcome)) this.keepUnsent(key, s, selfChecks, 1, this.now());
     return outcome;
   }
 
@@ -255,7 +298,7 @@ export class SelfCheckReporter {
         if ((outcome === 'conflict' || outcome === 'failed') && attempt < this.retry.attempts) return this.postLater(key, s, selfChecks, attempt + 1);
         this.pending.delete(key);
         if (outcome === 'recorded') this.log(`🧪 Self-checks for ${s.executionId} at ${s.headSha.slice(0, 12)}: Canvas recorded them once it saw that head`, 'info');
-        if (outcome === 'failed') this.keepUnsent(key, s, selfChecks, attempt + 1, this.now());
+        if (unanswered(outcome)) this.keepUnsent(key, s, selfChecks, attempt + 1, this.now());
         else this.remember(key, outcome);
       });
     }, this.retry.everyMs);
@@ -293,7 +336,7 @@ export class SelfCheckReporter {
         continue;
       }
       const outcome = await postSelfChecks(this.base, this.agent, this.transport, unsentBody(e));
-      if (outcome === 'failed') { this.keepUnsent(key, e, e.selfChecks, e.attempts + 1, e.since); continue; }
+      if (unanswered(outcome)) { this.keepUnsent(key, e, e.selfChecks, e.attempts + 1, e.since); continue; }
       this.unsent.drop(key);
       const failed = e.selfChecks.checks.filter((c) => c.status !== 'passed').map((c) => c.name);
       const subject = { ...unsentBody(e), headSha: e.selfChecks.headSha };

@@ -20,6 +20,8 @@ import { createOporaUpkeep, type OporaUpkeep } from './upkeep-runner.js';
 import { createSelfCheckReporter, upkeepSelfChecks, type SelfCheckReporter } from './self-checks.js';
 import { processProbe, waitForQuiet, workerProbe } from './worktree-quiet.js';
 import { floorCheckEnv } from './floor-checks.js';
+import { runRequestedSelfChecks } from './self-check-requests.js';
+import { gitRunner } from './upkeep-tools.js';
 import { WorktreeSetup } from '../workers/worktree-setup.js';
 import { upkeepTap } from '../process/taps.js';
 
@@ -429,6 +431,8 @@ export class OporaBridge {
       const agent = await this.client.agentState(project.id, workspace).catch(() => null);
       if (agent) for (const c of cards) { if (agent.ready.has(c.id)) c.ready = true; const run = agent.runs.get(c.id); if (run) c.run = run; }
       s.humanWait = agent?.humanWait;
+      // Heads Canvas still has no self-check evidence for: run the checks again, for real (self-check-requests.ts).
+      if (agent?.selfChecks.length && this.selfChecks) runRequestedSelfChecks(this.selfChecks, gitRunner(), this.floor.dir, this.dataDir, { project: project.id, workspace }, agent.selfChecks);
       // Planned by OPORA's heart: the planner relays the task to it (planning.heart). Unread, the last answer for the same project stands.
       this.noteReady(`${project.id}/${workspace}`, cards, !!followed && workspace === followed.id);
       Object.assign(s, { connected: true, error: [lost, gone, this.focusLost()].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : followed ? 'heart' : 'default', followHeart: !!followed, sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
