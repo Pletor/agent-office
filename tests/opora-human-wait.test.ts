@@ -109,3 +109,15 @@ test('the boss board lists the human-only decision as a request for the boss, li
   assert.equal(cardsCs(1), '1 karta');
   assert.equal(cardsCs(3), '3 karty');
 });
+
+test('agent-state carries each card run profile (gauge.run) by its id; a card without one has none', () => {
+  const d = digestAgentState({ cards: [
+    { nodeId: 'big', gauge: { run: { label: 'XL', effort: 'xhigh', model: 'sonnet', advisor: null, handout: false, humanReview: false } } },
+    { nodeId: 'risky', gauge: { run: { label: 'S', effort: 'medium', model: 'sonnet', advisor: 'opus', handout: true, humanReview: true } } },
+    { nodeId: 'old', gauge: {} },
+  ] });
+  assert.equal(d.runs.get('big')?.handout, false);
+  assert.equal(d.runs.get('risky')?.humanReview, true);
+  assert.equal(d.runs.get('risky')?.advisor, 'opus');
+  assert.equal(d.runs.has('old'), false);
+});

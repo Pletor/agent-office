@@ -63,6 +63,38 @@ replays the same claim. Takes of different cards made in quick succession queue 
 claim: one claim goes to Opora at a time and the next waits its turn instead of failing,
 and each worker's desk is picked when it sits down, so two Takes never pick the same desk.
 
+### Who does the card: its run profile
+
+Opora's card gauge (Opora `docs/navrhy/2026-10-30-metriky-a-spoustece.md` §3) sizes each
+card XS…XL (or `?` on thin evidence) and pins the result in the assignment as
+`run: {label, effort, model, advisor, handout, humanReview}` (context v1 and v2); the
+agent-state read carries the same as each card's `gauge.run`. A Claude Code worker seated
+for the card starts on, in this order:
+
+1. the assignment's `run`: `--model <run.model>`, `--effort <run.effort>` and
+   `--advisor <run.advisor>` (none when `advisor` is `null`), over the floor's default
+   worker model and effort;
+2. without a `run` (runs claimed before Opora had it): the card's `card.effort` through the
+   O10 table (`low` sonnet/low, `medium` or missing sonnet/medium + opus, `high` and
+   `xhigh` likewise, `max` opus/high), filling only what the floor's default left open;
+3. the floor's default worker (⚙️ Settings → 🤖 Workers, `--agent-args`).
+
+Another provider (Codex, OpenCode…) keeps its own model and effort; the run only says who
+a Claude worker is. `--advisor` is a hidden Claude Code flag (`claude --help` doesn't list
+it; the CLI accepts `--advisor <model>`). An unknown model in `run` falls back to the O10
+table's for the effort; a `run` without a known effort counts as missing.
+
+- **XL (`handout: false`)** is never handed to a worker: the heart splits it. The 🛰️ Opora
+  window shows *XL – srdce ji rozdělí* instead of ▶ Take, a Take answers the same before any
+  claim, the autopilot passes the card over and the hand-out says so once and goes on. Should
+  only the claimed assignment say XL, the fresh claim is released before any worker starts.
+- **`humanReview: true`** (critical risk) only puts a 👤 review mark on the card; the review
+  itself stays Opora's.
+
+Code: `src/server/opora/card-model.ts` (reading `run`, precedence),
+`src/server/opora/execution-dispatch.ts` (XL refusal after the claim),
+`src/server/opora/agent-state.ts` (`gauge.run`).
+
 ## Usage-limit pauses
 
 A worker whose agent stopped on its provider's usage limit (see

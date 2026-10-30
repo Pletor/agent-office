@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { WorkerInfo } from '../../shared/protocol.js';
 import type { WorkerLaunchGuard } from '../workers/launch-guards.js';
-import { cardEffortOf, cardModel, type CardModel } from './card-model.js';
+import { assignmentModel, NO_HANDOUT_REASON, runOf, type CardModel } from './card-model.js';
 import { verifyWorkerReadiness, type PreparedWorker } from './execution-worker-readiness.js';
 import { ExecutionClient, validateExecution, type ExecutionLease, type ExecutionScope } from './execution-client.js';
 import { ExecutionController } from './execution-controller.js';
@@ -106,13 +106,15 @@ export class ExecutionDispatch {
         let seatedId: string | undefined;
         try {
           prepared(grant.lease);
+          // An XL card (`run.handout: false`) is the heart's to split, never a worker's: its lease goes back.
+          if (runOf(grant.lease.assignment)?.handout === false) throw new Error(NO_HANDOUT_REASON);
           await verifyWorkerReadiness(this.controller, grant, reserved);
           const resume = this.resumePlan(grant.lease);
           const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief, resume);
           const prompt = (this.contextVersion === 2 ? immutablePrompt : decorate(immutablePrompt)).trim();
           this.seating = { ...grant, prompt, resume };
           let worker: WorkerInfo | string, unpicked: ResumePlan | undefined;
-          try { const cardPick = cardModel(cardEffortOf(grant.lease.assignment)); worker = reserved ? reserved.start(prompt, cardPick) : seat(prompt, cardPick); } finally { seatedId = this.seating?.workerId; unpicked = this.seating?.resume; this.seating = undefined; }
+          try { const cardPick = assignmentModel(grant.lease.assignment); worker = reserved ? reserved.start(prompt, cardPick) : seat(prompt, cardPick); } finally { seatedId = this.seating?.workerId; unpicked = this.seating?.resume; this.seating = undefined; }
           if (typeof worker === 'string') throw new Error(worker);
           seatedId = worker.id;
           // Launched after its worktree setup: the commits go on its branch at that launch (guard.check).

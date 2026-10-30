@@ -1,5 +1,7 @@
 // The bridge to Opora Canvas: the plan on Opora's canvas, and the office carrying its cards out.
 
+import type { AgentEffort } from './agents.js';
+
 /** Where a card is on Opora's canvas (its `frontier` groups): free to take, held, waiting on others, waiting on a person, closed, or with no pipeline yet. */
 export type OporaCardStatus = 'frontier' | 'claimed' | 'blocked' | 'waiting' | 'closed' | 'needsRouting';
 
@@ -17,7 +19,23 @@ export interface OporaCard {
   stage?: string;
   /** Canvas's agent-state offers its claim as ready: accepted plan steps and no unfinished predecessor. */
   ready?: boolean;
+  /** Opora's run profile for it (agent-state `gauge.run`), when Canvas sends one. */
+  run?: OporaCardRun;
   group: OporaGroup;
+}
+
+/**
+ * Who does a card, by Opora's gauge (Opora metriky-a-spoustece §3): its size label (XS…XL, or ? on thin evidence), the
+ * Claude model, effort and advisor its worker starts on, whether it's handed out at all (an XL isn't: the heart splits
+ * it) and whether a person reviews it (critical risk; the review stays Opora's).
+ */
+export interface OporaCardRun {
+  label?: string;
+  effort: AgentEffort;
+  model: string;
+  advisor?: string;
+  handout: boolean;
+  humanReview: boolean;
 }
 
 /** How deep a node of the project's architecture sits: its environment, its domain, a page, a subpage. */
