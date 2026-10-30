@@ -91,6 +91,8 @@ function fakeOpora(dir: string) {
   const workspaces: { id: string; label?: string }[] = [{ id: 'draft' }];
   // The projects whose brain gate is on (OPORA's heart plans them); none by default.
   const heartOn = new Set<string>();
+  // The workspace of the heart's last accepted plan, per project (heart/status `activeWorkspace`).
+  const heartWorkspace = new Map<string, string>();
   const projects = [{ id: 'other', name: 'Other', sourcePath: '/elsewhere' }, { id: 'p1', name: 'Shop', sourcePath: dir.toUpperCase() === dir ? dir : dir.replace(/\//g, '\\') }];
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
@@ -146,6 +148,8 @@ function fakeOpora(dir: string) {
           return send(200, { status: 'ok' });
         case '/api/brain/gate-setting':
           return send(200, { project: url.searchParams.get('project'), enabled: heartOn.has(String(url.searchParams.get('project'))) });
+        case '/api/brain/heart/status':
+          return send(200, { project: url.searchParams.get('project'), activeWorkspace: heartWorkspace.get(String(url.searchParams.get('project'))) ?? null });
         case '/api/bootstrap':
           return send(200, { projects });
         case '/api/project-workspaces':
@@ -183,7 +187,7 @@ function fakeOpora(dir: string) {
       send(404, { detail: 'nope' });
     });
   });
-  return { server, calls, leases, projects, page, workspaces, stepCards, agentState, heartOn };
+  return { server, calls, leases, projects, page, workspaces, stepCards, agentState, heartOn, heartWorkspace };
 }
 
 async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeEvents['prepareTask']) {
@@ -635,6 +639,37 @@ test('the bridge says when OPORA’s heart plans the linked project, read again 
   assert.equal(f.bridge.link('other'), undefined);
   await f.bridge.repoll();
   assert.equal(f.state().heart, false);
+});
+
+test('the floor follows the workspace of the heart’s last plan, unless a person pinned another', async (t) => {
+  const f = await fixture(t);
+  f.op.workspaces.push({ id: 'main' }, { id: 'work1', label: 'Work 1' });
+  f.op.heartOn.add('p1');
+  // No plan yet (null): the old behaviour, main.
+  await f.bridge.repoll();
+  assert.equal(f.state().workspace, 'main');
+  assert.equal(f.state().followHeart, false);
+  // The heart plans in work1: the floor follows.
+  f.op.heartWorkspace.set('p1', 'work1');
+  await f.bridge.repoll();
+  assert.equal(f.state().workspace, 'work1');
+  assert.equal(f.state().followHeart, true);
+  assert.equal(f.state().workspaceBy, 'heart');
+  // A pinned workspace wins.
+  assert.equal(f.bridge.useWorkspace('main'), undefined);
+  await f.bridge.repoll();
+  assert.equal(f.state().workspace, 'main');
+  assert.equal(f.state().followHeart, false);
+  assert.equal(f.state().workspaceBy, 'choice');
+  // Back to the default: follows the heart again.
+  assert.equal(f.bridge.useWorkspace(null), undefined);
+  await f.bridge.repoll();
+  assert.equal(f.state().workspace, 'work1');
+  // Heart off: the workspace the heart named is ignored.
+  f.op.heartOn.delete('p1');
+  await f.bridge.repoll();
+  assert.equal(f.state().workspace, 'main');
+  assert.equal(f.state().followHeart, false);
 });
 
 test('an Opora without the brain (gate-setting 404) is planned the old way', async (t) => {

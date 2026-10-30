@@ -101,7 +101,9 @@ export interface OporaState {
   /** The linked project's workspaces, to pick from (`main` is read-only for a git project; the work ones are where planning happens). */
   workspaces: { id: string; label: string }[];
   /** How the workspace was picked: in the window, or by default (`main`, else the first). */
-  workspaceBy?: 'default' | 'choice';
+  workspaceBy?: 'default' | 'choice' | 'heart';
+  /** The floor reads the workspace the heart works in (heart on, it has planned, nobody pinned another); picking "default" in the window follows it again. */
+  followHeart?: boolean;
   sectors: { id: string; name: string }[];
   cards: OporaCard[];
   /** What waits on a person in Opora (from its agent-state), when anything does. */
