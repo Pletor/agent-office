@@ -134,7 +134,7 @@ test('F21: the result is sent again with the same requestId after a timeout, and
   const bundle = path.join(dir, 'opora-executions', 'execution-new.json');
   assert.equal(JSON.parse(readFileSync(bundle, 'utf8')).requestTimeoutMs, 20_000, 'the office timeout, not 8 s');
   const result = path.join(dir, 'result.json');
-  writeFileSync(result, JSON.stringify({ summary: 'Done' }));
+  writeFileSync(result, JSON.stringify({ summary: 'Done', stepResults: [] }));
   const ids: unknown[] = [];
   const send: typeof fetch = async (_url, options) => {
     ids.push(JSON.parse(String(options?.body)).requestId);

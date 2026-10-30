@@ -61,6 +61,12 @@ export async function reportExecution(bundlePath: string, resultPath: string, tr
     process.stderr.write('result.selfChecks was left out: it does not match the self-check shape (headSha, checks[name, command, exitCode, status]).\n');
   }
   // Plan steps: the commits come from git (`step <id>:` messages), never from the agent; Canvas would refuse a bad shape, so it's refused here first.
+  // With pinned steps, a result without stepResults would make Canvas refuse to close the card (done_state_incomplete), so it's refused here.
+  if (result.stepResults === undefined) {
+    const pinned = pinnedSteps(lease.assignment);
+    if (pinned.length) throw new ResultShapeError(`result.stepResults is missing: report every plan step (${pinned.map(s => s.id).join(', ')}) as `
+      + '[{"stepId","status":"done|failed|skipped","evidence":{"notes":...}}]. Fix the result file and run the helper again.');
+  }
   if (result.stepResults !== undefined) {
     const steps = pinnedSteps(lease.assignment);
     const checked = withStepCommits(result, steps, steps.length ? commitsFromLog(log(), steps) : new Map());
