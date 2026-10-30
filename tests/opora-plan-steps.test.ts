@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ExecutionLease } from '../src/server/opora/execution-client.js';
 import { executionPrompt } from '../src/server/opora/execution-prompt.js';
-import { reportExecution } from '../src/server/opora/execution-worker.js';
+import { reportExecution, ResultShapeError } from '../src/server/opora/execution-worker.js';
 import { draftPullRequest } from '../src/server/opora/pull-request-body.js';
 import { PullRequestHandoff, type HandoffTools } from '../src/server/opora/pull-request-handoff.js';
 import { remoteStepResults, withReplayedCommits, type RemoteReportedResult, type ReportJson } from '../src/server/opora/isolated-reports.js';
@@ -95,13 +95,18 @@ test('the helper attaches git commits before posting, refuses a bad shape withou
   assert.equal(posted.length, 1, 'nothing sent for a shape Canvas would refuse');
 
   writeFileSync(file, JSON.stringify({ summary: 'Ready', artifacts: [] }));
-  await reportExecution(bundle, file, send, () => { throw new Error('git is not read without stepResults'); });
-  assert.deepEqual(posted[1], { summary: 'Ready', artifacts: [] });
+  await assert.rejects(reportExecution(bundle, file, send, () => { throw new Error('git is not read without stepResults'); }),
+    (error: unknown) => error instanceof ResultShapeError && /stepResults is missing.*\(s1, s2\).*"stepId".*Fix the result file/.test(error.message));
+  assert.equal(posted.length, 1, 'pinned steps without stepResults: nothing sent');
 
   const legacy = directory(t);
   executionPrompt(legacy, 'http://localhost:5010', 'office', lease({ contextVersion: 'context' }));
+  const legacyBundle = path.join(legacy, 'opora-executions', 'execution-1.json');
+  writeFileSync(file, JSON.stringify({ summary: 'Ready', artifacts: [] }));
+  await reportExecution(legacyBundle, file, send, () => { throw new Error('git is not read without steps'); });
+  assert.deepEqual(posted[1], { summary: 'Ready', artifacts: [] }, 'without steps a result without stepResults passes as before');
   writeFileSync(file, JSON.stringify({ summary: 'Ready', stepResults: [done('s1')] }));
-  await reportExecution(path.join(legacy, 'opora-executions', 'execution-1.json'), file, send, () => LOG);
+  await reportExecution(legacyBundle, file, send, () => LOG);
   assert.deepEqual(posted[2], { summary: 'Ready' });
 });
 

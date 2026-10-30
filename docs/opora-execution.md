@@ -207,7 +207,9 @@ SHAs in each step's `evidence.commits` (none found: none sent). It then validate
 `stepResults` as Canvas does (known, unique step ids; status; `notes` up to 4000
 characters; at most 50 checks of 1-500 characters and 50 SHAs) and, if Canvas would
 refuse them, says why and sends nothing, so the agent can fix the same file and run the
-helper again. `selfChecks` work as before, next to `stepResults`.
+helper again. `selfChecks` work as before, next to `stepResults`. When the assignment
+has pinned steps and the result has no `stepResults` at all, the helper refuses it the same
+way (naming the step ids to report) and sends nothing, because Canvas would never close the card.
 
 Each step is also reported as soon as its commit is made, with the same helper and
 bundle: `<helper> <bundle> step <id> [done|failed|skipped] [--notes <text>] [--check <text>]...`

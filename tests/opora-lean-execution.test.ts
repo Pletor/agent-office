@@ -191,7 +191,7 @@ test('result carries decisions as given and a reference to the validated PR Lens
   mkdirSync(render, { recursive: true });
   writeFileSync(path.join(render, 'drawn.graph.json'), JSON.stringify({ kind: 'graph', title: 'New API', nodes: [] }));
   const result = path.join(dir, 'result.json');
-  writeFileSync(result, JSON.stringify({ summary: 'Ready', decisions: ['Use SQLite', { text: 'Stable ids', why: 'links' }] }));
+  writeFileSync(result, JSON.stringify({ summary: 'Ready', stepResults: [], decisions: ['Use SQLite', { text: 'Stable ids', why: 'links' }] }));
   const sent: Record<string, unknown>[] = [];
   const send: typeof fetch = async (_url, options) => {
     sent.push(JSON.parse(String(options?.body)).result);
