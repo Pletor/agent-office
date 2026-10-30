@@ -677,6 +677,26 @@ test('the floor follows the workspace of the heart’s last plan, unless a perso
   assert.equal(f.state().followHeart, false);
 });
 
+test('the cards the heart laid out in the workspace it just opened are handed out on the first read of it', async (t) => {
+  const f = await fixture(t);
+  f.op.workspaces.push({ id: 'main' }, { id: 'work1', label: 'Work 1' });
+  f.floor.orchestrator = () => ({ by: 'Pixel' });
+  f.bridge.setHandOut(true, 'Ana');
+  // Without the heart, the first read of another workspace only notes what's there.
+  f.bridge.useWorkspace('work1');
+  await f.bridge.repoll();
+  assert.equal(f.workers.length, 0);
+  // The heart opens work1 with its cards in one batch: the floor follows it and hands them out at once.
+  f.bridge.useWorkspace(null);
+  f.op.heartOn.add('p1');
+  f.op.heartWorkspace.set('p1', 'work1');
+  await f.bridge.repoll();
+  await f.bridge.repoll();
+  assert.equal(f.state().followHeart, true);
+  assert.ok(f.workers.length >= 1);
+  assert.equal(f.workers[0].createdBy, 'Pixel');
+});
+
 test('an Opora without the brain (gate-setting 404) is planned the old way', async (t) => {
   const f = await fixture(t);
   f.op.server.removeAllListeners('request');
