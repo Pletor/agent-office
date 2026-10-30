@@ -43,6 +43,11 @@ export function launchAllocatedWorker(worker: Worker, prompt: string | undefined
   launch: (prompt: string | undefined) => void) {
   if (worker.preparing) { worker.info.status = 'exited'; worker.info.activity = 'Preparing worker environment'; return; }
   const setup = prepare();
-  if (setup) void setup.then(p => { if (current() && !worker.pty && !worker.dsh) launch(p); });
-  else launch(prompt);
+  if (!setup) { launch(prompt); return; }
+  // Until the setup is done it is `settingUp`: resume and launch refuse it, so its prompt isn't lost.
+  worker.settingUp = true;
+  void setup.then(p => {
+    worker.settingUp = undefined;
+    if (current() && !worker.pty && !worker.dsh) launch(p);
+  });
 }

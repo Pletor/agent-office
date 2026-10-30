@@ -234,3 +234,45 @@ test('failed recovery record prevents startup authority restoration and preserve
   assert.ok(existsSync(stage.cwd));
   assert.equal(JSON.parse(readFileSync(path.join(f.data, 'workers.json'), 'utf8'))[0].preparing, true);
 });
+
+/** A manager whose worktree setup waits on the test and whose launches are recorded, not run. */
+function setupGate(m: WorkerManager) {
+  const gate = { setups: [] as (string | undefined)[], launched: [] as [string | undefined, string | undefined][], finish: (_p: string | undefined) => {} };
+  (m as any).worktrees.setup.prepare = (_dir: string, prompt: string | undefined) => {
+    gate.setups.push(prompt);
+    return new Promise<string | undefined>(resolve => { gate.finish = resolve; });
+  };
+  (m as any).launch = (_w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) => { gate.launched.push([prompt, resumeSessionId]); };
+  return gate;
+}
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test('a worker waiting on its worktree setup is not woken without its prompt, and starts with it once setup is done', async t => {
+  const f = fixture(t), m = f.create(), gate = setupGate(m);
+  const info = m.spawn('desk-1', 'opora', 'do the card', true, 'agent', 'custom', undefined, undefined, undefined, undefined, [], 'opora');
+  if (typeof info === 'string') throw new Error(info);
+  assert.deepEqual(gate.setups, ['do the card']);
+  // A browser walking in (ws connection, floor navigation) wakes everyone not running.
+  m.wakeAll();
+  assert.match(String(m.resume(info.id)), /setting up/i);
+  assert.deepEqual(gate.launched, []);
+  gate.finish('do the card\n\nsetup ok'); await settle();
+  assert.deepEqual(gate.launched, [['do the card\n\nsetup ok', undefined]]);
+  // Setup done: resume behaves as before.
+  assert.equal(m.resume(info.id), undefined);
+});
+
+test('a worker cut off by an office restart mid-setup runs its setup again and starts with its prompt', async t => {
+  const f = fixture(t), before = f.create(); setupGate(before);
+  const info = before.spawn('desk-1', 'opora', 'do the card', true, 'agent', 'custom', undefined, undefined, undefined, undefined, [], 'opora');
+  if (typeof info === 'string') throw new Error(info);
+  before.shutdown(true);
+  const after = f.create(), host = (after as any).host, gate = setupGate(after);
+  host.connect = async () => {}; host.killUnclaimed = () => {};
+  after.syncBranches = async () => {}; // no git left running in the worktree as the fixture is removed
+  await after.start();
+  assert.deepEqual(gate.setups, ['do the card']);
+  assert.deepEqual(gate.launched, []);
+  gate.finish('do the card\n\nsetup ok'); await settle();
+  assert.deepEqual(gate.launched, [['do the card\n\nsetup ok', undefined]]);
+});

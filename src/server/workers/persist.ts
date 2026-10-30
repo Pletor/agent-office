@@ -17,8 +17,9 @@ const RUNNING = new Set<unknown>(['starting', 'idle', 'working', 'done', 'needs_
 
 /** Saves every worker; `stopping`: the office is closing for good, so nobody is in the middle of anything. */
 export function saveWorkers(file: string, workers: Iterable<Worker>, stopping: boolean) {
-  const saved = [...workers].map(({ info, owner, launch, tracker, state, hookToken, pty, bootBlocked, interrupted, preparing }) => ({
+  const saved = [...workers].map(({ info, owner, launch, tracker, state, hookToken, pty, bootBlocked, interrupted, preparing, settingUp }) => ({
     preparing: preparing || undefined,
+    settingUp: settingUp || undefined,
     id: info.id,
     owner,
     launch,
@@ -116,6 +117,7 @@ export function restoreWorkers(file: string, workers: Map<string, Worker>, defau
       };
       const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
       w.preparing = s.preparing === true || undefined;
+      w.settingUp = s.settingUp === true && !!info.worktree && !s.pty?.id || undefined;
       if (typeof s.owner === 'string' && s.owner) w.owner = s.owner;
       w.launch = launchOptions(s.launch);
       usage?.restore?.(w.state, s);
