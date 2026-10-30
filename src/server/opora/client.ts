@@ -144,6 +144,21 @@ export class OporaClient {
     }
   }
 
+  /**
+   * The heart of the project: whether it's on, and (when on) the workspace of its last accepted plan,
+   * from GET /api/brain/heart/status (`activeWorkspace`, null when it hasn't planned yet or Opora is older).
+   */
+  async heartState(project: string): Promise<{ on: boolean; activeWorkspace: string | null }> {
+    if (!(await this.heartOn(project))) return { on: false, activeWorkspace: null };
+    try {
+      const h = await this.get<{ activeWorkspace?: unknown }>('/api/brain/heart/status', { project });
+      return { on: true, activeWorkspace: typeof h.activeWorkspace === 'string' && h.activeWorkspace ? h.activeWorkspace : null };
+    } catch (err) {
+      if (err instanceof OporaError && err.status === 404) return { on: true, activeWorkspace: null };
+      throw err;
+    }
+  }
+
   /** One drawing layer's Excalidraw scene: a card's or sector's own (its id), or a storyboard moment's (`sb/<card>/<moment>`). */
   async drawing(project: string, workspace: string, layer: string): Promise<{ elements: Record<string, unknown>[] }> {
     const d = await this.get<{ scene?: { elements?: unknown } }>('/api/drawing', { project, workspace, layer });

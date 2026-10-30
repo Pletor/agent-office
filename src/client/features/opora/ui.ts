@@ -194,10 +194,10 @@ function workspacePicker(s: OporaState, net: Net): HTMLElement {
   const pick = h(
     'select.provider-select',
     { 'aria-label': 'The Opora workspace this floor reads' },
-    h('option', { value: '' }, `${s.workspaceBy !== 'choice' ? '● ' : ''}— default: ${workspaceName(s, fallback)} —`),
+    h('option', { value: '' }, s.followHeart ? `${'● '}— follow the heart: ${workspaceName(s, s.workspace ?? fallback)} —` : `${s.workspaceBy !== 'choice' ? '● ' : ''}— default: ${workspaceName(s, fallback)} —`),
     ...s.workspaces.map((w) => h('option', { value: w.id, title: w.label }, `${s.workspaceBy === 'choice' ? mark(w.id) : ''}${w.label}`)),
   ) as HTMLSelectElement;
   pick.value = s.workspaceBy === 'choice' && s.workspace ? s.workspace : '';
   pick.addEventListener('change', () => net.send({ t: 'opora.workspace', workspaceId: pick.value || null }));
-  return h('label.opora-link', {}, h('b', {}, 'Workspace'), pick, h('span.muted', {}, s.workspaceBy === 'choice' ? 'picked for this floor' : 'pick a work one to see the cards planned there'));
+  return h('label.opora-link', {}, h('b', {}, 'Workspace'), pick, h('span.muted', {}, s.workspaceBy === 'choice' ? 'picked for this floor' : s.followHeart ? '💗 following the heart · ' + workspaceName(s, s.workspace ?? fallback) : 'pick a work one to see the cards planned there'));
 }
