@@ -33,6 +33,8 @@ export interface FocusDeps {
 
 export class OrchestratorFocusKeeper {
   private focus: OrchestratorFocus | null = null;
+  /** The Opora project the focused card is in: a floor linked to another one lets the card go. */
+  private project?: string;
   private text: string | null = null;
   private at?: number;
   private timer: NodeJS.Timeout;
@@ -40,6 +42,8 @@ export class OrchestratorFocusKeeper {
 
   constructor(private deps: FocusDeps) {
     this.restore();
+    // No card picked: an overview left from before (of whatever project) isn't the planner's.
+    if (!this.focus) this.writeFile();
     this.timer = setInterval(() => { if (this.focus) void this.refresh(); }, REFRESH_MS);
     this.timer.unref?.();
     // After a restart, once the bridge has had a moment to read the canvas.
@@ -55,6 +59,7 @@ export class OrchestratorFocusKeeper {
     if (cardId === null) {
       if (!this.focus) return undefined;
       this.focus = null;
+      this.project = undefined;
       this.text = null;
       this.at = undefined;
       this.seq++;
@@ -68,6 +73,7 @@ export class OrchestratorFocusKeeper {
     const card = o.cards.find((c) => c.id === cardId) ?? o.scope.find((n) => n.id === cardId && (n.level === 'page' || n.level === 'subpage'));
     if (!card) return 'That card isn’t on the floor’s Opora canvas';
     this.focus = { cardId, name: card.name.slice(0, 160), by: by.slice(0, 60), at: Date.now() };
+    this.project = o.project?.id;
     this.text = null;
     this.at = undefined;
     this.persist();
@@ -89,17 +95,39 @@ export class OrchestratorFocusKeeper {
     return this.set(id, by);
   }
 
-  /** The overview for the planner's brief, once it's been put together. */
+  /**
+   * The floor was linked to another Opora project (OporaBridge.link): the card picked in the old one,
+   * and its overview (that project's plan), aren't the planner's any more.
+   */
+  relinked(): void {
+    this.set(null, '');
+  }
+
+  /** The overview for the planner's brief, once it's been put together (never one of a project the floor left). */
   brief(): string | undefined {
+    if (this.leftProject()) {
+      this.relinked();
+      return undefined;
+    }
     return this.text ?? undefined;
+  }
+
+  /** The focused card is of a project the floor is no longer linked to (a focus kept from before this was tracked counts as the linked one's). */
+  private leftProject(): boolean {
+    if (!this.focus || !this.project) return false;
+    const now = this.deps.opora().project?.id;
+    return !!now && now !== this.project;
   }
 
   /** Reads the card's Lens (and a design card's preview) through the office's cached readers, and puts the overview together. */
   async refresh(): Promise<void> {
+    if (this.leftProject()) return this.relinked();
     const focus = this.focus;
     if (!focus) return;
     const seq = ++this.seq;
     const o = this.deps.opora();
+    // A focus kept from before its project was noted belongs to the project linked now.
+    this.project ??= o.project?.id;
     const card = o.cards.find((c) => c.id === focus.cardId);
     const run = o.runs.find((r) => r.cardId === focus.cardId && r.state !== 'gone');
     const linked = o.project && o.workspace ? { base: o.url, project: o.project.id, workspace: o.workspace } : undefined;
@@ -142,7 +170,7 @@ export class OrchestratorFocusKeeper {
 
   private persist() {
     try {
-      writeFileSync(this.statePath, JSON.stringify({ focus: this.focus }), { mode: 0o600 });
+      writeFileSync(this.statePath, JSON.stringify({ focus: this.focus, ...(this.focus && this.project ? { project: this.project } : {}) }), { mode: 0o600 });
     } catch {
       // a full disk forgets the focus, not the office
     }
@@ -152,9 +180,11 @@ export class OrchestratorFocusKeeper {
   private restore() {
     try {
       if (!existsSync(this.statePath)) return;
-      const f = (JSON.parse(readFileSync(this.statePath, 'utf8')) as { focus?: Partial<OrchestratorFocus> | null }).focus;
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { focus?: Partial<OrchestratorFocus> | null; project?: unknown };
+      const f = saved.focus;
       if (f && typeof f.cardId === 'string' && LENS_ID.test(f.cardId) && typeof f.name === 'string' && typeof f.by === 'string' && typeof f.at === 'number') {
         this.focus = { cardId: f.cardId, name: f.name.slice(0, 160), by: f.by.slice(0, 60), at: f.at };
+        if (typeof saved.project === 'string' && saved.project) this.project = saved.project;
       }
     } catch {
       // a broken file starts with no focus

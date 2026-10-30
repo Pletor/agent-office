@@ -142,6 +142,52 @@ test('the keeper picks a card on the canvas, reads it through the readers, and k
   assert.ok(!existsSync(path.join(dir, BRIEF_FILE)));
 });
 
+test('a floor linked to another Opora project lets the old project’s card and overview go', async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'office-orch-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  let o = oporaState([card]);
+  const deps = {
+    opora: () => o,
+    agent: 'office-f1',
+    dataDir: dir,
+    update: () => {},
+    lens: { card: async () => lens, plan: async () => ({ state: 'none' as const }) },
+    preview: { card: async () => input().preview! },
+    layers: { page: async () => ({ state: 'missing' as const, layers: [] }) },
+  };
+  const k = new OrchestratorFocusKeeper(deps);
+  t.after(() => k.shutdown());
+  assert.equal(k.set(card.id, 'Helmar'), undefined);
+  await k.refresh();
+  assert.ok(k.brief());
+  assert.ok(existsSync(path.join(dir, BRIEF_FILE)));
+
+  // The bridge says it moved: the card and its overview go at once, before the canvas is read again.
+  k.relinked();
+  assert.equal(k.state().focus, null);
+  assert.equal(k.brief(), undefined);
+  assert.ok(!existsSync(path.join(dir, BRIEF_FILE)));
+
+  // A floor that is on another project by the time the planner asks (a restart in between) gets no old overview either.
+  assert.equal(k.set(card.id, 'Helmar'), undefined);
+  await k.refresh();
+  assert.ok(k.brief());
+  const restarted = new OrchestratorFocusKeeper(deps);
+  t.after(() => restarted.shutdown());
+  assert.equal(restarted.state().focus?.cardId, card.id);
+  o = { ...oporaState([]), project: { id: 'p2', name: 'Other' } };
+  assert.equal(restarted.brief(), undefined);
+  assert.equal(restarted.state().focus, null);
+  assert.ok(!existsSync(path.join(dir, BRIEF_FILE)));
+  // ...nor one that refreshes on the other project.
+  o = oporaState([card]);
+  assert.equal(k.set(card.id, 'Helmar'), undefined);
+  o = { ...oporaState([]), project: { id: 'p2', name: 'Other' } };
+  await k.refresh();
+  assert.equal(k.state().focus, null);
+  assert.equal(k.brief(), undefined);
+});
+
 test('the planner gets the focused card’s overview after its brief, and nothing more without one', (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-orch-plan-'));
   const dataDir = path.join(dir, '.agent-office');

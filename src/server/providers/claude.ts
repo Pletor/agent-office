@@ -11,6 +11,7 @@ import { shq } from '../workers/process.js';
 import type { WorkerHandle } from '../workers/types.js';
 import { truncate } from '../workers/util.js';
 import type { ProviderAdapter } from './types.js';
+import { claudeConfigFile, isClaudeCommand, trustClaudeFolders } from './claude-trust.js';
 
 /**
  * A hook finding the office restarting (its workers keep running through that) retries, once a
@@ -19,7 +20,7 @@ import type { ProviderAdapter } from './types.js';
 const HOOK_TRIES = 6;
 
 /** First-run screens Claude shows before it can take a prompt. */
-const SETUP_PROMPT = /trust this folder|Do you trust the files|Select login method|Choose the text style|Press Enter to continue|Bypass Permissions mode/i;
+const SETUP_PROMPT = /trust this folder|Quick safety check|project you created or one you trust|Do you trust the files|Select login method|Choose the text style|Press Enter to continue|Bypass Permissions mode/i;
 const NOT_LOGGED_IN = /Not logged in\s*·\s*Run \/login|Invalid API key|Please run \/login/i;
 
 interface ClaudeSetup {
@@ -223,6 +224,15 @@ export const claude: ProviderAdapter<undefined, ClaudeSetup> = {
     return { args };
   },
   signIn: 'claude',
+  // The first-run trust screen would stop a fresh worker in a floor or worktree the office made: answer
+  // it in Claude's config before it starts. Never its sign-in.
+  trust(env, dirs, command) {
+    // Only Claude Code itself reads that config: a stand-in command (a wrapper, a test's fake) is left alone.
+    if (!dirs.length || !isClaudeCommand(command)) return;
+    const file = claudeConfigFile(env);
+    const { error } = trustClaudeFolders(file, dirs);
+    if (error) console.warn(`agent-office: couldn't pre-accept Claude's folder trust (${error}); it may ask in the terminal`);
+  },
   // SessionStart fires as soon as Claude can take input: still silent, it's blocked on a human.
   bootHint: 'Waiting on a setup prompt (trust / login) — open the terminal',
   titleNoise: /^claude( code)?$/i,
