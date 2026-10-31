@@ -1,0 +1,28 @@
+/* 📔 Deník (features/outputs/diary.ts): the project's change diary in the Výstupy window. Two modes sit
+   at the top like tabs, so it is always clear whether you read the plain list or the diary. */
+.vo-modes { display: inline-flex; gap: 6px; }
+
+/* The diary's head: the project's name first, then how far back it reads (7, 30, 90 days) and what
+   that holds, and on the right the way into the project's own diary artifact, or the small form that
+   gives it one. It wraps on a narrow screen rather than squeezing. */
+.vo-diary-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-bottom: 8px; border-bottom: 3px solid var(--ink); }
+.vo-diary-name { margin: 0; font-size: 18px; font-weight: 900; color: var(--ink); }
+.vo-diary-art { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vo-diary-edit { border: 2px solid var(--ink); border-radius: 10px; }
+.vo-diary-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vo-diary-input { width: min(360px, 60vw); font: 600 12.5px/1.2 var(--mono); padding: 6px 8px; border: 2px solid var(--ink); border-radius: 8px; }
+.vo-diary-why { font-size: 12px; font-weight: 800; color: #d62839; }
+
+/* A day on the timeline: its date stands on a purple line that runs down the left, and the day's
+   changes hang off it, newest on top, so the project's history reads top to bottom. */
+.vo-diary-day { display: grid; gap: 10px; padding-left: 16px; border-left: 4px solid #9b5de5; }
+.vo-diary-date { margin: 0; font-size: 14px; font-weight: 900; color: #9b5de5; text-transform: capitalize; }
+
+/* A change: the story first (explanation), then Před | Po large enough to judge, then diagrams and
+   artifacts; its commits stay folded so they don't drown the picture. A change without an output is
+   one thin dashed row, visible but quiet. */
+.vo-diary-entry { display: grid; gap: 10px; padding: 12px 14px; background: #fff; border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 4px 0 var(--ink); }
+.vo-diary-entry--none { gap: 4px; padding: 6px 12px; border-width: 2px; border-style: dashed; border-color: #d62839; box-shadow: none; }
+.vo-diary-entry--none .vo-title { font-size: 14px; }
+.vo-diary-commits summary { cursor: pointer; font-size: 12px; font-weight: 800; color: var(--muted); }
+.vo-diary-commits .vo-commits { margin-top: 4px; }

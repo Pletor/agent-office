@@ -1,7 +1,7 @@
 // 🗂️ Výstupy · Čistá linie: the PRs merged into main in the last days, each with the outputs its body's
 // `## Výstup` section names (docs/vystupy-board.md). Read-only: the repository and its main line come
 // from Čistá linie's own data, the PRs from one `gh api graphql` search (fixed arguments, no shell). Cached per
-// repository for 15 s, like Čistá linie.
+// repository and range (7, 30 or 90 days) for 15 s, like Čistá linie.
 import path from 'node:path';
 import type { CleanLine } from '../../shared/cleanline.js';
 import { countOutputs, OUTPUT_DAYS, parseOutputs, type MergedPr, type OutputsBoard } from '../../shared/outputs.js';
@@ -114,22 +114,22 @@ export interface OutputsDeps extends LineDeps {
 
 const cache = new Map<string, { at: number; data: Promise<OutputsBoard> }>();
 
-async function compute(t: Target, deps: OutputsDeps): Promise<OutputsBoard> {
+async function compute(t: Target, deps: OutputsDeps, days: number): Promise<OutputsBoard> {
   const run = deps.run ?? execRunner;
   const now = (deps.now ?? Date.now)();
   const line = await (deps.line ?? ((x) => cleanLine(x, deps)))(t);
   const repo = line.repo.url ? githubRepo(line.repo.url) : undefined;
   const main = line.repo.remote.split('/').slice(1).join('/') || 'main';
-  const merged = repo ? await listMerged(run, t.dir, repo, main, new Date(now - OUTPUT_DAYS * DAY_MS)) : undefined;
-  return buildOutputs(line, merged, now);
+  const merged = repo ? await listMerged(run, t.dir, repo, main, new Date(now - days * DAY_MS)) : undefined;
+  return buildOutputs(line, merged, now, days);
 }
 
-/** The outputs board for `t`, shared by every browser asking within 15 s. */
-export function outputsBoard(t: Target, deps: OutputsDeps, force = false): Promise<OutputsBoard> {
-  const key = path.resolve(t.dir);
+/** The outputs board for `t` over the last `days`, shared by every browser asking within 15 s. */
+export function outputsBoard(t: Target, deps: OutputsDeps, force = false, days = OUTPUT_DAYS): Promise<OutputsBoard> {
+  const key = `${path.resolve(t.dir)}|${days}`;
   const hit = cache.get(key);
   if (hit && !force && Date.now() - hit.at < CACHE_MS) return hit.data;
-  const data = compute(t, deps);
+  const data = compute(t, deps, days);
   cache.set(key, { at: Date.now(), data });
   data.catch(() => cache.delete(key));
   return data;

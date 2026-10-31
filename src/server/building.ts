@@ -3,6 +3,7 @@ import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync
 import os from 'node:os';
 import path from 'node:path';
 import { FLOOR_PALETTES, MAX_FLOORS, normalizeRepo, sameRepo } from '../shared/floors.js';
+import { diaryUrl } from '../shared/outputs.js';
 import type { CloneProgress, ProjectsDirState, RepoChoice } from '../shared/protocol.js';
 import { CloneRun, dropLog, whyCloneFailed, type CloneEnd, type CloneRunOptions } from './clone.js';
 import { gh } from './github.js';
@@ -17,6 +18,8 @@ export interface FloorDef {
   palette: number;
   addedBy: string;
   addedAt: number;
+  /** The project's change-diary artifact (https://claude.ai/artifact/…), see docs/vystupy-board.md. */
+  diaryArtifact?: string;
 }
 
 /** A projects folder picked in ⚙️ Settings (or with --projects), as projects-folder.json keeps it. */
@@ -145,6 +148,18 @@ export class Building {
 
   list(): FloorDef[] {
     return this.defs;
+  }
+
+  /** Sets (or, with '', clears) a floor's change-diary artifact and saves it. Returns why it can't, if it can't. */
+  setDiary(id: string, raw: unknown): string | undefined {
+    const def = this.defs.find((d) => d.id === id);
+    if (!def) return 'No such floor';
+    const url = diaryUrl(raw);
+    if (url === undefined) return 'Deník musí být adresa https://claude.ai/artifact/…';
+    if (url) def.diaryArtifact = url;
+    else delete def.diaryArtifact;
+    this.save();
+    return undefined;
   }
 
   /** Floors on their way: shown in the elevator, but nobody can ride there yet. */
@@ -409,6 +424,7 @@ export class Building {
           palette: Number.isInteger(s.palette) && (s.palette as number) >= 0 ? (s.palette as number) : 0,
           addedBy: typeof s.addedBy === 'string' ? s.addedBy : '?',
           addedAt: typeof s.addedAt === 'number' ? s.addedAt : Date.now(),
+          ...(diaryUrl(s.diaryArtifact) ? { diaryArtifact: diaryUrl(s.diaryArtifact) } : {}),
         });
       }
     } catch (err) {

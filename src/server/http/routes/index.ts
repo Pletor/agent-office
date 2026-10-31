@@ -43,6 +43,7 @@ export const routes: readonly Route[] = [
   authRoutes.whoami,
   bossAttentionRoutes.read,
   outputsRoutes.read,
+  outputsRoutes.diary,
   ...cleanLineRoutes,
   agentRoutes.models,
   fileRoutes.image,
