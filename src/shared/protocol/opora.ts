@@ -22,6 +22,8 @@ export interface OporaCard {
   /** Opora's run profile for it (agent-state `gauge.run`), when Canvas sends one. */
   run?: OporaCardRun;
   group: OporaGroup;
+  /** No node of the architecture is at or above it on the canvas (no sector, no page): no switch of the focus can turn it off. */
+  unplaced?: boolean;
 }
 
 /**

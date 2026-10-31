@@ -117,6 +117,29 @@ export function inFocus(scope: readonly OporaScopeNode[], focus: readonly string
   return leaves.some((l) => up.includes(l));
 }
 
+/**
+ * Whether the cell works on a card: as inFocus, and a card under no node of the architecture (no
+ * sector, no page: one the heart laid out on its own, which Canvas offers ready) is in it too, since
+ * no switch can turn it off. It stays in while its run lasts, after Canvas stops offering it.
+ */
+export function cardInFocus(scope: readonly OporaScopeNode[], focus: readonly string[], card: { id: string; unplaced?: boolean }): boolean {
+  return !!card.unplaced || inFocus(scope, focus, card.id);
+}
+
+/** The cards with no node of the architecture at or above them on the canvas: no sector, no page. */
+export function unplacedCards(scope: readonly OporaScopeNode[], nodes: readonly CanvasNode[], ids: Iterable<string>): Set<string> {
+  const inScope = new Set(scope.map((n) => n.id));
+  const parent = new Map(nodes.map((n) => [n.id, n.parentId]));
+  const out = new Set<string>();
+  for (const id of ids) {
+    const seen = new Set<string>();
+    let at: string | null | undefined = id;
+    while (at && !inScope.has(at) && !seen.has(at)) { seen.add(at); at = parent.get(at); }
+    if (!at || seen.has(at)) out.add(id);
+  }
+  return out;
+}
+
 /** Each focus as its way down from the top, e.g. [Vývoj, Aplikace, Oracle, Na míru]. */
 export function focusPaths(scope: readonly OporaScopeNode[], focus: readonly string[]): OporaScopeNode[][] {
   const byId = new Map(scope.map((n) => [n.id, n]));
