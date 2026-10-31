@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import { childrenOf, cleanFocus, focusLine, focusPaths, inFocus, SCOPE_LEVEL_NAME } from '../../../shared/opora-scope';
+import { cardInFocus, childrenOf, cleanFocus, focusLine, focusPaths, SCOPE_LEVEL_NAME } from '../../../shared/opora-scope';
 import type { OporaScopeNode, OporaState } from '../../../shared/protocol';
 import { canvasTexture } from '../boards/meeting';
 
@@ -118,7 +118,7 @@ export class ScopeBoardTexture {
     g.fillText(fit(g, name ? `🎯 Karta pro orchestrátora: ${name} → fialová tabule` : '🎯 Nejhlubší zapnutá stránka nebo podstránka = karta pro orchestrátora → fialová tabule', W - 40), 20, H - 85);
     // Along the bottom: the focus in words, and the cards in it.
     const line = focusLine(s.scope, focus);
-    const cards = s.cards.filter((c) => inFocus(s.scope, focus, c.id));
+    const cards = s.cards.filter((c) => cardInFocus(s.scope, focus, c));
     g.fillStyle = INK;
     g.fillRect(0, H - 58, W, 58);
     g.fillStyle = line ? ON : '#fffaf3';

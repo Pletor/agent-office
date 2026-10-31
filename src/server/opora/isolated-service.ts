@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import type { OporaState } from '../../shared/protocol/opora.js';
-import { inFocus } from '../../shared/opora-scope.js';
+import { cardInFocus } from '../../shared/opora-scope.js';
 import { createIsolatedExecutorRoutes, IsolatedExecutorRouteError, type IsolatedOfficeAccess } from '../http/routes/isolated-executors.js';
 import { ExecutionClient } from './execution-client.js';
 import { emitProcess } from '../process/hub.js';
@@ -95,7 +95,8 @@ export class IsolatedOfficeService implements IsolatedOfficeAccess {
   }
   private permitted(run: IsolatedRun, leased = false) {
     const view = this.check(run);
-    if (!inFocus(view.scope, view.focus, run.input.cardId) || !view.cards.some(card => card.id === run.input.cardId)
+    const held = view.cards.find(card => card.id === run.input.cardId);
+    if (!held || !cardInFocus(view.scope, view.focus, held)
       || ['unknown', 'failed', 'termination_pending', 'terminated'].includes(run.stage)
       || (leased && !this.controller(run).allowed(run.key))) throw new IsolatedExecutorRouteError('conflict');
     return view;
@@ -157,7 +158,8 @@ export class IsolatedOfficeService implements IsolatedOfficeAccess {
         return this.publicRun(existing);
       }
       const current = this.check(scope);
-      if (!current.cards.some(card => card.id === input.cardId && card.status === 'frontier') || !inFocus(current.scope, current.focus, input.cardId)
+      const free = current.cards.find(card => card.id === input.cardId && card.status === 'frontier');
+      if (!free || !cardInFocus(current.scope, current.focus, free)
         || this.store!.list().some(run => run.project === scope.project && run.workspace === scope.workspace && run.input.cardId === input.cardId
           && !['terminated', 'failed'].includes(run.stage))) throw new IsolatedExecutorRouteError('conflict');
       if (!(await this.capabilities()).available) throw new IsolatedExecutorRouteError('unavailable');

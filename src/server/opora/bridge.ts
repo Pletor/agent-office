@@ -1,13 +1,14 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { EMPTY_OPORA, OPORA_LIMITS, cardGroup, deskFor, frontierCards, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
-import { buildScope, cleanFocus, focusLine, inFocus, toggleFocus } from '../../shared/opora-scope.js';
+import { buildScope, cardInFocus, cleanFocus, focusLine, toggleFocus, unplacedCards } from '../../shared/opora-scope.js';
 import { type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
 import type { OporaCard, OporaRun, OporaState, WorkerInfo } from '../../shared/protocol.js';
 import { forgetForOpora, markForOpora, seatForOpora, withReaBrief } from '../rea/index.js';
 import { OporaClient } from './client.js';
 import { HumanWaitNotice, claimsBlockedReason } from './agent-state.js';
+import { SkipNotice, type Skipped } from './skip-notice.js';
 import { ActivityFeed } from './live.js';
 import { oporaProcess } from './process.js';
 import { ExecutionDispatch, type ExecutionHeld } from './execution-dispatch.js';
@@ -68,6 +69,9 @@ const POLL_MS = 20_000;
 const KEEP_GONE = 12;
 /** Sectors read each poll, at most. */
 const MAX_SECTORS = 40;
+/** Why the autopilot or the hand-out passes a card over, as its toast says it (skip-notice.ts). */
+const OUTSIDE = 'outside what the cell works on: switch it on at the 🎚️ switchboard';
+const REPORTED = 'the office already reported its result, it waits for review and merge (a person can still ▶ Take it)';
 
 /**
  * The 🧭 Opora Control Center's link to Opora Canvas, one for each floor. Opora is where the work is
@@ -116,6 +120,8 @@ export class OporaBridge {
   private stopped = false;
   /** Says once that the autopilot and the hand-out hold off while claims wait on a person. */
   private waitNotice = new HumanWaitNotice((text) => this.events.toast(text, 'warn'));
+  /** Says once why the autopilot or the hand-out passes a card over (skip-notice.ts). */
+  private skips = new SkipNotice((text) => this.events.toast(text, 'warn'));
 
   constructor(
     private floor: BridgeFloor,
@@ -271,7 +277,7 @@ export class OporaBridge {
     if (waits) return waits;
     const lost = this.focusLost();
     if (lost) return lost;
-    if (!inFocus(this.state.scope, this.focus, card.id)) return `“${card.name}” is outside what the cell works on: switch it on at the 🎚️ switchboard first`;
+    if (!cardInFocus(this.state.scope, this.focus, card)) return `“${card.name}” is outside what the cell works on: switch it on at the 🎚️ switchboard first`;
     if (card.status !== 'frontier') return `“${card.name}” isn’t free to take (${card.status})`;
     // Opora's gauge says it's too big for one worker (run.handout: false): not even claimed.
     if (card.run?.handout === false) return `“${card.name}”: ${NO_HANDOUT_REASON}`;
@@ -437,11 +443,13 @@ export class OporaBridge {
       }
       if (agent) for (const c of cards) { if (agent.ready.has(c.id)) c.ready = true; const run = agent.runs.get(c.id); if (run) c.run = run; }
       s.humanWait = agent?.humanWait;
+      const scope = buildScope(nodes);
+      for (const id of unplacedCards(scope, nodes, cards.map((c) => c.id))) cards.find((c) => c.id === id)!.unplaced = true;
       // Heads Canvas still has no self-check evidence for: run the checks again, for real (self-check-requests.ts).
       if (agent?.selfChecks.length && this.selfChecks) runRequestedSelfChecks(this.selfChecks, gitRunner(), this.floor.dir, this.dataDir, { project: project.id, workspace }, agent.selfChecks);
       // Planned by OPORA's heart: the planner relays the task to it (planning.heart). Unread, the last answer for the same project stands.
       this.noteReady(`${project.id}/${workspace}`, cards, !!followed && workspace === followed.id);
-      Object.assign(s, { connected: true, error: [lost, gone, this.focusLost()].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : followed ? 'heart' : 'default', followHeart: !!followed, sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope: buildScope(nodes), checkedAt: Date.now() });
+      Object.assign(s, { connected: true, error: [lost, gone, this.focusLost()].filter(Boolean).join(' · ') || undefined, project: { id: project.id, name: project.name }, linkedBy: chosen ? 'choice' : 'folder', workspace, workspaces, workspaceBy: picked ? 'choice' : followed ? 'heart' : 'default', followHeart: !!followed, sectors: sectors.map((x) => ({ id: x.id, name: x.name })), cards, scope, checkedAt: Date.now() });
     } catch (err) {
       Object.assign(s, { connected: true, error: (err as Error).message, checkedAt: Date.now() });
     }
@@ -472,10 +480,16 @@ export class OporaBridge {
    */
   private async handOut() {
     if (this.handed.size && this.waitNotice.holds(this.state.humanWait, '🧭 The hand-out')) return;
+    const skipped: Skipped[] = [];
+    try { await this.handOutCards(skipped); } finally { this.skips.report('🧭 The hand-out', skipped, new Set(this.handed.keys())); }
+  }
+
+  private async handOutCards(skipped: Skipped[]) {
     for (const [id, who] of [...this.handed]) {
       const card = this.state.cards.find((c) => c.id === id);
       if (!card || card.status !== 'frontier' || this.runs.some((r) => r.cardId === id && r.state !== 'gone') || this.reportedBefore(id)) {
         if (!card || card.status === 'claimed' || card.status === 'closed') this.handed.delete(id);
+        else if (this.reportedBefore(id)) skipped.push({ id, name: card.name, why: REPORTED });
         continue;
       }
       if (this.runs.filter((r) => r.state !== 'gone').length >= this.state.maxRuns) return;
@@ -485,7 +499,7 @@ export class OporaBridge {
         continue;
       }
       // Outside the focus it's not the cell's to do; no desk free is for the next read.
-      if (/outside what the cell works on/.test(err)) this.handed.delete(id);
+      if (/outside what the cell works on/.test(err)) { this.handed.delete(id); skipped.push({ id, name: card.name, why: OUTSIDE }); }
       // An XL is the heart's to split: said once, and the hand-out goes on with the next card.
       else if (err.includes(NO_HANDOUT_REASON)) { this.handed.delete(id); this.events.toast(`🧭 The orchestrator's “${card.name}” isn't handed out: ${NO_HANDOUT_REASON}`, 'warn'); }
       else {
@@ -498,16 +512,22 @@ export class OporaBridge {
 
   /** Takes free cards while there's room under the limit: routed ones, and the ones Canvas says are ready to claim. */
   private async autopilot() {
-    if (this.focusLost() || this.waitNotice.holds(this.state.humanWait, '🛰️ The autopilot')) return;
+    const who = '🛰️ The autopilot';
+    if (this.skips.holds(who, this.focusLost()) || this.waitNotice.holds(this.state.humanWait, who)) return;
     const busy = () => this.runs.filter((r) => r.state !== 'gone').length;
-    const free = this.state.cards.filter((c) => c.status === 'frontier' && (c.profile || c.ready) && c.run?.handout !== false && inFocus(this.state.scope, this.focus, c.id) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone') && !this.reportedBefore(c.id));
-    for (const card of free) {
-      if (busy() >= this.state.maxRuns) return;
-      const err = await this.take(card.id, this.autopilotBy || 'Autopilot', this.autopilotOwner);
-      if (err) {
-        this.events.toast(`🛰️ The autopilot couldn't take “${card.name}”: ${err}`, 'warn');
-        return;
+    const wanted = this.state.cards.filter((c) => c.status === 'frontier' && (c.profile || c.ready) && !this.runs.some((r) => r.cardId === c.id && r.state !== 'gone'));
+    // Each card it passes over, and why, is said once (skip-notice.ts); the rest it takes in turn.
+    const why = (c: OporaCard) => (c.run?.handout === false ? NO_HANDOUT_REASON : !cardInFocus(this.state.scope, this.focus, c) ? OUTSIDE : this.reportedBefore(c.id) ? REPORTED : undefined);
+    const skipped: Skipped[] = wanted.flatMap((c) => { const w = why(c); return w ? [{ id: c.id, name: c.name, why: w }] : []; });
+    try {
+      for (const card of wanted.filter((c) => !why(c))) {
+        if (busy() >= this.state.maxRuns) return;
+        const err = await this.take(card.id, this.autopilotBy || 'Autopilot', this.autopilotOwner);
+        if (err) return void skipped.push({ id: card.id, name: card.name, why: `it couldn't be taken: ${err}` });
+        this.skips.forget(who, card.id);
       }
+    } finally {
+      this.skips.report(who, skipped, new Set(wanted.map((c) => c.id)));
     }
   }
 

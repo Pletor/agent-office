@@ -334,6 +334,24 @@ test('a card Canvas offers ready outside every sector is on the list, and the au
   assert.equal(f.workers[0].deskId, 'desk-1');
 });
 
+test('a card Canvas offers ready outside every sector is in the focus whatever page is on, and a card out of it is said once', async (t) => {
+  const f = await fixture(t);
+  f.op.looseCards.push({ id: 'c4', name: 'Page architecture' });
+  f.op.stepCards.push({ id: 'c3', name: 'Steps card' });
+  f.op.leases.set('c1', 'someone').set('c2', 'someone');
+  await f.bridge.poll();
+  assert.equal(f.bridge.switchFocus('c1', true, true, 'Ana'), undefined);
+  assert.deepEqual(['c3', 'c4'].map((id) => f.state().cards.find((c) => c.id === id)?.unplaced), [undefined, true]);
+  f.bridge.setAutopilot(true, 2, 'Ana');
+  await new Promise((r) => setTimeout(r, 50));
+  await f.bridge.poll();
+  await f.bridge.poll();
+  const claims = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').map((c) => c.body?.nodeId);
+  assert.deepEqual(claims, ['c4'], 'the loose card is taken, the page card outside the focus is not');
+  const said = f.toasts.filter((x) => /autopilot passes over “Steps card”: outside what the cell works on/.test(x));
+  assert.equal(said.length, 1, `said once, not per poll: ${f.toasts.join(' | ')}`);
+});
+
 test('the autopilot takes a reported card again once Canvas offers its claim as ready again', async (t) => {
   const f = await fixture(t);
   f.op.stepCards.push({ id: 'c3', name: 'Steps card' });
