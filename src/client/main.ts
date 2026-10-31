@@ -64,6 +64,7 @@ import { installSmoke } from './features/smoke';
 import { installStatusWall } from './features/status';
 import { installBossAttention } from './features/bossattention';
 import { installCleanLine } from './features/cleanline';
+import { installOutputs } from './features/outputs';
 import { installLamplight } from './features/lamplight';
 import { installTelescope } from './features/telescope';
 import { installTv } from './features/tv';
@@ -192,6 +193,7 @@ installGong(ctx, { burstOver: parts.views.burstOver, workerViews: parts.views.wo
 installStatusWall(ctx);
 installBossAttention(ctx, { answerWorker: parts.waiting.answerWorker });
 installCleanLine(ctx);
+installOutputs(ctx);
 installGenerals(ctx, { openWork: opora.openFull });
 
 parts.hintbar = installHintBar(ctx, core, parts);

@@ -37,6 +37,7 @@ import { sessionsScreen } from '../../features/sessions/world';
 import { statusScreen } from '../../features/status/world';
 import { bossAttentionBoard } from '../../features/bossattention/world';
 import { cleanLineBoard } from '../../features/cleanline/world';
+import { outputsBoard } from '../../features/outputs/world';
 import { loft } from './loft';
 import type { Fixture, Gives, Site } from './fixture';
 
@@ -79,6 +80,7 @@ function floorPlan() {
     loft,
     bossAttentionBoard,
     cleanLineBoard,
+    outputsBoard,
     meetingRoom,
     planningRoom,
     oporaScreen,
