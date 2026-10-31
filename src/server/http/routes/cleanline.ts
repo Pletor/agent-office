@@ -13,10 +13,10 @@ const mayAct = (s: Session) => !s.account || s.account.role === 'admin';
 const who = (s: Session) => (s.account ? `${s.account.name} (${s.account.id})` : 'sdílené heslo');
 
 /** Every seated worker in the building, with its worktree (as the status wall sees them). */
-const live = (ctx: Ctx): LineDeps['live'] =>
+export const live = (ctx: Ctx): LineDeps['live'] =>
   [...ctx.floors.values()].flatMap((f) => f.workers.list().map((w) => ({ name: w.name, ...(w.worktree ? { path: path.resolve(f.dir, w.worktree.path), branch: w.worktree.branch } : {}) })));
 
-function targetOf(ctx: Ctx, floorId: string | null, repo: unknown): { list: Target[]; t: Target } | undefined {
+export function targetOf(ctx: Ctx, floorId: string | null, repo: unknown): { list: Target[]; t: Target } | undefined {
   const floor = ctx.floors.get(floorId ?? '');
   if (!floor) return undefined;
   const list = targets(floor.dir, floor.project.name);
