@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { countOutputs, countsLine, imageAllowed, outputSection, parseOutputs, urlOf, type MergedPr } from '../src/shared/outputs.js';
+import { countOutputs, countsLine, diaryUrl, EXPLANATION_MAX, imageAllowed, outputSection, parseOutputs, urlOf, type MergedPr } from '../src/shared/outputs.js';
 
 test('a PR body without a ## Výstup section has no outputs', () => {
   assert.equal(parseOutputs(undefined), undefined);
@@ -60,4 +60,27 @@ test('counts say how many merged PRs have outputs', () => {
   const c = countOutputs([pr(1, true), pr(2, false), pr(3, true)]);
   assert.deepEqual(c, { merged: 3, with: 2, without: 1 });
   assert.equal(countsLine(c), '3 PR · 2 s výstupem · 1 bez');
+});
+
+test('Vysvětlení is plain text: joined, trimmed, capped, no URL taken, and enough to count as an output', () => {
+  const o = parseOutputs('## Výstup\n- Vysvětlení:   Karta ukazuje <b>deník</b> https://evil.example/x  \nVysvetleni: druhý řádek\n## Jinde\nVysvětlení: ne')!;
+  assert.equal(o.explanation, 'Karta ukazuje <b>deník</b> https://evil.example/x druhý řádek');
+  assert.deepEqual(o.artifacts, []);
+  assert.deepEqual(o.diagrams, []);
+  assert.equal(o.before, undefined);
+  const long = parseOutputs(`## Výstup\nVysvětlení: ${'a'.repeat(400)}\nVysvětlení: ${'b'.repeat(400)}`)!;
+  assert.equal(long.explanation!.length, EXPLANATION_MAX);
+  assert.equal(parseOutputs('## Výstup\nVysvětlení:   \n'), undefined, 'an empty explanation is no output');
+  const nfd = parseOutputs('## Výstup\nVysvětlení: rozložené znaky')!;
+  assert.equal(nfd.explanation, 'rozložené znaky');
+  assert.equal(parseOutputs('## Výstup\nArtefakt: https://claude.ai/artifact/a')!.explanation, undefined);
+});
+
+test('diaryUrl keeps only https://claude.ai/artifact/… and lets an empty string clear it', () => {
+  assert.equal(diaryUrl('  https://claude.ai/artifact/abc-1  '), 'https://claude.ai/artifact/abc-1');
+  assert.equal(diaryUrl(''), '');
+  assert.equal(diaryUrl('   '), '');
+  for (const bad of ['http://claude.ai/artifact/a', 'https://evil.ai/artifact/a', 'https://claude.ai/chat/a', 'https://claude.ai/artifact/', 'javascript:alert(1)', 'https://u:p@claude.ai/artifact/a', 42, null, undefined]) {
+    assert.equal(diaryUrl(bad), undefined, String(bad));
+  }
 });

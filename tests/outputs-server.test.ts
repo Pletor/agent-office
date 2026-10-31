@@ -1,5 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { Readable } from 'node:stream';
+import { Building } from '../src/server/building.js';
 import type { GraphRow } from '../src/shared/cleanline.js';
 import { buildOutputs, listMerged, outputsBoard, type GhMergedPr } from '../src/server/cleanline/outputs.js';
 import { outputsRoutes } from '../src/server/http/routes/outputs.js';
@@ -93,4 +98,76 @@ test('the route is signed-in, GET only, and 404s an unknown floor', async () => 
   const get = res();
   await r.handle(ctx, { req: { method: 'GET' }, res: get, url: new URL('http://x/api/cleanline/outputs?floor=nope'), path: '/api/cleanline/outputs', session: {} } as never);
   assert.equal(get.out.status, 404);
+});
+
+test('outputsBoard reads over the range asked and caches per (repository, days)', async () => {
+  const sinces: string[] = [];
+  const run: Runner = async (_cmd, args) => {
+    sinces.push(String(args[5]).split('merged:>=')[1]);
+    const p = gh(8, 20, '## Výstup\nVysvětlení: starší změna');
+    return JSON.stringify({ data: { search: { nodes: [{ ...p, commits: { nodes: p.commits!.map((c) => ({ commit: c })) } }] } } });
+  };
+  const t = { id: 'floor' as const, dir: '/tmp/outputs-days-test', label: 'x' };
+  const deps = { run, live: [], now: () => NOW, line: async () => line([]) };
+  const week = await outputsBoard(t, deps);
+  const month = await outputsBoard(t, deps, false, 30);
+  await outputsBoard(t, deps, false, 30);
+  assert.deepEqual(sinces, ['2026-10-24', '2026-10-01'], 'one gh call per range, each from its own day');
+  assert.equal(week.days, 7);
+  assert.equal(week.prs.length, 0, 'a PR 20 days old is outside 7 days');
+  assert.equal(month.days, 30);
+  assert.equal(month.prs[0].outputs?.explanation, 'starší změna');
+});
+
+const fakeRes = () => {
+  const out = { status: 0, body: '' };
+  return { out, writeHead(s: number) { out.status = s; return this; }, end(b: string) { out.body = b; }, setHeader() {} };
+};
+const fakeReq = (method: string, body = '', origin = 'http://office') =>
+  Object.assign(Readable.from(body ? [Buffer.from(body)] : []), { method, headers: { origin, host: 'office' } });
+
+test('days must be 7, 30 or 90', async () => {
+  const ctx = { floors: new Map() } as never;
+  for (const bad of ['14', 'abc', '-7', '7.5']) {
+    const r = fakeRes();
+    await outputsRoutes.read.handle(ctx, { req: { method: 'GET' }, res: r, url: new URL(`http://x/api/cleanline/outputs?floor=f&days=${bad}`), path: '', session: {} } as never);
+    assert.equal(r.out.status, 400, bad);
+  }
+  const ok = fakeRes();
+  await outputsRoutes.read.handle(ctx, { req: { method: 'GET' }, res: ok, url: new URL('http://x/api/cleanline/outputs?floor=nope&days=90'), path: '', session: {} } as never);
+  assert.equal(ok.out.status, 404, '90 passes the check, then the unknown floor 404s');
+});
+
+test('the diary artifact: PUT only, same origin, validated, saved in floors.json and cleared with ""', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'agent-office-diary-'));
+  try {
+    const dir = path.join(root, 'proj');
+    mkdirSync(dir);
+    writeFileSync(path.join(root, 'floors.json'), JSON.stringify([{ id: 'p1', name: 'proj', dir, palette: 0, addedBy: 't', addedAt: 1 }]));
+    const building = new Building(root, root);
+    const ctx = { building, floors: new Map([['p1', {}]]), cfg: { trustProxy: false } } as never;
+    const put = async (body: string, floor = 'p1', method = 'PUT', origin?: string) => {
+      const r = fakeRes();
+      await outputsRoutes.diary.handle(ctx, { req: fakeReq(method, body, origin), res: r, url: new URL(`http://x/api/cleanline/outputs/diary?floor=${floor}`), path: '', session: {} } as never);
+      return r.out;
+    };
+    assert.ok(routes.includes(outputsRoutes.diary));
+    assert.equal(outputsRoutes.diary.auth, 'session');
+    assert.equal((await put('{}', 'p1', 'POST')).status, 405);
+    assert.equal((await put('{"url":"https://claude.ai/artifact/d1"}', 'p1', 'PUT', 'http://evil')).status, 403);
+    assert.equal((await put('{"url":"https://claude.ai/artifact/d1"}', 'nope')).status, 404);
+    assert.equal((await put('not json')).status, 400);
+    assert.equal((await put('{"url":"https://example.com/artifact/d1"}')).status, 400);
+    assert.equal(building.list()[0].diaryArtifact, undefined);
+    const set = await put('{"url":"https://claude.ai/artifact/d1"}');
+    assert.equal(set.status, 200);
+    assert.deepEqual(JSON.parse(set.body), { diaryArtifact: 'https://claude.ai/artifact/d1' });
+    assert.equal(new Building(root, root).list()[0].diaryArtifact, 'https://claude.ai/artifact/d1', 'it survives a restart');
+    assert.equal((await put('{"url":""}')).status, 200);
+    assert.equal(new Building(root, root).list()[0].diaryArtifact, undefined, '"" clears it');
+    writeFileSync(path.join(root, 'floors.json'), JSON.stringify([{ id: 'p1', name: 'proj', dir, palette: 0, addedBy: 't', addedAt: 1, diaryArtifact: 'javascript:alert(1)' }]));
+    assert.equal(new Building(root, root).list()[0].diaryArtifact, undefined, 'a bad saved address is dropped on load');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
