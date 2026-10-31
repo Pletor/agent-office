@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { EMPTY_OPORA, OPORA_LIMITS, deskFor, frontierCards, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
+import { EMPTY_OPORA, OPORA_LIMITS, cardGroup, deskFor, frontierCards, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
 import { buildScope, cleanFocus, focusLine, inFocus, toggleFocus } from '../../shared/opora-scope.js';
 import { type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
@@ -429,6 +429,12 @@ export class OporaBridge {
       // Plan-step cards are ready by Canvas's own rule, routed pipeline or not (docs/opora-execution.md).
       // The same read says what waits on a person (agent-state.ts); an older Canvas without it has no notice.
       const agent = await this.client.agentState(project.id, workspace).catch(() => null);
+      // A card Canvas offers a ready claim for that no sector's frontier lists (the heart laid it out outside any sector) is free all the same.
+      if (agent) for (const id of agent.ready) {
+        if (seen.has(id) || !isCard(id)) continue;
+        seen.add(id);
+        cards.push({ id, name: byId.get(id)?.name?.trim().slice(0, 200) || 'Card', status: 'frontier', group: cardGroup(undefined) });
+      }
       if (agent) for (const c of cards) { if (agent.ready.has(c.id)) c.ready = true; const run = agent.runs.get(c.id); if (run) c.run = run; }
       s.humanWait = agent?.humanWait;
       // Heads Canvas still has no self-check evidence for: run the checks again, for real (self-check-requests.ts).
@@ -509,8 +515,10 @@ export class OporaBridge {
    * Whether a run of this floor already reported a result for the card. Canvas frees a card once its
    * result is in, while its pull request still waits for review and merge, so the autopilot and the
    * hand-out would otherwise take it again and do the same work twice. A person can still ▶ Take it.
+   * Once Canvas's agent-state offers the card's claim as ready again, that earlier result no longer holds.
    */
   private reportedBefore(cardId: string): boolean {
+    if (this.state.cards.find((c) => c.id === cardId)?.ready) return false;
     return this.runs.some((r) => r.cardId === cardId && !!r.execution && !!this.executions.pullRequests.reported(r.execution.executionId));
   }
 
