@@ -83,6 +83,8 @@ function fakeOpora(dir: string) {
   const executions = new Map<string, Record<string, unknown>>();
   // Plan-step cards (accepted `spec.steps`, no routed pipeline) that Canvas's agent-state offers a ready claim for.
   const stepCards: { id: string; name: string }[] = [];
+  // Ready plan-step cards outside every sector (the heart laid them out by the architecture): no frontier lists them.
+  const looseCards: { id: string; name: string }[] = [];
   // More of agent-state (stages, decisions, cards), as a test sets it: a Canvas waiting on a person.
   const agentState: Record<string, unknown> = {};
   // Opora's page refuses to be framed, as it does until its embed_origins lists someone.
@@ -155,9 +157,9 @@ function fakeOpora(dir: string) {
         case '/api/project-workspaces':
           return send(200, { workspaces });
         case '/api/view':
-          return send(200, { graph: { nodes: [{ id: 'a1', kind: 'area', name: 'Frontend' }, { id: 's1', kind: 'sector', name: 'Checkout', parentId: null }, { id: 'c1', kind: 'node', name: 'Cart page', parentId: 's1' }, { id: 'c2', kind: 'node', name: 'Pay API', parentId: 's1' }, ...stepCards.map((c) => ({ ...c, kind: 'node', parentId: 's1' }))] } });
+          return send(200, { graph: { nodes: [{ id: 'a1', kind: 'area', name: 'Frontend' }, { id: 's1', kind: 'sector', name: 'Checkout', parentId: null }, { id: 'c1', kind: 'node', name: 'Cart page', parentId: 's1' }, { id: 'c2', kind: 'node', name: 'Pay API', parentId: 's1' }, ...stepCards.map((c) => ({ ...c, kind: 'node', parentId: 's1' })), ...looseCards.map((c) => ({ ...c, kind: 'node', parentId: null }))] } });
         case '/api/oporahub/agent-state':
-          return send(200, { actions: stepCards.map((c) => ({ verb: 'claim', status: leases.has(c.id) ? 'blocked' : 'ready', targetId: c.id })), ...agentState });
+          return send(200, { actions: [...stepCards, ...looseCards].map((c) => ({ verb: 'claim', status: leases.has(c.id) ? 'blocked' : 'ready', targetId: c.id })), ...agentState });
         case '/api/desktop-v3/frontier':
           if (url.searchParams.get('nodeId') !== 's1') return send(200, { frontier: [{ id: 's1', name: 'Checkout' }] });
           return send(200, {
@@ -187,7 +189,7 @@ function fakeOpora(dir: string) {
       send(404, { detail: 'nope' });
     });
   });
-  return { server, calls, leases, projects, page, workspaces, stepCards, agentState, heartOn, heartWorkspace };
+  return { server, calls, leases, projects, page, workspaces, stepCards, looseCards, agentState, heartOn, heartWorkspace };
 }
 
 async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeEvents['prepareTask']) {
@@ -315,6 +317,43 @@ test('the autopilot takes a plan-step card Canvas says is ready, without a route
   const claims = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').map((c) => c.body?.nodeId);
   assert.deepEqual(claims, ['c3']);
   assert.equal(f.workers.length, 1);
+});
+
+test('a card Canvas offers ready outside every sector is on the list, and the autopilot takes it to a developer desk', async (t) => {
+  const f = await fixture(t);
+  f.op.looseCards.push({ id: 'c4', name: 'Page architecture' });
+  f.op.leases.set('c1', 'someone').set('c2', 'someone');
+  await f.bridge.poll();
+  const card = f.state().cards.find((c) => c.id === 'c4');
+  assert.deepEqual(card && [card.name, card.status, card.ready, card.group, card.sectorId], ['Page architecture', 'frontier', true, 'dev', undefined]);
+  f.bridge.setAutopilot(true, 1, 'Ana');
+  await new Promise((r) => setTimeout(r, 50));
+  await f.bridge.poll();
+  const claims = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').map((c) => c.body?.nodeId);
+  assert.deepEqual(claims, ['c4']);
+  assert.equal(f.workers[0].deskId, 'desk-1');
+});
+
+test('the autopilot takes a reported card again once Canvas offers its claim as ready again', async (t) => {
+  const f = await fixture(t);
+  f.op.stepCards.push({ id: 'c3', name: 'Steps card' });
+  f.op.leases.set('c1', 'someone').set('c2', 'someone');
+  f.bridge.setAutopilot(true, 1, 'Ana');
+  await new Promise((r) => setTimeout(r, 50));
+  await f.bridge.poll();
+  assert.equal(f.workers.length, 1);
+  mkdirSync(path.join(f.dir, 'opora-executions'), { recursive: true });
+  writeFileSync(path.join(f.dir, 'opora-executions', 'ex-c3-reported.json'), JSON.stringify({ result: { summary: 'done' } }));
+  f.workers[0].status = 'exited';
+  f.workers.splice(0, 1);
+  for (let i = 0; i < 50 && f.op.leases.has('c3'); i++) {
+    await f.bridge.poll();
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  await f.bridge.poll();
+  const claims = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').map((c) => c.body?.nodeId);
+  // Taken again (the stand-in reuses one execution id per card, so its old receipt may cycle it more than once).
+  assert.ok(claims.length >= 2 && claims.every((id) => id === 'c3'), String(claims));
 });
 
 test('the autopilot does not take a card again once the office reported its result', async (t) => {
