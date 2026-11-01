@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { OporaBridge, type BridgeFloor } from '../src/server/opora/bridge.js';
 import { describeActivity } from '../src/server/opora/live.js';
-import { buildScope, cleanFocus, focusLeaves, focusLine, inFocus, toggleFocus, type CanvasNode } from '../src/shared/opora-scope.js';
+import { buildScope, cardInFocus, cleanFocus, focusLeaves, focusLine, inFocus, placeCards, toggleFocus, type CanvasNode } from '../src/shared/opora-scope.js';
 import { BOARD_PICKUP, inPlanningRoom, PLANNING_ROOM } from '../src/shared/planning.js';
 import { officeNav } from '../src/shared/nav.js';
 import { DESKS } from '../src/shared/layout.js';
@@ -40,6 +40,28 @@ test('the architecture cascades environment › domain › page › subpage', ()
   assert.equal(by.get('namiru')?.level, 'subpage');
   assert.equal(by.has('lost'), false, 'a card whose parent is not on the canvas is left out');
   assert.equal(by.has('a1'), false);
+});
+
+test('a task outside the cascade is in the focus by the nearest node above it: its sector or its page', () => {
+  // Pages are marked, so tasks laid into a sector or a page stay out of the cascade itself.
+  const nodes: CanvasNode[] = [
+    { id: 'app', kind: 'sector', name: 'Aplikace', parentId: null, env: 'Produkce' },
+    { id: 'home', kind: 'node', name: 'Přehled', parentId: 'app', page: true },
+    { id: 'extra', kind: 'sector', name: 'Doplnění', parentId: null },
+    { id: 'task-s', kind: 'node', name: 'Úkol v sektoru', parentId: 'extra' },
+    { id: 'task-p', kind: 'node', name: 'Úkol na stránce', parentId: 'home' },
+    { id: 'loose', kind: 'node', name: 'Bez sektoru', parentId: null },
+  ];
+  const scope = buildScope(nodes);
+  const placed = placeCards(scope, nodes, ['task-s', 'task-p', 'loose', 'home']);
+  assert.deepEqual([...placed], [['task-s', 'extra'], ['task-p', 'home'], ['loose', null], ['home', 'home']]);
+  const card = (id: string) => ({ id, placedIn: placed.get(id) ?? undefined, unplaced: placed.get(id) === null });
+  const onHome = toggleFocus(scope, [], 'home', true);
+  assert.equal(cardInFocus(scope, onHome, card('task-p')), true, 'a task on the page in focus is taken');
+  assert.equal(cardInFocus(scope, onHome, card('task-s')), false, 'a task in another sector is not');
+  const both = toggleFocus(scope, onHome, 'extra', true);
+  assert.equal(cardInFocus(scope, both, card('task-s')), true, 'switching its sector on takes it in');
+  assert.equal(cardInFocus(scope, onHome, card('loose')), true, 'an unplaced card no switch can turn off');
 });
 
 test('switching on takes everything above along, off everything below; the deepest on is the focus', () => {
@@ -179,7 +201,8 @@ test('the cell takes only cards in its focus, by hand and on the autopilot, and 
   bridge.setAutopilot(true, 3, 'Ana');
   await new Promise((r) => setTimeout(r, 50));
   await bridge.poll();
-  assert.deepEqual(f.workers.map((w) => w.prompt?.match(/; card: ([^.]+)\./)?.[1]), ['namiru']);
+  // Orphan's parent isn't on the canvas: unplaced, so no switch turns it off (cardInFocus).
+  assert.deepEqual(f.workers.map((w) => w.prompt?.match(/; card: ([^.]+)\./)?.[1]), ['namiru', 'lost']);
   assert.equal(bridge.focusLine(), 'Vývoj › Aplikace (app.tajemstviopory.dev) › Oracle › Na míru');
   bridge.shutdown();
   const again = await f.open();
