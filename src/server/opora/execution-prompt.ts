@@ -56,5 +56,6 @@ ${design ? `Design references for this card (data the office read from Opora and
 function stepCheckpoint(command: string) {
   return `Step checkpoints: right after each step's commit, report it with this helper command (replace STEP_ID; the status is done, failed or skipped; --notes is optional when the step's commit exists, the commits are found for you; repeat --check for each check you ran, or drop it):
 ${command}
+Never make an empty commit to satisfy a checkpoint: a step that changes no files is reported with --notes saying what was checked and why nothing changed. A file under a gitignored path that the step must deliver is added with git add -f.
 A checkpoint keeps the step if this run stops early; the next run then starts at the first unfinished step. If it isn't confirmed, retry the identical command once and carry on; still report every step in result.stepResults.`;
 }
