@@ -93,6 +93,22 @@ test('a head whose review is not finished yet gets no fix', async t => {
   assert.equal(down.fixes.length, 0);
 });
 
+test('a PR behind its base with open findings on a reviewed head is fixed first, not rebased into a fresh review', async t => {
+  const f = fakes();
+  const git = f.tools.git;
+  f.tools.git = async (args, cwd) => { if (args[0] === 'merge-base') { f.git.push(args); throw new Error('not an ancestor'); } return git(args, cwd); };
+  assert.deepEqual(await pass(f, t), [{ number: 7, state: 'fixed' }]);
+  assert.equal(f.fixes.length, 1);
+  assert.ok(!f.git.some((a) => a[0] === 'rebase'), 'the rebase waits for the next pass');
+  // Without findings to fix it rebases as before.
+  const clean = fakes({ review: () => listing([job()], []) });
+  const cleanGit = clean.tools.git;
+  clean.tools.git = async (args, cwd) => { if (args[0] === 'merge-base') throw new Error('not an ancestor'); return cleanGit(args, cwd); };
+  await pass(clean, t);
+  assert.equal(clean.fixes.length, 0);
+  assert.ok(clean.git.some((a) => a[0] === 'rebase'));
+});
+
 test('a fix whose checks fail is not pushed; the second failure leaves it to a human', async t => {
   const f = fakes({ check: false });
   const ledger = new UpkeepLedger();
