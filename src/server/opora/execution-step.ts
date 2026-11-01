@@ -42,7 +42,7 @@ export async function reportStep(bundlePath: string, args: StepArgs, transport: 
   const commits = (commitsFromLog(log(), steps).get(args.stepId) ?? []).slice(-50);
   // Notes are required by Canvas; a bare `step s1` after its commit says what the commit says.
   const notes = args.notes?.trim() || (commits.length ? `Committed as step ${args.stepId} (${commits.map(c => c.slice(0, 12)).join(', ')}).` : '');
-  if (!notes) throw new StepShapeError(`step ${args.stepId}: no commit named "step ${args.stepId}: …" was found; commit the step first or pass --notes.`);
+  if (!notes) throw new StepShapeError(`step ${args.stepId}: no commit named "step ${args.stepId}: …" was found; commit the step's changes first (git add -f for a gitignored path), or, when the step changes no files, pass --notes saying why; never an empty commit.`);
   const evidence = { notes, ...(args.checks.length ? { checks: args.checks } : {}), ...(commits.length ? { commits } : {}) };
   const item = { stepId: args.stepId, status: args.status, evidence };
   const problem = stepResultsProblem([item], steps);
