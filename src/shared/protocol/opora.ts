@@ -24,6 +24,8 @@ export interface OporaCard {
   group: OporaGroup;
   /** No node of the architecture is at or above it on the canvas (no sector, no page): no switch of the focus can turn it off. */
   unplaced?: boolean;
+  /** The nearest node of the architecture above it, when the card isn't in the cascade itself (a task in a sector or page): the focus judges it by that. */
+  placedIn?: string;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { EMPTY_OPORA, OPORA_LIMITS, cardGroup, deskFor, frontierCards, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
-import { buildScope, cardInFocus, cleanFocus, focusLine, toggleFocus, unplacedCards } from '../../shared/opora-scope.js';
+import { buildScope, cardInFocus, cleanFocus, focusLine, placeCards, toggleFocus } from '../../shared/opora-scope.js';
 import { type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
 import type { OporaCard, OporaRun, OporaState, WorkerInfo } from '../../shared/protocol.js';
@@ -444,7 +444,12 @@ export class OporaBridge {
       if (agent) for (const c of cards) { if (agent.ready.has(c.id)) c.ready = true; const run = agent.runs.get(c.id); if (run) c.run = run; }
       s.humanWait = agent?.humanWait;
       const scope = buildScope(nodes);
-      for (const id of unplacedCards(scope, nodes, cards.map((c) => c.id))) cards.find((c) => c.id === id)!.unplaced = true;
+      const placed = placeCards(scope, nodes, cards.map((c) => c.id));
+      for (const c of cards) {
+        const at = placed.get(c.id);
+        if (at === null) c.unplaced = true;
+        else if (at && at !== c.id) c.placedIn = at;
+      }
       // Heads Canvas still has no self-check evidence for: run the checks again, for real (self-check-requests.ts).
       if (agent?.selfChecks.length && this.selfChecks) runRequestedSelfChecks(this.selfChecks, gitRunner(), this.floor.dir, this.dataDir, { project: project.id, workspace }, agent.selfChecks);
       // Planned by OPORA's heart: the planner relays the task to it (planning.heart). Unread, the last answer for the same project stands.

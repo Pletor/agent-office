@@ -122,20 +122,24 @@ export function inFocus(scope: readonly OporaScopeNode[], focus: readonly string
  * sector, no page: one the heart laid out on its own, which Canvas offers ready) is in it too, since
  * no switch can turn it off. It stays in while its run lasts, after Canvas stops offering it.
  */
-export function cardInFocus(scope: readonly OporaScopeNode[], focus: readonly string[], card: { id: string; unplaced?: boolean }): boolean {
-  return !!card.unplaced || inFocus(scope, focus, card.id);
+export function cardInFocus(scope: readonly OporaScopeNode[], focus: readonly string[], card: { id: string; unplaced?: boolean; placedIn?: string }): boolean {
+  return !!card.unplaced || inFocus(scope, focus, card.placedIn ?? card.id);
 }
 
-/** The cards with no node of the architecture at or above them on the canvas: no sector, no page. */
-export function unplacedCards(scope: readonly OporaScopeNode[], nodes: readonly CanvasNode[], ids: Iterable<string>): Set<string> {
+/**
+ * Where each card sits in the architecture: the nearest node of the cascade at or above it on the
+ * canvas, or null when there is none (no sector, no page: unplaced). A task laid straight into a
+ * sector, or inside a marked page, isn't in the cascade itself, so this is what the focus judges it by.
+ */
+export function placeCards(scope: readonly OporaScopeNode[], nodes: readonly CanvasNode[], ids: Iterable<string>): Map<string, string | null> {
   const inScope = new Set(scope.map((n) => n.id));
   const parent = new Map(nodes.map((n) => [n.id, n.parentId]));
-  const out = new Set<string>();
+  const out = new Map<string, string | null>();
   for (const id of ids) {
     const seen = new Set<string>();
     let at: string | null | undefined = id;
     while (at && !inScope.has(at) && !seen.has(at)) { seen.add(at); at = parent.get(at); }
-    if (!at || seen.has(at)) out.add(id);
+    out.set(id, !at || seen.has(at) ? null : at);
   }
   return out;
 }
