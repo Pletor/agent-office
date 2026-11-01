@@ -3,12 +3,15 @@ import path from 'node:path';
 import { normalizeRepo } from '../../shared/floors.js';
 import { childEnv } from '../workers/env.js';
 import { resolveCommand } from '../workers/process.js';
-import { claudeResolver } from './conflict-resolver.js';
+import { claudeResolver, headlessClaude } from './conflict-resolver.js';
+import { fixArgs } from './finding-fixer.js';
+import { ReviewJobClient, type ReviewScope } from './review-client.js';
+import { executionScope } from './self-checks.js';
 import { MergeGuard, type GuardOutcome } from './merge-guard.js';
 import { PrUpkeep, type UpkeepOutcome } from './pr-upkeep.js';
 import { upkeepConfig, type UpkeepConfig } from './upkeep-config.js';
 import type { upkeepTap } from '../process/taps.js';
-import { UpkeepLedger, checkRunner, ghRunner, gitRunner, type Say, type UpkeepTools } from './upkeep-tools.js';
+import { UpkeepLedger, checkRunner, executionOf, ghRunner, gitRunner, type Say, type UpkeepTools } from './upkeep-tools.js';
 
 /**
  * Runs PR upkeep (pr-upkeep.ts) and the post-merge guard (merge-guard.ts) for one floor's
@@ -81,8 +84,11 @@ export class OporaUpkeep {
 }
 
 /** The floor's upkeep, started, while `AGENT_OFFICE_OPORA_UPKEEP` or `AGENT_OFFICE_OPORA_GUARD` is on; else undefined. */
+/** Where upkeep reads a PR's review findings: Canvas's URL, the office's agent name, and the floor's linked project. */
+export interface UpkeepReviews { base: string; agent: string; linked: () => ReviewScope | undefined }
+
 export function createOporaUpkeep(repo: string, dataDir: string, toast: Say, env: NodeJS.ProcessEnv = process.env,
-  pushed?: UpkeepTools['pushed']): OporaUpkeep | undefined {
+  pushed?: UpkeepTools['pushed'], reviews?: UpkeepReviews): OporaUpkeep | undefined {
   const config = upkeepConfig(env);
   if (!config.upkeep && !config.guard) return undefined;
   const root = path.join(dataDir, 'opora-upkeep');
@@ -94,15 +100,23 @@ export function createOporaUpkeep(repo: string, dataDir: string, toast: Say, env
     } catch { /* the log line and the toast still say it */ }
     toast(message, level);
   };
-  const claude = config.upkeep && config.resolve ? resolveCommand('claude') : null;
+  const fixing = config.upkeep && config.fixFindings && !!reviews;
+  const claude = config.upkeep && (config.resolve || fixing) ? resolveCommand('claude') : null;
   if (config.upkeep && config.resolve && !claude) say('🛰️ The claude CLI is not installed: PR upkeep leaves textual conflicts to a human', 'warn');
+  // A PR's findings live in the project its execution ran in, else the floor's linked one.
+  const client = fixing && claude ? new ReviewJobClient(reviews.base, `${reviews.agent}-upkeep`) : undefined;
+  const scopeOf = (pr: { body?: string }) => { const id = executionOf(pr.body); return (id && executionScope(dataDir, id)) || reviews?.linked(); };
   if (config.upkeep && !config.checkCommand) say("🛰️ No check command (AGENT_OFFICE_OPORA_CHECK_COMMAND, or checkCommand in the floor's .agent-office/opora-checks.json): PR upkeep pushes nothing until there is one", 'warn');
-  const upkeep = new OporaUpkeep({ ...config, resolve: config.resolve && !!claude }, repo, root, {
+  const upkeep = new OporaUpkeep({ ...config, resolve: config.resolve && !!claude, fixFindings: !!client }, repo, root, {
     git: gitRunner(),
     gh: ghRunner,
     check: checkRunner(config.checkTimeoutMs),
     resolve: claude ? claudeResolver(claude, childEnv(), config.resolveTimeoutMs, config.model) : () => Promise.reject(new Error('no claude CLI')),
     ...(pushed ? { pushed } : {}),
+    ...(client && claude ? {
+      reviews: (pr: { body?: string }) => { const scope = scopeOf(pr); return scope ? client.list(scope) : Promise.reject(new Error('no Opora project')); },
+      fix: headlessClaude(claude, childEnv(), config.resolveTimeoutMs, fixArgs(config.model)),
+    } : {}),
   }, say);
   upkeep.start();
   return upkeep;

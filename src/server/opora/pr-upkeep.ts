@@ -4,6 +4,7 @@ import { resolvePrompt } from './conflict-resolver.js';
 import { HourlyBudget, type UpkeepConfig } from './upkeep-config.js';
 import { executionOf, isAncestor, throwaway, type Say, type UpkeepLedger, type UpkeepTools } from './upkeep-tools.js';
 import { NEEDS_HUMAN, NOTICE_START, withdrawNotice } from './upkeep-notice.js';
+import { FindingFixes } from './upkeep-fix-findings.js';
 
 export { NEEDS_HUMAN };
 
@@ -17,7 +18,8 @@ export { NEEDS_HUMAN };
  * label, only once the check failed twice and the head is still the one it read (another pass or
  * office may have moved it meanwhile); a later pass that finds the PR up to date, or brings it there,
  * takes that notice back (upkeep-notice.ts). It never merges, and it tries a head commit at most
- * `attemptsPerHead` times.
+ * `attemptsPerHead` times. A PR that is up to date but has open important review findings on a fully
+ * reviewed head gets a fix attempt instead (upkeep-fix-findings.ts).
  */
 
 export interface OporaPr {
@@ -25,8 +27,8 @@ export interface OporaPr {
   headRefName: string; baseRefName: string; headRefOid: string;
   isCrossRepository?: boolean; mergeable?: string; mergeStateStatus?: string; labels?: { name?: string }[];
 }
-/** `cleared`: this pass took back an earlier "needs a human" notice on the PR (upkeep-notice.ts). */
-export type UpkeepOutcome = { number: number; state: 'current' | 'rebased' | 'resolved' | 'human' | 'skipped' | 'failed'; reason?: string; cleared?: true };
+/** `fixed`: upkeep pushed a fix for open review findings (upkeep-fix-findings.ts). `cleared`: this pass took back an earlier "needs a human" notice on the PR (upkeep-notice.ts). */
+export type UpkeepOutcome = { number: number; state: 'current' | 'rebased' | 'resolved' | 'fixed' | 'human' | 'skipped' | 'failed'; reason?: string; cleared?: true };
 type Rebased = { ok: true; resolved: string[] } | { ok: false; reason: string; conflicts: string[]; later?: boolean };
 
 const PR_FIELDS = 'number,url,title,body,headRefName,baseRefName,headRefOid,isCrossRepository,mergeable,mergeStateStatus,labels';
@@ -40,9 +42,13 @@ export function isOporaPr(pr: Pick<OporaPr, 'headRefName' | 'body'>): boolean {
 
 export class PrUpkeep {
   private budget: HourlyBudget;
+  private fixes: FindingFixes;
   constructor(private config: UpkeepConfig, private tools: UpkeepTools, private ledger: UpkeepLedger,
     private say: Say, now: () => number = Date.now) {
     this.budget = new HourlyBudget(config.resolvesPerHour, now);
+    this.fixes = new FindingFixes(config, tools, ledger, say, this.budget, {
+      cleared: (...a) => this.cleared(...a), moved: (...a) => this.moved(...a), comment: (...a) => this.comment(...a),
+    });
   }
 
   /** One pass over the repository's open Opora pull requests. */
@@ -71,7 +77,10 @@ export class PrUpkeep {
     if (headSha !== pr.headRefOid) return { number: n, state: 'skipped', reason: 'its head moved while reading it' };
     // A notice raised on an earlier head (here, or by another office: the label says so) is moot once the PR is current.
     const noticed = !!pr.labels?.some((l) => l.name === NEEDS_HUMAN) || (!!this.ledger.peek(n)?.human && this.ledger.peek(n)?.head !== headSha);
-    if (await isAncestor(git, repo, baseSha, headSha)) return this.cleared(repository, repo, n, headSha, noticed, { number: n, state: 'current' });
+    if (await isAncestor(git, repo, baseSha, headSha)) {
+      return (await this.fixes.maintain(repository, repo, treeRoot, pr, headSha, noticed))
+        ?? this.cleared(repository, repo, n, headSha, noticed, { number: n, state: 'current' });
+    }
     const entry = this.ledger.pr(n, headSha);
     if (entry.human) return { number: n, state: 'skipped', reason: 'waiting for a human' };
     if (entry.attempts >= this.config.attemptsPerHead) return { number: n, state: 'skipped', reason: 'out of attempts for this head' };

@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { gh as runGh } from '../github.js';
+import type { ReviewListing } from './review-client.js';
 
 /**
  * What PR upkeep and the post-merge guard run: git, gh, the repository's check command and the
@@ -19,6 +20,10 @@ export interface UpkeepTools {
   resolve(run: ResolveRun): Promise<string>;
   /** After a new head is pushed, while its worktree is still there (self-checks.ts evidence for it); never fails the pass. */
   pushed?(pr: { number: number; body?: string; headRefName: string }, headSha: string, dir: string): Promise<unknown>;
+  /** Canvas's review jobs and findings for the PR's project (review-client.ts `list`); none: findings aren't fixed. */
+  reviews?(pr: { number: number; body?: string }): Promise<ReviewListing>;
+  /** A fresh headless model run that fixes open review findings in `cwd` (finding-fixer.ts). */
+  fix?(run: ResolveRun): Promise<string>;
 }
 
 export function gitRunner(timeoutMs = 180_000): UpkeepTools['git'] {
@@ -68,6 +73,8 @@ export function executionOf(text: string | undefined): string | undefined {
 }
 
 export interface PrEntry { head: string; attempts: number; human?: boolean }
+/** Upkeep's tries at fixing one set of open review findings on a PR (upkeep-fix-findings.ts). */
+export interface FixEntry { findings: string; attempts: number; heads: string[]; human?: boolean }
 export interface RevertEntry { state: 'opened' | 'reused' | 'failed'; url?: string; reason?: string }
 interface LedgerData {
   prs: Record<string, PrEntry>;
@@ -75,16 +82,17 @@ interface LedgerData {
   /** The red base head the guard already bisected, so it doesn't bisect it again each pass. */
   handledRed?: string;
   reverts: Record<string, RevertEntry>;
+  fixes: Record<string, FixEntry>;
 }
 
 /** What upkeep and the guard remember between passes and restarts (`opora-upkeep/state.json`). */
 export class UpkeepLedger {
-  private data: LedgerData = { prs: {}, reverts: {} };
+  private data: LedgerData = { prs: {}, reverts: {}, fixes: {} };
   constructor(private file?: string) {
     if (!file) return;
     try {
       const saved = JSON.parse(readFileSync(file, 'utf8')) as Partial<LedgerData>;
-      this.data = { prs: saved.prs ?? {}, reverts: saved.reverts ?? {}, lastGreen: saved.lastGreen, handledRed: saved.handledRed };
+      this.data = { prs: saved.prs ?? {}, reverts: saved.reverts ?? {}, fixes: saved.fixes ?? {}, lastGreen: saved.lastGreen, handledRed: saved.handledRed };
     } catch { /* a missing or broken file starts afresh */ }
   }
 
@@ -96,6 +104,13 @@ export class UpkeepLedger {
   }
   /** The PR's entry as it is, whatever head it's for (pr() would start a new one for another head). */
   peek(number: number): PrEntry | undefined { return this.data.prs[number]; }
+  /** The PR's fix entry for this set of findings (sorted ids, comma-joined): another set starts afresh. */
+  fix(number: number, findings: string): FixEntry {
+    const entry = this.data.fixes[number];
+    if (entry?.findings === findings) return entry;
+    return (this.data.fixes[number] = { findings, attempts: 0, heads: [] });
+  }
+  peekFix(number: number): FixEntry | undefined { return this.data.fixes[number]; }
   get lastGreen() { return this.data.lastGreen; }
   set lastGreen(sha: string | undefined) { this.data.lastGreen = sha; this.save(); }
   get handledRed() { return this.data.handledRed; }

@@ -153,12 +153,18 @@ export class OporaBridge {
     this.executions.floorDir = floor.dir;
     this.reviews = createReviewRunner(url, `office-${floor.id}`, floor.dir, dataDir, log);
     this.upkeep = createOporaUpkeep(floor.dir, dataDir, (message, level) => this.events.toast(message, level), env,
-      selfChecks && upkeepSelfChecks(selfChecks, dataDir, () => this.state.project && this.state.workspace ? { project: this.state.project.id, workspace: this.state.workspace } : undefined));
+      selfChecks && upkeepSelfChecks(selfChecks, dataDir, () => this.linkedScope()),
+      { base: url, agent: `office-${floor.id}`, linked: () => this.linkedScope() });
     if (this.upkeep) this.upkeep.observe = upkeepTap(floor.id);
     this.restore();
     this.live = new ActivityFeed(this.client, () => ({ project: this.state.project?.id, workspace: this.state.workspace ?? undefined }), () => this.events.update(this.view()));
     this.pollTimer = setInterval(() => void this.poll(), POLL_MS);
     void this.poll();
+  }
+
+  /** The floor's linked Opora project and workspace, when it has both. */
+  private linkedScope(): { project: string; workspace: string } | undefined {
+    return this.state.project && this.state.workspace ? { project: this.state.project.id, workspace: this.state.workspace } : undefined;
   }
 
   view(): OporaState {

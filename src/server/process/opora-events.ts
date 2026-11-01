@@ -129,7 +129,7 @@ export function selfCheckEvent(s: { project: string; workspace: string; executio
   };
 }
 
-const UPKEEP = { rebased: ['ok', 'přebázován'], resolved: ['ok', 'konflikty vyřešeny'], human: ['blocked', 'potřebuje člověka'], failed: ['fail', 'údržba selhala'] } as const;
+const UPKEEP = { rebased: ['ok', 'přebázován'], resolved: ['ok', 'konflikty vyřešeny'], fixed: ['ok', 'nálezy z review opraveny'], human: ['blocked', 'potřebuje člověka'], failed: ['fail', 'údržba selhala'] } as const;
 
 /** One upkeep pass: only PRs it did something to (or couldn't), a "needs a human" it took back, and the guard when its verdict changed. */
 export function upkeepEvents(pass: { upkeep?: { number: number; state: string; reason?: string; cleared?: boolean }[]; guard?: { state: string; head: string; culprit?: string; url?: string; reason?: string } }, lastGuard?: string): ProcessInput[] {

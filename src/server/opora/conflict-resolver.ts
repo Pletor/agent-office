@@ -44,10 +44,15 @@ export function resolvePrompt(pr: { number: number; title?: string; baseRefName:
 }
 
 export function claudeResolver(claude: string, env: Record<string, string>, timeoutMs: number, model?: string) {
+  return headlessClaude(claude, env, timeoutMs, resolveArgs(model));
+}
+
+/** One fresh `claude -p` run with `args` in the run's directory, the prompt on stdin; resolves to its answer. */
+export function headlessClaude(claude: string, env: Record<string, string>, timeoutMs: number, args: string[]) {
   return ({ cwd, prompt }: ResolveRun): Promise<string> => new Promise((resolve, reject) => {
     let out = '';
     let settled = false;
-    const child = spawn(claude, resolveArgs(model), { cwd, env, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+    const child = spawn(claude, args, { cwd, env, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
@@ -55,11 +60,11 @@ export function claudeResolver(claude: string, env: Record<string, string>, time
       if (error) return reject(error);
       try {
         const res = JSON.parse(out) as { is_error?: boolean; result?: unknown };
-        if (res?.is_error) throw new Error('the resolver reported an error');
+        if (res?.is_error) throw new Error('the headless run reported an error');
         resolve(typeof res?.result === 'string' ? res.result : '');
       } catch (e) { reject(e as Error); }
     };
-    const timer = setTimeout(() => { child.kill('SIGKILL'); finish(new Error('the resolver timed out')); }, timeoutMs);
+    const timer = setTimeout(() => { child.kill('SIGKILL'); finish(new Error('the headless run timed out')); }, timeoutMs);
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (d: string) => { if (out.length < 4 * 1024 * 1024) out += d; });
     child.on('error', (e) => finish(e));

@@ -11,6 +11,8 @@ export interface UpkeepConfig {
   guard: boolean;
   /** `AGENT_OFFICE_OPORA_RESOLVE`: let a headless Claude resolve textual rebase conflicts (default on). */
   resolve: boolean;
+  /** `AGENT_OFFICE_OPORA_UPKEEP_FIX_FINDINGS`: let a headless Claude fix a current PR's open important review findings (default on with upkeep). */
+  fixFindings: boolean;
   /** `AGENT_OFFICE_OPORA_CHECK_COMMAND`: the shell line that must pass before a rebased PR is pushed. */
   checkCommand?: string;
   /** How long one check run may take. */
@@ -51,6 +53,7 @@ export function upkeepConfig(env: NodeJS.ProcessEnv = process.env): UpkeepConfig
     upkeep: ON.test((env.AGENT_OFFICE_OPORA_UPKEEP ?? '').trim()),
     guard: ON.test((env.AGENT_OFFICE_OPORA_GUARD ?? '').trim()),
     resolve: !OFF.test((env.AGENT_OFFICE_OPORA_RESOLVE ?? '').trim()),
+    fixFindings: !OFF.test((env.AGENT_OFFICE_OPORA_UPKEEP_FIX_FINDINGS ?? '').trim()),
     ...(check ? { checkCommand: check } : {}),
     checkTimeoutMs: int(env.AGENT_OFFICE_OPORA_CHECK_TIMEOUT_MIN, 20, 1, 120) * 60_000,
     guardBranch: /^[A-Za-z0-9._/-]{1,200}$/.test(branch) && !branch.includes('..') ? branch : 'main',
@@ -65,7 +68,7 @@ export function upkeepConfig(env: NodeJS.ProcessEnv = process.env): UpkeepConfig
   };
 }
 
-/** Starts in a rolling hour against a limit (the resolver's budget). */
+/** Starts in a rolling hour against a limit (the resolver's and the finding fixer's shared budget). */
 export class HourlyBudget {
   private starts: number[] = [];
   constructor(private limit: number, private now: () => number = Date.now) {}
