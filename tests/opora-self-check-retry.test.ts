@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runSelfChecks, SelfCheckReporter, validSelfChecks, type ExecCheck } from '../src/server/opora/self-checks.js';
-import { outputTail, TAIL_LINES } from '../src/server/opora/self-check-evidence.js';
+import { describeFailed, failureLine, outputTail, TAIL_LINES } from '../src/server/opora/self-check-evidence.js';
 import { inside, waitForQuiet, workerProbe } from '../src/server/opora/worktree-quiet.js';
 import { selfCheckEvent } from '../src/server/process/opora-events.js';
 
@@ -82,7 +82,7 @@ test('the reporter waits for the worktree to go quiet, then keeps each check\'s 
   assert.deepEqual(entry.checks[0], { name: 'tests', command: 'npm test', exitCode: 1, status: 'failed', attempts: 2, firstExitCode: 1, tail: 'FAIL cart.test.ts\nTests: 1 failed' });
   assert.equal(reporter.entry('ex-1', HEAD)?.checks?.[0].exitCode, 1);
   assert.ok(logs.some((m) => /waited 4 s for the worktree's last worker/.test(m)));
-  assert.ok(logs.some((m) => /failed: tests exit 1 \(2 runs\): Tests: 1 failed; Canvas recorded them/.test(m)), logs.join('\n'));
+  assert.ok(logs.some((m) => /failed: tests exit 1 \(2 runs\): FAIL cart.test.ts; Canvas recorded them/.test(m)), logs.join('\n'));
 });
 
 test('an older ledger that kept only the outcome still reads', async (t) => {
@@ -130,4 +130,14 @@ test('the worker probe finds the floor\'s workers still running in that worktree
   assert.deepEqual(await probe(path.join(floor, '.agent-office/worktrees/bob')), []);
   assert.ok(inside('/a/b', '/a/b/c'));
   assert.ok(!inside('/a/b', '/a/bc'));
+});
+
+test('a red run is summed up by where it failed, not by its last line (the duration)', () => {
+  const vitest = '\x1b[32m- Expected\x1b[39m\n\x1b[36m \x1b[2m❯\x1b[22m frontend/x/Page.test.tsx:\x1b[2m105:103\x1b[22m\x1b[39m\n Test Files  1 failed | 173 passed (174)\n   Duration  49.60s';
+  assert.equal(failureLine(vitest), '❯ frontend/x/Page.test.tsx:105:103');
+  assert.equal(failureLine('x\nFAILED backend/test_a.py::test_b - assert 1\n1 failed, 3 passed in 2s'), 'FAILED backend/test_a.py::test_b - assert 1');
+  assert.equal(failureLine('Tests  2 failed | 3 passed\nDuration 1s'), 'Tests  2 failed | 3 passed');
+  assert.equal(failureLine('all good\nDuration 1s'), undefined);
+  assert.equal(describeFailed([{ name: 'tests', command: 'npm test', exitCode: 1, status: 'failed', attempts: 2, tail: vitest }]),
+    'tests exit 1 (2 runs): ❯ frontend/x/Page.test.tsx:105:103');
 });

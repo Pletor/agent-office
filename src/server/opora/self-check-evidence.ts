@@ -23,10 +23,20 @@ export function retries(run: CheckRun): boolean {
   return run.exitCode !== 0 && run.exitCode !== 127 && !run.timedOut;
 }
 
-/** The check's one-line summary: the last line, and what the retry said when there was one. */
+const ANSI = /\x1b\[[0-9;]*m/g;
+/** Where a red run failed, or `undefined`: the first failing test's location (vitest `❯ file:line`,
+ *  pytest `FAILED …`, `FAIL file`), else a `… failed` count. The last line alone is often just the run's duration. */
+export function failureLine(tail: string): string | undefined {
+  const lines = tail.replace(ANSI, '').split('\n').map((l) => l.trim()).filter(Boolean);
+  return lines.find((l) => /^❯\s+\S+\.(?:test|spec)\.[cm]?[jt]sx?:\d+/.test(l) || /^FAILED\s/.test(l) || /^FAIL\s+\S/.test(l))
+    ?? lines.find((l) => /\b\d+ failed\b/.test(l));
+}
+
+/** The check's one-line summary: where it failed (else the last line), and what the retry said when there was one. */
 export function checkSummary(runs: CheckRun[], roots: string[] = []): string | undefined {
   const last = runs[runs.length - 1];
-  const line = last.timedOut ? 'timed out' : outputTail(last.output, roots).split('\n').pop();
+  const tail = last.timedOut ? '' : outputTail(last.output, roots);
+  const line = last.timedOut ? 'timed out' : (last.exitCode !== 0 ? failureLine(tail) : undefined) ?? tail.split('\n').pop();
   const note = runs.length < 2 ? '' : last.exitCode === 0
     ? `passed on a retry (first run exit ${runs[0].exitCode}) · `
     : `failed twice (exit ${runs[0].exitCode}, then exit ${last.exitCode}; retried once) · `;
@@ -49,7 +59,7 @@ export function ledgerEntry(value: unknown): LedgerEntry | undefined {
 /** "tests exit 1 (2 runs): FAIL cart.test.ts", for the log and the process wall. */
 export function describeFailed(checks: LedgerCheck[]): string {
   return checks.filter((c) => c.status !== 'passed').map((c) => {
-    const last = c.tail?.split('\n').pop();
+    const last = c.tail ? failureLine(c.tail) ?? c.tail.split('\n').pop() : undefined;
     return `${c.name} exit ${c.exitCode}${c.attempts > 1 ? ` (${c.attempts} runs)` : ''}${last ? `: ${cutText(last, 160)}` : ''}`;
   }).join('; ');
 }
