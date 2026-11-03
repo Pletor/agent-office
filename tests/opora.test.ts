@@ -85,7 +85,9 @@ function fakeOpora(dir: string) {
   // The workspace of the heart's last accepted plan, per project (heart/status `activeWorkspace`).
   const heartWorkspace = new Map<string, string>();
   // OPORA's brain gate (ticket-gate.ts): the tickets the heart issued, and each session the office opened.
-  const gate = { tickets: [] as Record<string, any>[], sessions: [] as string[], refuseClaim: undefined as string | undefined };
+  const gate = { tickets: [] as Record<string, any>[], sessions: [] as string[], refuseClaim: undefined as string | undefined,
+    // The Brain's pin zips OPORA serves (brain-pins.ts), by file name; each download asked for, with its token.
+    pins: new Map<string, string>(), downloads: [] as { file: string; token: string }[] };
   const projects = [{ id: 'other', name: 'Other', sourcePath: '/elsewhere' }, { id: 'p1', name: 'Shop', sourcePath: dir.toUpperCase() === dir ? dir : dir.replace(/\//g, '\\') }];
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
@@ -103,6 +105,15 @@ function fakeOpora(dir: string) {
         return res.end('<!doctype html><title>Opora</title>');
       }
       if (req.method === 'POST' && req.headers.origin !== `http://127.0.0.1:${(server.address() as AddressInfo).port}`) return send(403, { detail: 'origin' });
+      if (req.method === 'GET' && url.pathname.startsWith('/api/brain-registry/pins/')) {
+        const file = url.pathname.slice('/api/brain-registry/pins/'.length), token = String(req.headers['x-opora-gate-token'] ?? '');
+        gate.downloads.push({ file, token });
+        if (!gate.sessions.includes(token)) return send(401, { code: 'gate_token_invalid' });
+        const zip = gate.pins.get(file);
+        if (zip === undefined) return send(404, { code: 'pin_not_found' });
+        res.writeHead(200, { 'Content-Type': 'application/zip' });
+        return res.end(zip);
+      }
       if (url.pathname === '/api/gate/sessions') {
         const token = `gt-${gate.sessions.length}-${'x'.repeat(24)}`;
         gate.sessions.push(token);
@@ -230,8 +241,8 @@ async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeE
     dir,
     list: () => workers,
     stop: async id => { const worker = workers.find(w => w.id === id); if (worker) worker.status = 'exited'; },
-    seat(deskId, by, prompt) {
-      const w = { id: `w${workers.length}`, deskId, kind: 'agent', prompt, name: `Worker ${workers.length}`, color: '#fff', status: 'working', acked: false, createdBy: by, createdAt: Date.now(), cols: 80, rows: 24, viewers: [], viewerIds: [] } as WorkerInfo;
+    seat(deskId, by, prompt, _owner, cardModel) {
+      const w = { id: `w${workers.length}`, deskId, kind: 'agent', prompt, ...(cardModel?.pluginDirs ? { pluginDirs: cardModel.pluginDirs } : {}), name: `Worker ${workers.length}`, color: '#fff', status: 'working', acked: false, createdBy: by, createdAt: Date.now(), cols: 80, rows: 24, viewers: [], viewerIds: [] } as WorkerInfo;
       workers.push(w);
       return w;
     },
@@ -718,6 +729,38 @@ test('a ticket from the gate: the card’s execution starts, the ticket is claim
   // Held by the run: the next poll takes nothing more.
   await f.bridge.poll();
   assert.equal(f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').length, 1);
+});
+
+test('a ticket’s Brain pins are fetched once into the cache under its session, and its worker starts with them', async (t) => {
+  const f = await fixture(t);
+  const pin = { pin: 'opora:brain:skill:ponytail@abcdef012345', plugin: 'ponytail', version: 'abcdef012345', zip: '/api/brain-registry/pins/ponytail@abcdef012345.zip' };
+  f.op.gate.pins.set('ponytail@abcdef012345.zip', 'PK-zip');
+  f.op.gate.tickets.push({ ...issued(), machine: { ...issued().machine, pins: [pin] } });
+  await f.bridge.poll();
+  const cached = path.join(f.dir, 'brain-pins', 'ponytail@abcdef012345.zip');
+  assert.equal(readFileSync(cached, 'utf8'), 'PK-zip');
+  assert.deepEqual(f.workers[0].pluginDirs, [cached]);
+  assert.deepEqual(f.state().runs[0].pins, ['ponytail@abcdef012345']);
+  // Under the ticket's own session (the one that claimed it), not the lobby's.
+  const claimToken = f.op.calls.find((c) => c.body?.kind === 'ticket.claim')!.headers['x-opora-gate-token'];
+  assert.deepEqual(f.op.gate.downloads, [{ file: 'ponytail@abcdef012345.zip', token: claimToken }]);
+  // The next ticket with the same pin takes it from the cache.
+  f.op.gate.tickets.push({ ...issued(), ticketId: 'tk_2', machine: { cardId: 'c1', executionId: null, cardVersion: 1, pins: [pin] } });
+  await f.bridge.poll();
+  assert.equal(f.workers.length, 2);
+  assert.deepEqual(f.workers[1].pluginDirs, [cached]);
+  assert.equal(f.op.gate.downloads.length, 1, 'no second download');
+});
+
+test('a pin that can’t be fetched gives the ticket back: no worker, the execution released, ticket.release sent', async (t) => {
+  const f = await fixture(t);
+  f.op.gate.tickets.push({ ...issued(), machine: { ...issued().machine, pins: [{ pin: 'p', plugin: 'gone', version: 'abcdef012345', zip: '/api/brain-registry/pins/gone@abcdef012345.zip' }] } });
+  await f.bridge.poll();
+  assert.equal(f.workers.length, 0);
+  assert.ok(gateKinds(f).includes('ticket.release'));
+  assert.equal(f.op.gate.tickets[0].status, 'issued', 'back in the heart’s queue');
+  assert.ok(f.op.calls.some((c) => c.path === '/api/oporahub/executions/ex-c2/release'), 'the execution is released');
+  assert.match(f.toasts.find((x) => /wasn't taken/.test(x)) ?? '', /Brain pin gone@abcdef012345 couldn't be fetched/);
 });
 
 test('without a ticket the office takes nothing by itself', async (t) => {

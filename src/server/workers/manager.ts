@@ -239,7 +239,7 @@ export class WorkerManager {
     if (kind === 'agent' && provider === undefined) ({ provider, model, effort } = this.officeDefault);
     const selectedProvider = kind === 'agent' ? provider : undefined;
     // An Opora card's worker: the card's model and effort where nobody chose (a person's pick or the floor's default stays).
-    const cardPick: { provider?: string; model?: string; effort?: AgentEffort; advisor?: string } = { provider: selectedProvider, model, effort };
+    const cardPick: { provider?: string; model?: string; effort?: AgentEffort; advisor?: string; pluginDirs?: string[] } = { provider: selectedProvider, model, effort };
     if (launch?.cardModel) { fillCardModel(cardPick, launch.cardModel); ({ model, effort } = cardPick); }
     const modelError = validateWorkerModel(kind, selectedProvider, model);
     if (modelError) return modelError;
@@ -291,6 +291,7 @@ export class WorkerManager {
       model: takesModel(selectedProvider) ? model : undefined,
       effort: takesEffort(selectedProvider) ? effort : undefined,
       ...(cardPick.advisor ? { advisor: cardPick.advisor } : {}),
+      ...(cardPick.pluginDirs?.length ? { pluginDirs: cardPick.pluginDirs } : {}),
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
       color: kind === 'shell' ? '#8d99ae' : agent ? agent.color : COLORS[Math.floor(Math.random() * COLORS.length)],

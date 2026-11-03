@@ -17,8 +17,11 @@ import { recoverStoredResult } from './execution-recovery.js';
 import { applyResume, resumePlan, type EarlierRun, type ResumePlan } from './execution-resume.js';
 import { claimEvent, handoffEvent, releaseEvent } from '../process/opora-events.js';
 
-/** A ticket the execution is for: its body for the prompt, and the gate claim that binds it to the execution (ticket-gate.ts). */
-export interface ExecutionTicket { body: TicketBody; bind(executionId: string): Promise<void> }
+/**
+ * A ticket the execution is for: its body for the prompt, and the gate claim that binds it to the execution (ticket-gate.ts).
+ * `bind` resolves to the zips of the ticket's Brain pins (brain-pins.ts), which its Claude worker starts with.
+ */
+export interface ExecutionTicket { body: TicketBody; bind(executionId: string): Promise<string[] | void> }
 
 export interface ExecutionHeld { workerId?: string; execution?: ExecutionLease; deadlineUnixMs?: number; leaseUntil?: string; state?: string;
   /** The worker and the branch (and base commit) its worktree was on, so a later run of the card can pick up its step commits (execution-resume.ts). */
@@ -113,14 +116,14 @@ export class ExecutionDispatch {
         try {
           prepared(grant.lease);
           // A gate refusal (409 ticket_execution or ticket_state) gives the execution back below.
-          await ticket?.bind(grant.lease.executionId);
+          const pluginDirs = (await ticket?.bind(grant.lease.executionId)) || [];
           await verifyWorkerReadiness(this.controller, grant, reserved);
           const resume = this.resumePlan(grant.lease);
           const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief, resume, ticket?.body);
           const prompt = (this.contextVersion === 2 ? immutablePrompt : decorate(immutablePrompt)).trim();
           this.seating = { ...grant, prompt, resume };
           let worker: WorkerInfo | string, unpicked: ResumePlan | undefined;
-          try { const cardPick = assignmentModel(grant.lease.assignment); worker = reserved ? reserved.start(prompt, cardPick) : seat(prompt, cardPick); } finally { seatedId = this.seating?.workerId; unpicked = this.seating?.resume; this.seating = undefined; }
+          try { const cardPick = { ...assignmentModel(grant.lease.assignment), ...(pluginDirs.length ? { pluginDirs } : {}) }; worker = reserved ? reserved.start(prompt, cardPick) : seat(prompt, cardPick); } finally { seatedId = this.seating?.workerId; unpicked = this.seating?.resume; this.seating = undefined; }
           if (typeof worker === 'string') throw new Error(worker);
           seatedId = worker.id;
           // Launched after its worktree setup: the commits go on its branch at that launch (guard.check).

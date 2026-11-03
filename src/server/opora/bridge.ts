@@ -25,6 +25,7 @@ import { WorktreeSetup } from '../workers/worktree-setup.js';
 import { upkeepTap } from '../process/taps.js';
 import { GateError, TicketGate, ticketBrief, type GateScope, type WorkerTicket } from './ticket-gate.js';
 import { pendingFeedback, writeNotes } from './ticket-feedback.js';
+import { fetchPins, pinLabel } from './brain-pins.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
 export interface BridgeFloor {
@@ -289,7 +290,11 @@ export class OporaBridge {
     let bound = false;
     const forTicket = ticket && {
       body: ticket.ticket.body,
-      bind: async (executionId: string) => { await this.gate.claim(ticket.scope, ticket.ticket.ticketId, executionId); bound = true; },
+      bind: async (executionId: string) => {
+        await this.gate.claim(ticket.scope, ticket.ticket.ticketId, executionId); bound = true;
+        // The Brain pins in the cache (fetched once each): a pin that can't be had gives the ticket back, it never starts without them.
+        return fetchPins(ticket.ticket.machine.pins, this.dataDir, zip => this.gate.download(ticket.scope, ticket.ticket.ticketId, zip));
+      },
     };
     let dispatched;
     try {
@@ -305,7 +310,11 @@ export class OporaBridge {
         } : undefined, forTicket);
     } catch (error) {
       // The execution went back in dispatch; a ticket claimed for it goes back to the heart's queue too.
-      if (ticket && bound) await this.gate.release(ticket.scope, ticket.ticket.ticketId).catch(() => {});
+      if (ticket && bound) {
+        // The gate's `ticket.release` takes only the id: the reason goes to the log.
+        console.warn(`[opora] 🎫 ticket ${ticket.ticket.ticketId} given back (ticket.release): ${(error as Error).message}`);
+        await this.gate.release(ticket.scope, ticket.ticket.ticketId).catch(() => {});
+      }
       if (ticket) this.gate.forget(ticket.scope, ticket.ticket.ticketId);
       return (error as Error).message;
     }
@@ -327,6 +336,7 @@ export class OporaBridge {
       execution: dispatched.execution,
       deadlineUnixMs: dispatched.deadlineUnixMs,
       ...(ticket ? { ticketId: ticket.ticket.ticketId } : {}),
+      ...(ticket?.ticket.machine.pins.length ? { pins: ticket.ticket.machine.pins.map(pinLabel) } : {}),
     });
     this.changed();
     this.events.toast(`🛰️ ${seated.name} took “${card.name}” from the Opora canvas${ticket ? ' (OPORA ticket)' : ''}${card.group === 'design' ? ' (design)' : ''}`, 'info');

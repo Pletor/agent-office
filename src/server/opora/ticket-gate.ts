@@ -2,6 +2,7 @@
 // a worker session per project and workspace (POST /api/gate/sessions), its token kept in memory only, and
 // the `ticket.*` kinds sent as gate requests (POST /api/gate/requests {kind, body}). The heart issues a
 // ticket; the office asks for it, claims it for the card's execution it started, and delivers it.
+import type { BrainPin } from './brain-pins.js';
 
 /** What the worker is told: no ids, the heart's words. */
 export interface TicketBody {
@@ -11,7 +12,8 @@ export interface TicketFeedback { feedbackId: string; kind: string; text: string
 export interface WorkerTicket {
   ticketId: string; status: string; body: TicketBody;
   /** `department` and `profile` (slugs) are where the heart sends the work: which desks and which pipeline. */
-  machine: { cardId: string; executionId?: string | null; cardVersion?: unknown; department: string | null; profile: string | null };
+  /** `pins`: the Brain's plugins the heart pinned for the work (brain-pins.ts), each fetched before the worker starts. */
+  machine: { cardId: string; executionId?: string | null; cardVersion?: unknown; department: string | null; profile: string | null; pins: BrainPin[] };
   feedback: TicketFeedback[];
 }
 export type FeedbackKind = 'bug' | 'idea' | 'improvement' | 'question';
@@ -24,6 +26,8 @@ export class GateError extends Error {
 }
 
 const TIMEOUT_MS = 8000;
+/** A Brain pin's zip may take longer than a gate request. */
+const DOWNLOAD_MS = 60_000;
 /** A session this close to its expiry is opened anew before the next request. */
 const RENEW_MS = 60_000;
 const ID = /^[A-Za-z0-9_-]{1,80}$/;
@@ -31,6 +35,10 @@ const SLUG = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const slug = (value: unknown) => (typeof value === 'string' && SLUG.test(value) ? value : null);
 const texts = (value: unknown) => (Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string' && !!x.trim()) : []);
 const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value : undefined);
+
+/** The ticket's pins as given (brain-pins.ts checks each zip path before it's fetched). */
+const pinsOf = (value: unknown): BrainPin[] => (Array.isArray(value) ? value : []).filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
+  .map(p => ({ pin: String(p.pin ?? ''), plugin: String(p.plugin ?? ''), version: String(p.version ?? ''), zip: String(p.zip ?? '') }));
 
 /** A ticket from `ticket.request` as the office uses it; anything else is no ticket. */
 export function validTicket(value: unknown): WorkerTicket | null {
@@ -42,7 +50,7 @@ export function validTicket(value: unknown): WorkerTicket | null {
   const body: TicketBody = { essence: text(b.essence), build: text(b.build), openPaths: texts(b.openPaths), cautions: texts(b.cautions), skills: texts(b.skills), doneCriteria: texts(b.doneCriteria) };
   const feedback = (Array.isArray(v.feedback) ? v.feedback : []).filter((f): f is Record<string, unknown> => !!f && typeof f === 'object')
     .map(f => ({ feedbackId: String(f.feedbackId ?? ''), kind: String(f.kind ?? ''), text: String(f.text ?? ''), answer: f.answer ?? null }));
-  return { ticketId: v.ticketId, status: v.status, body, machine: { cardId: machine.cardId, executionId: typeof machine.executionId === 'string' ? machine.executionId : null, cardVersion: machine.cardVersion, department: slug(machine.department), profile: slug(machine.profile) }, feedback };
+  return { ticketId: v.ticketId, status: v.status, body, machine: { cardId: machine.cardId, executionId: typeof machine.executionId === 'string' ? machine.executionId : null, cardVersion: machine.cardVersion, department: slug(machine.department), profile: slug(machine.profile), pins: pinsOf(machine.pins) }, feedback };
 }
 
 /** The ticket's body as a block of the worker's prompt: the heart's words, no ids. */
@@ -84,6 +92,22 @@ export class TicketGate {
   feedback(scope: GateScope, ticketId: string, kind: FeedbackKind, text: string) { return this.send(scope, ticketId, 'ticket.feedback', { ticketId, kind, text }); }
   deliver(scope: GateScope, ticketId: string, summary: string, sha?: string) {
     return this.send(scope, ticketId, 'ticket.deliver', { ticketId, summary, ...(sha && /^[0-9a-fA-F]{7,40}$/.test(sha) ? { sha } : {}) });
+  }
+  /** A file OPORA serves under the ticket's own session (a Brain pin's zip, brain-pins.ts), as bytes. */
+  async download(scope: GateScope, ticketId: string, file: string): Promise<Uint8Array> {
+    for (let attempt = 0; ; attempt++) {
+      const token = await this.token(scope, ticketId);
+      let res: Response;
+      try {
+        res = await this.transport(new URL(file, this.base), { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(DOWNLOAD_MS),
+          headers: { 'X-Opora-Actor': `agent; name=${this.worker.name}`, 'X-Opora-Gate-Token': token } });
+      } catch {
+        throw new GateError(0, 'unreachable', `OPORA isn't answering at ${this.base}`);
+      }
+      if (res.status === 401 && attempt === 0) { this.sessions.delete(key(scope, ticketId)); continue; }
+      if (!res.ok) throw new GateError(res.status, `http_${res.status}`, `OPORA refused the file (${res.status})`);
+      return new Uint8Array(await res.arrayBuffer());
+    }
   }
   /** A ticket the office is done with (delivered or given back): its session goes. */
   forget(scope: GateScope, ticketId: string) { this.sessions.delete(key(scope, ticketId)); this.held.delete(key(scope, ticketId)); }

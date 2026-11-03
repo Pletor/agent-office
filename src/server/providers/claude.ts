@@ -11,6 +11,7 @@ import { shq } from '../workers/process.js';
 import type { WorkerHandle } from '../workers/types.js';
 import { truncate } from '../workers/util.js';
 import type { ProviderAdapter } from './types.js';
+import { pluginDirArgs } from '../opora/brain-pins.js';
 import { claudeConfigFile, isClaudeCommand, trustClaudeFolders } from './claude-trust.js';
 
 /**
@@ -215,6 +216,8 @@ export const claude: ProviderAdapter<undefined, ClaudeSetup> = {
     if (info.model) args.push('--model', info.model);
     if (info.effort) args.push('--effort', info.effort);
     if (info.advisor) args.push('--advisor', info.advisor);
+    // An OPORA ticket's Brain pins: plugins for this session only.
+    args.push(...pluginDirArgs(info.pluginDirs));
     // The queue agent only ever adds to the queue: without these it can't touch the checkout's files.
     if (station === 'queue') args.push('--disallowedTools', ...QUEUE_AGENT_DISALLOWED_TOOLS);
     // Tools its seat lets it use unasked (the heart's planner, see planning.ts): never --dangerously-skip-permissions.
