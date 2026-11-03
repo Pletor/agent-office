@@ -83,8 +83,8 @@ export class PrUpkeep {
     }
     // Behind its base, with open findings on a fully reviewed head: fix those first. A base that moves every few
     // minutes (a docs merge) would otherwise rebase it into a fresh review each time, and the findings never get
-    // their fix (KANC-008); the next pass rebases the fix head.
-    const fixed = await this.fixes.maintain(repository, repo, treeRoot, pr, headSha, noticed);
+    // their fix (KANC-008). The fix worktree merges the base first, so the fix fits it (GATE-002).
+    const fixed = await this.fixes.maintain(repository, repo, treeRoot, pr, headSha, noticed, baseSha);
     if (fixed && fixed.state !== 'skipped') return fixed;
     const entry = this.ledger.pr(n, headSha);
     if (entry.human) return { number: n, state: 'skipped', reason: 'waiting for a human' };
