@@ -9,10 +9,11 @@ import { OporaBridge, type BridgeFloor, type BridgeEvents } from '../src/server/
 import { HarnessProfiles } from '../src/server/harness/profiles.js';
 import { harnessHandoff } from '../src/server/harness/handoff.js';
 import { oporaHarnessTask } from '../src/shared/harness-cascade.js';
-import { OPORA_ESCAPE_WINDOW_MS, browserOporaUrl, canEmbedOpora, cardGroup, deskFor, frontierCards, oporaCanvasUrl, oporaEmbedPolicy, oporaEscapeLeaves, sameDir, signGroup } from '../src/shared/opora.js';
+import { OPORA_ESCAPE_WINDOW_MS, browserOporaUrl, canEmbedOpora, cardGroup, deskFor, oporaCanvasUrl, oporaEmbedPolicy, oporaEscapeLeaves, sameDir, signGroup } from '../src/shared/opora.js';
 import { PROMPTS } from '../src/shared/prompts.js';
 import { oporaCardViews } from '../src/server/opora/sketches.js';
 import { configureRea, reaFor } from '../src/server/rea/index.js';
+import { queueFeedback, readNotes } from '../src/server/opora/ticket-feedback.js';
 import type { OporaState, WorkerInfo } from '../src/shared/protocol.js';
 
 test('Opora dispatch embeds effective harness and refuses a missing resource before claiming', async (t) => {
@@ -57,18 +58,6 @@ test('sameDir matches a Windows folder whatever its slashes and case', () => {
   assert.ok(!sameDir('/home/a/App', '/home/a/app'));
 });
 
-test('frontierCards keeps the cards in the group they are listed in, and leaves sectors out', () => {
-  const answer = {
-    frontier: [{ id: 'c1', name: 'Login form', pipeline: { profile: 'design', current: { id: 'work', label: 'Návrh a UI' } } }, { id: 's1', name: 'A sector' }],
-    needsRouting: [{ id: 'c1', name: 'Login form' }, { id: 'c2', name: 'API' }],
-    closed: [{ id: 'c3', name: 'Done one' }],
-  };
-  const cards = frontierCards(answer, (id) => id.startsWith('c'), { id: 's1', name: 'Auth' });
-  assert.deepEqual(cards.map((c) => [c.id, c.status, c.group]), [['c1', 'frontier', 'design'], ['c3', 'closed', 'dev'], ['c2', 'needsRouting', 'dev']]);
-  assert.equal(cards[0].stage, 'Návrh a UI');
-  assert.equal(cards[0].sectorName, 'Auth');
-});
-
 /** A small stand-in for Opora's API: a project planning `dir` with a sector of two cards, another project elsewhere with one card, and leases. */
 /** `?assignment=omit` (Opora M2): the lease without its assignment, with the assignment's context pin. */
 function lean(lease: Record<string, unknown>, url: URL) {
@@ -95,6 +84,8 @@ function fakeOpora(dir: string) {
   const heartOn = new Set<string>();
   // The workspace of the heart's last accepted plan, per project (heart/status `activeWorkspace`).
   const heartWorkspace = new Map<string, string>();
+  // OPORA's brain gate (ticket-gate.ts): the tickets the heart issued, and each session the office opened.
+  const gate = { tickets: [] as Record<string, any>[], sessions: [] as string[], refuseClaim: undefined as string | undefined };
   const projects = [{ id: 'other', name: 'Other', sourcePath: '/elsewhere' }, { id: 'p1', name: 'Shop', sourcePath: dir.toUpperCase() === dir ? dir : dir.replace(/\//g, '\\') }];
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
@@ -112,6 +103,47 @@ function fakeOpora(dir: string) {
         return res.end('<!doctype html><title>Opora</title>');
       }
       if (req.method === 'POST' && req.headers.origin !== `http://127.0.0.1:${(server.address() as AddressInfo).port}`) return send(403, { detail: 'origin' });
+      if (url.pathname === '/api/gate/sessions') {
+        const token = `gt-${gate.sessions.length}-${'x'.repeat(24)}`;
+        gate.sessions.push(token);
+        return send(201, { sessionId: `gs-${gate.sessions.length}`, token, expiresAt: '2030-01-01T00:00:00Z' });
+      }
+      if (url.pathname === '/api/gate/requests') {
+        const token = String(req.headers['x-opora-gate-token'] ?? '');
+        if (!gate.sessions.includes(token)) return send(401, { code: 'gate_token_invalid', error: 'no session' });
+        const b = (body?.body ?? {}) as Record<string, any>;
+        const t = gate.tickets.find((x) => x.ticketId === b.ticketId);
+        const answer = (a: unknown) => send(201, { ticketId: 'gt_req', seq: 1, kind: body?.kind, status: 'answered', answer: a });
+        switch (body?.kind) {
+          case 'ticket.request': {
+            const held = gate.tickets.find((x) => x.session === token && ['claimed', 'in_progress', 'needs_answer', 'delivered'].includes(x.status));
+            const found = held ?? gate.tickets.find((x) => x.status === 'issued');
+            return answer({ ticket: found ? { ticketId: found.ticketId, status: found.status, body: found.body, machine: found.machine, feedback: found.feedback } : null, held: !!held });
+          }
+          case 'ticket.claim':
+            if (!t) return send(404, { code: 'ticket_not_found' });
+            if (t.status !== 'issued') return send(409, { code: 'ticket_state', error: 'taken' });
+            if (gate.refuseClaim) return send(409, { code: gate.refuseClaim, error: 'refused' });
+            if (!executions.has(String(b.executionId))) return send(409, { code: 'ticket_execution', error: 'no such execution' });
+            Object.assign(t, { status: 'claimed', session: token, executionId: b.executionId });
+            return answer({ ticket: t });
+          case 'ticket.release':
+            if (!t || t.session !== token) return send(409, { code: 'ticket_not_held' });
+            Object.assign(t, { status: 'issued', session: undefined, executionId: undefined });
+            return answer({ ticket: { ticketId: t.ticketId, status: 'issued' } });
+          case 'ticket.feedback':
+            if (!t || t.session !== token) return send(409, { code: 'ticket_not_held' });
+            t.feedback.push({ feedbackId: `tf_${t.feedback.length}`, kind: b.kind, text: b.text, answer: null });
+            t.status = b.kind === 'question' ? 'needs_answer' : 'in_progress';
+            return answer({ ticket: { ticketId: t.ticketId, status: t.status } });
+          case 'ticket.deliver':
+            if (!t || t.session !== token) return send(409, { code: 'ticket_not_held' });
+            if (t.status === 'needs_answer') return send(409, { code: 'ticket_state', error: 'open question' });
+            Object.assign(t, { status: 'delivered', delivery: { summary: b.summary, sha: b.sha } });
+            return answer({ ticket: { ticketId: t.ticketId, status: 'delivered' } });
+        }
+        return send(422, { code: 'invalid_payload' });
+      }
       if (url.pathname === '/api/oporahub/executions/context') return send(200, { available: true, acceptedHead: 'a'.repeat(40), contextVersion: 'ctx' });
       if (url.pathname === '/api/oporahub/executions/claim') {
         const node = String(body?.nodeId);
@@ -138,12 +170,12 @@ function fakeOpora(dir: string) {
       // The other project's canvas: one sector with one card.
       if (url.searchParams.get('project') === 'other') {
         if (url.pathname === '/api/view') return send(200, { graph: { nodes: [{ id: 's9', kind: 'sector', name: 'Elsewhere', parentId: null }, { id: 'c9', kind: 'node', name: 'Other card', parentId: 's9' }] } });
-        if (url.pathname === '/api/desktop-v3/frontier') return send(200, { frontier: url.searchParams.get('nodeId') === 's9' ? [{ id: 'c9', name: 'Other card', pipeline: { profile: 'code' } }] : [{ id: 's9', name: 'Elsewhere' }] });
+        if (url.pathname === '/api/oporahub/agent-state') return send(200, { actions: [{ verb: 'claim', status: 'ready', targetId: 'c9' }] });
       }
       // Shop's work workspace: a sector with one card, planned there and not in main.
       if (url.searchParams.get('workspace') === 'work1') {
         if (url.pathname === '/api/view') return send(200, { graph: { nodes: [{ id: 's5', kind: 'sector', name: 'Oracle', parentId: null }, { id: 'c5', kind: 'node', name: 'Oracle card', parentId: 's5' }] } });
-        if (url.pathname === '/api/desktop-v3/frontier') return send(200, { frontier: url.searchParams.get('nodeId') === 's5' ? [{ id: 'c5', name: 'Oracle card', pipeline: { profile: 'code' } }].filter((c) => !leases.has(c.id)) : [{ id: 's5', name: 'Oracle' }] });
+        if (url.pathname === '/api/oporahub/agent-state') return send(200, { actions: leases.has('c5') ? [] : [{ verb: 'claim', status: 'ready', targetId: 'c5' }] });
       }
       switch (url.pathname) {
         case '/api/health':
@@ -159,17 +191,7 @@ function fakeOpora(dir: string) {
         case '/api/view':
           return send(200, { graph: { nodes: [{ id: 'a1', kind: 'area', name: 'Frontend' }, { id: 's1', kind: 'sector', name: 'Checkout', parentId: null }, { id: 'c1', kind: 'node', name: 'Cart page', parentId: 's1' }, { id: 'c2', kind: 'node', name: 'Pay API', parentId: 's1' }, ...stepCards.map((c) => ({ ...c, kind: 'node', parentId: 's1' })), ...looseCards.map((c) => ({ ...c, kind: 'node', parentId: null }))] } });
         case '/api/oporahub/agent-state':
-          return send(200, { actions: [...stepCards, ...looseCards].map((c) => ({ verb: 'claim', status: leases.has(c.id) ? 'blocked' : 'ready', targetId: c.id })), ...agentState });
-        case '/api/desktop-v3/frontier':
-          if (url.searchParams.get('nodeId') !== 's1') return send(200, { frontier: [{ id: 's1', name: 'Checkout' }] });
-          return send(200, {
-            frontier: [
-              { id: 'c1', name: 'Cart page', pipeline: { profile: 'design', current: null } },
-              { id: 'c2', name: 'Pay API', pipeline: { profile: 'code', current: null } },
-              ...stepCards.map((c) => ({ ...c, pipeline: { routed: false, profile: null, current: null } })),
-            ].filter((c) => !leases.has(c.id)),
-            claimed: [...leases.keys()].map((id) => ({ id, name: id })),
-          });
+          return send(200, { actions: [{ id: 'c1' }, { id: 'c2' }, ...stepCards, ...looseCards].map((c) => ({ verb: 'claim', status: leases.has(c.id) ? 'blocked' : 'ready', targetId: c.id })), ...agentState });
         // The design card has a storyboard, the developer's a drawing (one element of it deleted).
         case '/api/drawing':
           return send(200, { scene: { elements: url.searchParams.get('layer') === 'c2' ? [{ id: 'e1', type: 'rectangle' }, { id: 'e2', type: 'image', fileId: 'f1' }, { id: 'e3', type: 'text', isDeleted: true }] : [] }, revision: 1 });
@@ -189,7 +211,16 @@ function fakeOpora(dir: string) {
       send(404, { detail: 'nope' });
     });
   });
-  return { server, calls, leases, projects, page, workspaces, stepCards, looseCards, agentState, heartOn, heartWorkspace };
+  return { server, calls, leases, gate, projects, page, workspaces, stepCards, looseCards, agentState, heartOn, heartWorkspace };
+}
+
+/**
+ * Makes a ready card a design card. Canvas's agent-state says no department; the frontier's pipeline did, and it's
+ * gone with the office's own taking. Until a ticket says the department, the design path is tested on a card set so.
+ */
+function designCard(bridge: OporaBridge, id: string) {
+  const card = (bridge as unknown as { state: OporaState }).state.cards.find((c) => c.id === id)!;
+  card.group = 'design';
 }
 
 async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeEvents['prepareTask']) {
@@ -247,7 +278,7 @@ test('bridge prepares the selected desk before claiming and starts through the O
   assert.equal(f.workers.length, 1); assert.equal(f.state().runs[0].state, 'working');
 });
 
-test('the bridge links the Opora project that plans this floor’s folder, and reads its cards by sector', async (t) => {
+test('the bridge links the Opora project that plans this floor’s folder, and reads the ready cards in their sectors', async (t) => {
   const f = await fixture(t);
   const s = f.state();
   assert.equal(s.connected, true);
@@ -255,11 +286,12 @@ test('the bridge links the Opora project that plans this floor’s folder, and r
   assert.deepEqual(s.project, { id: 'p1', name: 'Shop' });
   assert.equal(s.workspace, 'draft');
   assert.deepEqual(s.sectors, [{ id: 's1', name: 'Checkout' }]);
-  assert.deepEqual(s.cards.map((c) => [c.name, c.status, c.group, c.sectorName]), [['Cart page', 'frontier', 'design', 'Checkout'], ['Pay API', 'frontier', 'dev', 'Checkout']]);
+  assert.deepEqual(s.cards.map((c) => [c.name, c.status, c.group, c.sectorName]), [['Cart page', 'frontier', 'dev', 'Checkout'], ['Pay API', 'frontier', 'dev', 'Checkout']]);
 });
 
 test('taking a card claims its lease on Opora and seats a worker for it, a design card at the Design desk', async (t) => {
   const f = await fixture(t);
+  designCard(f.bridge, 'c1');
   assert.equal(await f.bridge.take('c1', 'Ana'), undefined);
   const claim = f.op.calls.find((c) => c.path === '/api/oporahub/executions/claim')!;
   assert.deepEqual({ project: claim.body!.project, workspace: claim.body!.workspace, nodeId: claim.body!.nodeId }, { project: 'p1', workspace: 'draft', nodeId: 'c1' });
@@ -291,110 +323,6 @@ test('a worker going home lets its card’s lease go', async (t) => {
   await new Promise((r) => setTimeout(r, 100));
   assert.equal(f.op.leases.has('c2'), false);
   assert.equal(f.state().runs[0].state, 'gone');
-});
-
-test('the autopilot takes routed cards by itself, up to its limit', async (t) => {
-  const f = await fixture(t);
-  f.bridge.setAutopilot(true, 1, 'Ana');
-  await new Promise((r) => setTimeout(r, 50));
-  await f.bridge.poll();
-  assert.equal(f.workers.length, 1);
-  f.bridge.setAutopilot(true, 2, 'Ana');
-  await new Promise((r) => setTimeout(r, 50));
-  await f.bridge.poll();
-  assert.equal(f.workers.length, 2);
-});
-
-test('the autopilot takes a plan-step card Canvas says is ready, without a routed pipeline', async (t) => {
-  const f = await fixture(t);
-  f.op.stepCards.push({ id: 'c3', name: 'Steps card' });
-  f.op.leases.set('c1', 'someone').set('c2', 'someone');
-  await f.bridge.poll();
-  assert.equal(f.state().cards.find((c) => c.id === 'c3')?.ready, true);
-  f.bridge.setAutopilot(true, 1, 'Ana');
-  await new Promise((r) => setTimeout(r, 50));
-  await f.bridge.poll();
-  const claims = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').map((c) => c.body?.nodeId);
-  assert.deepEqual(claims, ['c3']);
-  assert.equal(f.workers.length, 1);
-});
-
-test('a card Canvas offers ready outside every sector is on the list, and the autopilot takes it to a developer desk', async (t) => {
-  const f = await fixture(t);
-  f.op.looseCards.push({ id: 'c4', name: 'Page architecture' });
-  f.op.leases.set('c1', 'someone').set('c2', 'someone');
-  await f.bridge.poll();
-  const card = f.state().cards.find((c) => c.id === 'c4');
-  assert.deepEqual(card && [card.name, card.status, card.ready, card.group, card.sectorId], ['Page architecture', 'frontier', true, 'dev', undefined]);
-  f.bridge.setAutopilot(true, 1, 'Ana');
-  await new Promise((r) => setTimeout(r, 50));
-  await f.bridge.poll();
-  const claims = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').map((c) => c.body?.nodeId);
-  assert.deepEqual(claims, ['c4']);
-  assert.equal(f.workers[0].deskId, 'desk-1');
-});
-
-test('a card Canvas offers ready outside every sector is in the focus whatever page is on, and a card out of it is said once', async (t) => {
-  const f = await fixture(t);
-  f.op.looseCards.push({ id: 'c4', name: 'Page architecture' });
-  f.op.stepCards.push({ id: 'c3', name: 'Steps card' });
-  f.op.leases.set('c1', 'someone').set('c2', 'someone');
-  await f.bridge.poll();
-  assert.equal(f.bridge.switchFocus('c1', true, true, 'Ana'), undefined);
-  assert.deepEqual(['c3', 'c4'].map((id) => f.state().cards.find((c) => c.id === id)?.unplaced), [undefined, true]);
-  f.bridge.setAutopilot(true, 2, 'Ana');
-  await new Promise((r) => setTimeout(r, 50));
-  await f.bridge.poll();
-  await f.bridge.poll();
-  const claims = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').map((c) => c.body?.nodeId);
-  assert.deepEqual(claims, ['c4'], 'the loose card is taken, the page card outside the focus is not');
-  const said = f.toasts.filter((x) => /autopilot passes over “Steps card”: outside what the cell works on/.test(x));
-  assert.equal(said.length, 1, `said once, not per poll: ${f.toasts.join(' | ')}`);
-});
-
-test('the autopilot takes a reported card again once Canvas offers its claim as ready again', async (t) => {
-  const f = await fixture(t);
-  f.op.stepCards.push({ id: 'c3', name: 'Steps card' });
-  f.op.leases.set('c1', 'someone').set('c2', 'someone');
-  f.bridge.setAutopilot(true, 1, 'Ana');
-  await new Promise((r) => setTimeout(r, 50));
-  await f.bridge.poll();
-  assert.equal(f.workers.length, 1);
-  mkdirSync(path.join(f.dir, 'opora-executions'), { recursive: true });
-  writeFileSync(path.join(f.dir, 'opora-executions', 'ex-c3-reported.json'), JSON.stringify({ result: { summary: 'done' } }));
-  f.workers[0].status = 'exited';
-  f.workers.splice(0, 1);
-  for (let i = 0; i < 50 && f.op.leases.has('c3'); i++) {
-    await f.bridge.poll();
-    await new Promise((r) => setTimeout(r, 20));
-  }
-  await f.bridge.poll();
-  const claims = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').map((c) => c.body?.nodeId);
-  // Taken again (the stand-in reuses one execution id per card, so its old receipt may cycle it more than once).
-  assert.ok(claims.length >= 2 && claims.every((id) => id === 'c3'), String(claims));
-});
-
-test('the autopilot does not take a card again once the office reported its result', async (t) => {
-  const f = await fixture(t);
-  f.bridge.setAutopilot(true, 1, 'Ana');
-  await new Promise((r) => setTimeout(r, 50));
-  await f.bridge.poll();
-  assert.equal(f.workers.length, 1);
-  const first = [...f.op.leases.keys()][0];
-  // The worker reported its result (the receipt is stored), went home and the lease was let go:
-  // Canvas shows the card as free again while its pull request waits for review.
-  mkdirSync(path.join(f.dir, 'opora-executions'), { recursive: true });
-  writeFileSync(path.join(f.dir, 'opora-executions', `ex-${first}-reported.json`), JSON.stringify({ result: { summary: 'done' } }));
-  f.workers[0].status = 'exited';
-  f.workers.splice(0, 1);
-  for (let i = 0; i < 50 && f.op.leases.has(first); i++) {
-    await f.bridge.poll();
-    await new Promise((r) => setTimeout(r, 20));
-  }
-  assert.equal(f.op.leases.has(first), false);
-  await f.bridge.poll();
-  const claims = f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').map((c) => c.body?.nodeId);
-  assert.deepEqual(claims, [first, first === 'c1' ? 'c2' : 'c1']);
 });
 
 test('with Opora down the bridge says so instead of failing', async (t) => {
@@ -521,6 +449,7 @@ test('the Opora pages for a card open its drawing (Kreslení) and its storyboard
 
 test('design and development workers use accepted assignments without live legacy briefs', async (t) => {
   const f = await fixture(t);
+  designCard(f.bridge, 'c1');
   for (const card of ['c1', 'c2']) assert.equal(await f.bridge.take(card, 'Ana'), undefined);
   for (const worker of f.workers) {
     assert.match(worker.prompt!, /immutable Canvas assignment/);
@@ -656,7 +585,7 @@ test('the picked workspace is kept across a restart, and linking another project
   assert.doesNotMatch(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'), /"workspace"/);
 });
 
-test('while Opora waits on a person to accept the baseline, nothing is claimed and the autopilot says why once', async (t) => {
+test('while Opora waits on a person to accept the baseline, a Take claims nothing and says why', async (t) => {
   const f = await fixture(t);
   assert.equal(f.state().humanWait, undefined, 'nothing waits on a person: no notice');
   Object.assign(f.op.agentState, {
@@ -671,24 +600,19 @@ test('while Opora waits on a person to accept the baseline, nothing is claimed a
   assert.equal(w.cards, 2);
   assert.equal(w.claimsBlocked, true);
   assert.match((await f.bridge.take('c1', 'Ana'))!, /waits on a person: “Přijmout výchozí zadání”/);
-  f.bridge.setAutopilot(true, 2, 'Ana');
-  await f.bridge.poll();
-  await f.bridge.poll();
   assert.equal(f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').length, 0, 'no claim tried');
-  assert.equal(f.toasts.filter((x) => /autopilot holds off/.test(x)).length, 1, 'said once, not per card or per poll');
-  assert.equal(f.toasts.filter((x) => /couldn't take/.test(x)).length, 0);
-  // Accepted in Opora: the notice goes and the autopilot takes cards again.
+  // Accepted in Opora: the notice goes and a person can take a card again.
   for (const k of Object.keys(f.op.agentState)) delete f.op.agentState[k];
   await f.bridge.poll();
   assert.equal(f.state().humanWait, undefined);
-  assert.ok(f.op.calls.some((c) => c.path === '/api/oporahub/executions/claim'));
+  assert.equal(await f.bridge.take('c1', 'Ana'), undefined);
 });
 
 /** What OPORA's wall lets an agent write in a project its heart plans (Opora's determinism/wall.py LANE). */
 const WALL_LANE = ['/api/oporahub/executions', '/api/oporahub/process-events', '/api/oporahub/execution-observers', '/api/oporahub/harness-',
   '/api/oporahub/github-evidence', '/api/oporahub/review-jobs', '/api/oporahub/review-identities/claim', '/api/oporahub/verifications',
   '/api/desktop-v3/agent-output', '/api/desktop-v3/agent-messages', '/api/desktop-v3/agent-message-receipt', '/api/desktop-v3/agent-workspace', '/api/desktop-v3/lease'];
-const inLane = (p: string) => WALL_LANE.some((x) => (x.endsWith('-') ? p.startsWith(x) : p === x || p.startsWith(x + '/')));
+const inLane = (p: string) => p.startsWith('/api/gate/') || WALL_LANE.some((x) => (x.endsWith('-') ? p.startsWith(x) : p === x || p.startsWith(x + '/')));
 
 test('the bridge says when OPORA’s heart plans the linked project, read again with the canvas', async (t) => {
   const f = await fixture(t);
@@ -734,32 +658,12 @@ test('the floor follows the workspace of the heart’s last plan, unless a perso
   assert.equal(f.state().followHeart, false);
 });
 
-test('the cards the heart laid out in the workspace it just opened are handed out on the first read of it', async (t) => {
-  const f = await fixture(t);
-  f.op.workspaces.push({ id: 'main' }, { id: 'work1', label: 'Work 1' });
-  f.floor.orchestrator = () => ({ by: 'Pixel' });
-  f.bridge.setHandOut(true, 'Ana');
-  // Without the heart, the first read of another workspace only notes what's there.
-  f.bridge.useWorkspace('work1');
-  await f.bridge.repoll();
-  assert.equal(f.workers.length, 0);
-  // The heart opens work1 with its cards in one batch: the floor follows it and hands them out at once.
-  f.bridge.useWorkspace(null);
-  f.op.heartOn.add('p1');
-  f.op.heartWorkspace.set('p1', 'work1');
-  await f.bridge.repoll();
-  await f.bridge.repoll();
-  assert.equal(f.state().followHeart, true);
-  assert.ok(f.workers.length >= 1);
-  assert.equal(f.workers[0].createdBy, 'Pixel');
-});
-
 test('an Opora without the brain (gate-setting 404) is planned the old way', async (t) => {
   const f = await fixture(t);
   f.op.server.removeAllListeners('request');
   const { server: plain } = fakeOpora(f.dir);
   f.op.server.on('request', (req, res) => {
-    if (req.url?.startsWith('/api/brain/')) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end('{"detail":"Not Found"}'); }
+    if (req.url?.startsWith('/api/brain/') || req.url?.startsWith('/api/gate/')) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end('{"detail":"Not Found"}'); }
     plain.emit('request', req, res);
   });
   await f.bridge.repoll();
@@ -779,7 +683,7 @@ test('in a project the heart plans, taking a card and letting it go writes only 
   assert.deepEqual(writes.filter((p) => !inLane(p)), []);
 });
 
-test('an XL card by Opora gauge is not handed out: Take refuses before any claim, a critical one carries its review mark', async (t) => {
+test('a critical card by Opora gauge carries its review mark', async (t) => {
   const f = await fixture(t);
   Object.assign(f.op.agentState, { cards: [
     { nodeId: 'c2', gauge: { run: { label: 'XL', effort: 'xhigh', model: 'sonnet', advisor: 'opus', handout: false, humanReview: false } } },
@@ -788,9 +692,97 @@ test('an XL card by Opora gauge is not handed out: Take refuses before any claim
   t.after(() => { delete f.op.agentState.cards; });
   await f.bridge.poll();
   const cards = f.state().cards;
-  assert.equal(cards.find((c) => c.id === 'c2')?.run?.handout, false);
   assert.equal(cards.find((c) => c.id === 'c1')?.run?.humanReview, true);
-  assert.match((await f.bridge.take('c2', 'Ana'))!, /XL – srdce ji rozdělí/);
+});
+
+/** A ticket OPORA's heart issued for card c2 (Canvas docs/navrhy/2026-11-03-novy-zaklad.md §3.3). */
+const issued = () => ({ ticketId: 'tk_1', status: 'issued', feedback: [] as Record<string, unknown>[],
+  body: { essence: 'Customers pay in one step', build: 'The Pay API endpoint', openPaths: ['Refunds come later'], cautions: ['No card data in logs'], skills: ['/ponytail@5.3.3'], doneCriteria: ['npm test is green'] },
+  machine: { cardId: 'c2', executionId: null, cardVersion: 3 } });
+const gateKinds = (f: { op: { calls: { path: string; body?: Record<string, unknown> }[] } }) => f.op.calls.filter((c) => c.path === '/api/gate/requests').map((c) => c.body?.kind);
+
+test('a ticket from the gate: the card’s execution starts, the ticket is claimed for it, and a worker sits down with the ticket’s body', async (t) => {
+  const f = await fixture(t);
+  f.op.gate.tickets.push(issued());
+  await f.bridge.poll();
+  const claimAt = f.op.calls.findIndex((c) => c.path === '/api/oporahub/executions/claim');
+  const ticketAt = f.op.calls.findIndex((c) => c.path === '/api/gate/requests' && c.body?.kind === 'ticket.claim');
+  assert.ok(claimAt >= 0 && ticketAt > claimAt, 'the execution starts first, then the ticket is claimed');
+  assert.deepEqual(f.op.calls[ticketAt].body!.body, { ticketId: 'tk_1', executionId: 'ex-c2' });
+  assert.equal(f.op.gate.tickets[0].status, 'claimed');
+  assert.equal(f.workers.length, 1);
+  const prompt = f.workers[0].prompt!;
+  assert.match(prompt, /Ticket from OPORA's heart[\s\S]*Customers pay in one step[\s\S]*The Pay API endpoint[\s\S]*Refunds come later[\s\S]*No card data in logs[\s\S]*\/ponytail@5\.3\.3[\s\S]*npm test is green/);
+  assert.match(prompt, /'feedback' 'KIND' 'TEXT'/);
+  assert.doesNotMatch(prompt, /tk_1|gt-\d/, 'no ticket id or gate token in the prompt');
+  assert.match(prompt, /immutable Canvas assignment/, 'the execution protocol stays');
+  // The ticket is the run's, across a restart; the lobby and the ticket each have a session of their own.
+  assert.match(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'), /"ticketId": "tk_1"/);
+  assert.doesNotMatch(JSON.stringify(f.state()), /tk_1/);
+  assert.equal(f.op.gate.sessions.length, 2);
+  // Held by the run: the next poll takes nothing more.
+  await f.bridge.poll();
+  assert.equal(f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').length, 1);
+});
+
+test('without a ticket the office takes nothing by itself', async (t) => {
+  const f = await fixture(t);
+  await f.bridge.poll();
+  assert.ok(gateKinds(f).includes('ticket.request'));
   assert.equal(f.op.calls.some((c) => c.path === '/api/oporahub/executions/claim'), false);
   assert.equal(f.workers.length, 0);
+});
+
+test('a 409 at the ticket claim gives the execution back and seats no one', async (t) => {
+  const f = await fixture(t);
+  f.op.gate.tickets.push(issued());
+  f.op.gate.refuseClaim = 'ticket_execution';
+  await f.bridge.poll();
+  assert.ok(f.op.calls.some((c) => c.path === '/api/oporahub/executions/claim'));
+  assert.ok(f.op.calls.some((c) => c.path === '/api/oporahub/executions/ex-c2/release'), 'the execution is released');
+  assert.equal(f.op.leases.has('c2'), false);
+  assert.equal(f.workers.length, 0);
+  assert.equal(f.op.gate.tickets[0].status, 'issued', 'the ticket stays in the heart’s queue');
+  assert.equal(f.toasts.filter((x) => /OPORA ticket for “Pay API” wasn't taken/.test(x)).length, 1);
+});
+
+test('with every desk taken, or the limit reached, the ticket is not claimed and no execution starts', async (t) => {
+  const f = await fixture(t);
+  f.op.gate.tickets.push(issued());
+  const desks = f.floor.desks;
+  f.floor.desks = () => [];
+  await f.bridge.poll();
+  f.floor.desks = desks;
+  (f.bridge as unknown as { state: OporaState }).state.maxRuns = 0;
+  await f.bridge.poll();
+  assert.equal(f.op.calls.some((c) => c.path === '/api/oporahub/executions/claim'), false);
+  assert.equal(gateKinds(f).includes('ticket.claim'), false);
+  assert.equal(f.op.gate.tickets[0].status, 'issued');
+});
+
+test('the worker’s feedback goes to the gate, the heart’s answers come back, and the hand-off delivers the ticket', async (t) => {
+  const f = await fixture(t);
+  f.op.gate.tickets.push(issued());
+  await f.bridge.poll();
+  const bundle = path.join(f.dir, 'opora-executions', 'ex-c2.json');
+  assert.match(JSON.stringify(queueFeedback(bundle, 'question', 'May I add a column to payments?')), /queued/);
+  assert.throws(() => queueFeedback(bundle, 'rant', 'x'), /bug, idea, improvement, question/);
+  await f.bridge.poll();
+  const ticket = f.op.gate.tickets[0];
+  assert.deepEqual(ticket.feedback.map((x: Record<string, unknown>) => [x.kind, x.text]), [['question', 'May I add a column to payments?']]);
+  assert.equal(ticket.status, 'needs_answer');
+  // The heart answers; the next poll writes it where the helper reads it.
+  ticket.feedback[0].answer = { text: 'Yes, nullable.' };
+  ticket.status = 'in_progress';
+  await f.bridge.poll();
+  assert.deepEqual(readNotes(bundle).feedback.map((x) => x.answer), [{ text: 'Yes, nullable.' }]);
+  await f.bridge.poll();
+  assert.equal(ticket.feedback.length, 1, 'each item goes once');
+  // The worker reported; the hand-off then delivers the ticket with the result's summary and the head.
+  writeFileSync(path.join(f.dir, 'opora-executions', 'ex-c2-reported.json'), JSON.stringify({ receiptId: 'r1', result: { summary: 'Pay API in one step' } }));
+  const run = (f.bridge as unknown as { runs: Record<string, unknown>[] }).runs[0];
+  await (f.bridge as unknown as { deliverTicket(run: unknown, out: unknown): Promise<void> }).deliverTicket(run, { state: 'opened', headSha: 'a'.repeat(40) });
+  assert.equal(ticket.status, 'delivered');
+  assert.deepEqual(ticket.delivery, { summary: 'Pay API in one step', sha: 'a'.repeat(40) });
+  assert.match(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'), /"ticketDelivered": true/);
 });

@@ -52,7 +52,7 @@ export function installOpora(ctx: Ctx, parts: Pick<Parts, 'waiting'>, deps: { sh
       const s = store.opora;
       const working = s.runs.filter((r) => r.state !== 'gone').length;
       const ready = s.cards.filter((c) => c.status === 'frontier').length;
-      const what = !s.connected ? 'not running' : !s.project ? 'not linked' : `${ready} ready · ${working} in the office${s.autopilot ? ' · 🤖' : ''}`;
+      const what = !s.connected ? 'not running' : !s.project ? 'not linked' : `${ready} ready · ${working} in the office`;
       return { k: what, parts: [hintTitle('🛰️ Opora'), aside(what), key('E', 'Open')] };
     },
     use: onE(() => showOpora()),

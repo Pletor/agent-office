@@ -84,27 +84,3 @@ export function claimsBlockedReason(w: OporaHumanWait | undefined): string | und
   return `Opora waits on a person: ${waitTitles(w)}. No card can be taken until it's decided in Opora`;
 }
 
-/**
- * Says once that the autopilot and the hand-out hold off while claims wait on a person, instead of
- * trying each card and failing at claim every poll. It speaks again only once the wait changes.
- */
-export class HumanWaitNotice {
-  private said = new Set<string>();
-
-  constructor(private toast: (text: string) => void) {}
-
-  /** Whether to hold off: true while claims are blocked on a person (toasting the first time). */
-  holds(w: OporaHumanWait | undefined, who: string): boolean {
-    const why = claimsBlockedReason(w);
-    if (!why) {
-      this.said.clear();
-      return false;
-    }
-    const key = `${who}:${why}`;
-    if (!this.said.has(key)) {
-      this.said.add(key);
-      this.toast(`${who} holds off: ${why}`);
-    }
-    return true;
-  }
-}

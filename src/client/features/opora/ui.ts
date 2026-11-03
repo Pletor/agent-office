@@ -1,5 +1,5 @@
 import './ui.css';
-import { OPORA_LIMITS, OPORA_NO_HANDOUT, OPORA_TAB } from '../../../shared/opora';
+import { OPORA_TAB } from '../../../shared/opora';
 import type { OporaCard, OporaCardRun, OporaState } from '../../../shared/protocol';
 import type { Net } from '../../net';
 import { store } from '../../state';
@@ -29,13 +29,13 @@ const STATUS_WORDS: Record<OporaCard['status'], string> = {
 
 /** Opora's gauge in a few words: `M · sonnet+opus/high`, the worker a Take seats for it. */
 export function runWords(run: OporaCardRun | undefined): string {
-  if (!run || run.handout === false) return '';
+  if (!run) return '';
   return `${run.label ?? '?'} · ${run.model}${run.advisor ? `+${run.advisor}` : ''}/${run.effort}`;
 }
 
 /**
  * The 🛰️ Opora window: the Opora Control Center's link to Opora Canvas. Opora plans (areas, sectors,
- * cards, pipelines); from here the office takes its cards, by hand or on the autopilot, and the
+ * cards, pipelines); the office takes its work as tickets from OPORA's heart, a person can take a ready card by hand, and the
  * planner at the room's table plans onto the canvas or routes it.
  */
 export function openOpora(net: Net, actions: OporaActions) {
@@ -115,19 +115,6 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
         ),
       ),
     );
-    // The doing branch: the office takes the cards.
-    const max = h('select.provider-select', { 'aria-label': 'Cards at once' }, ...Array.from({ length: OPORA_LIMITS.maxRuns }, (_, i) => h('option', { value: String(i + 1) }, `${i + 1} at a time`))) as HTMLSelectElement;
-    max.value = String(s.maxRuns);
-    max.addEventListener('change', () => net.send({ t: 'opora.autopilot', on: s.autopilot, maxRuns: Number(max.value) }));
-    parts.push(
-      h(
-        'section.opora-auto',
-        {},
-        h('label.opora-toggle', {}, h('input', { type: 'checkbox', checked: s.handOut, onchange: (e: Event) => net.send({ t: 'opora.handout', on: (e.target as HTMLInputElement).checked }) }), h('b', {}, '🧭 Hand out'), h('span.muted', {}, `the orchestrator's cards go to their department as it lays them out${s.handOutWaiting.length ? ` · ${s.handOutWaiting.length} waiting` : ''}`)),
-        h('label.opora-toggle', {}, h('input', { type: 'checkbox', checked: s.autopilot, onchange: (e: Event) => net.send({ t: 'opora.autopilot', on: (e.target as HTMLInputElement).checked, maxRuns: Number(max.value) }) }), h('b', {}, '🤖 Autopilot'), h('span.muted', {}, 'takes ready cards that have a pipeline, by itself')),
-        max,
-      ),
-    );
     const runs = s.runs.filter((r) => r.state !== 'gone');
     if (runs.length) {
       parts.push(
@@ -173,8 +160,7 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
                 h('span.opora-card-name', {}, `${c.group === 'design' ? '🎨 ' : ''}${c.name}`),
                 h('span.muted', {}, [STATUS_WORDS[c.status], c.stage ?? c.profile, runWords(c.run)].filter(Boolean).join(' · ')),
                 c.run?.humanReview ? h('span.pill', { title: 'Critical risk: a person reviews it in Opora' }, '👤 review') : null,
-                c.run?.handout === false ? h('span.muted', { title: 'Opora’s gauge: too big for one worker' }, OPORA_NO_HANDOUT) : null,
-                c.status === 'frontier' && !held.has(c.id) && c.run?.handout !== false ? h('button.btn.small', { type: 'button', disabled: blocked, title: blocked ? 'Opora waits on a person first (see above)' : 'Claim it on Opora and seat a worker for it', onclick: () => net.send({ t: 'opora.take', cardId: c.id }) }, '▶ Take') : null,
+                c.status === 'frontier' && !held.has(c.id) ? h('button.btn.small', { type: 'button', disabled: blocked, title: blocked ? 'Opora waits on a person first (see above)' : 'Claim it on Opora and seat a worker for it', onclick: () => net.send({ t: 'opora.take', cardId: c.id }) }, '▶ Take') : null,
               ),
             ),
           ),

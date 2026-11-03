@@ -17,7 +17,7 @@ await mkdir(shots, { recursive: true });
 const fixture = {
   connected: true, error: undefined, project: { id: 'cc5f34ec07cd455ca5ad1a69af19022b', name: 'ample (fixture)' }, linkedBy: 'choice', workspace: 'draft',
   projects: [{ id: 'cc5f34ec07cd455ca5ad1a69af19022b', name: 'ample (fixture)' }], workspaces: [{ id: 'draft', label: 'Draft' }], workspaceBy: 'choice',
-  checkedAt: Date.now(), autopilot: true,
+  checkedAt: Date.now(),
   cards: [
     { id: 'c1', name: 'Přihlášení', sectorName: 'Účet', status: 'frontier', group: 'dev', profile: 'code' },
     { id: 'c2', name: 'Úvodní stránka', sectorName: 'Web', status: 'frontier', group: 'design', profile: 'design' },

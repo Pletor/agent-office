@@ -18,8 +18,8 @@ const CARD_WORDS: Record<OporaCard['status'], string> = {
 /**
  * The 🎚️ switchboard's window: the project's architecture in cascading columns (environment →
  * domain → page → subpage), each with its switch. Switching a node on switches on everything above
- * it; off, everything under it. The deepest ones on are what the cell works on: its cards, its
- * autopilot and its planner stay inside them. A name opens its column without switching it.
+ * it; off, everything under it. The deepest ones on are what the cell works on: a person takes cards there and its
+ * planner stays inside them. A name opens its column without switching it.
  */
 export function openScope(net: Net) {
   const close = h('button.btn.close', { 'aria-label': 'Zavřít' }, '✕');

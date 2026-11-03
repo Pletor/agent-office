@@ -81,7 +81,7 @@ test('the layers reader only GETs, as the office, and caches', async () => {
 function opora(focus: string[]): OporaState {
   const scope = buildScope(nodes);
   return { url: 'http://127.0.0.1:8740', connected: true, project: { id: 'p1', name: 'Tajemstvi-opory' }, projects: [], workspace: 'main', workspaces: [], sectors: [], cards: [{ id: 't1', name: '[task] Model průběhu', status: 'frontier', group: 'dev' }],
-    scope, focus, activity: [], runs: [], autopilot: false, handOut: false, handOutWaiting: [], maxRuns: 1, checkedAt: 0, canStart: false, starting: false, embeddable: false };
+    scope, focus, activity: [], runs: [], maxRuns: 1, checkedAt: 0, canStart: false, starting: false, embeddable: false };
 }
 
 test('switching a page on at the switchboard makes it the orchestrator’s card; a domain lets go', async (t) => {

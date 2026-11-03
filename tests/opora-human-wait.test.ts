@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HUMAN_WAIT_LIMITS, HumanWaitNotice, claimsBlockedReason, digestAgentState } from '../src/server/opora/agent-state.js';
+import { HUMAN_WAIT_LIMITS, claimsBlockedReason, digestAgentState } from '../src/server/opora/agent-state.js';
 import { cardsCs, humanWaitItems } from '../src/server/boss-attention/human-wait.js';
 import { readBossAttention } from '../src/server/boss-attention/index.js';
 import { EMPTY_OPORA } from '../src/shared/opora.js';
@@ -75,18 +75,6 @@ test('the digest stays small whatever Canvas sends', () => {
   assert.equal(d.humanWait!.decisions.length, HUMAN_WAIT_LIMITS.decisions);
   assert.equal(d.humanWait!.stages.length, HUMAN_WAIT_LIMITS.stages);
   assert.equal(d.humanWait!.decisions[0].title.length, HUMAN_WAIT_LIMITS.text);
-});
-
-test('the hold-off notice speaks once per wait, and again only after it clears', () => {
-  const said: string[] = [];
-  const n = new HumanWaitNotice((x) => said.push(x));
-  const w = digestAgentState(LIVE).humanWait;
-  assert.equal(n.holds(w, 'Autopilot'), true);
-  assert.equal(n.holds(w, 'Autopilot'), true);
-  assert.equal(said.length, 1);
-  assert.equal(n.holds(undefined, 'Autopilot'), false);
-  n.holds(w, 'Autopilot');
-  assert.equal(said.length, 2);
 });
 
 const linked = (humanWait?: OporaState['humanWait']): OporaState => ({

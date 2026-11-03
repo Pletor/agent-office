@@ -116,11 +116,6 @@ export class OporaClient {
       }));
   }
 
-  /** What's on turn: the root of the canvas, or inside one sector. */
-  frontier(project: string, workspace: string, nodeId?: string): Promise<unknown> {
-    return this.get('/api/desktop-v3/frontier', { project, workspace, ...(nodeId ? { nodeId } : {}) });
-  }
-
   /**
    * One read of Canvas's agent-state: the cards it offers a ready `claim` for (accepted plan steps,
    * budget, no unfinished predecessor), and what waits on a person (agent-state.ts). Throws on a

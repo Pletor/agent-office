@@ -42,7 +42,7 @@ export class OporaScreenTexture {
     g.fillStyle = BG;
     g.fillRect(0, 0, W, H);
     g.textBaseline = 'alphabetic';
-    // Across the top: Opora, the project, and the autopilot.
+    // Across the top: Opora, the project, and how many tickets the office takes at once.
     g.fillStyle = INK;
     g.font = `900 44px ${FONT}`;
     g.textAlign = 'left';
@@ -52,8 +52,8 @@ export class OporaScreenTexture {
     g.fillStyle = s.connected && s.project ? ACCENT : '#ff8787';
     g.fillText(s.project ? `${s.project.name} · ${s.workspace}` : s.connected ? 'not linked to this floor' : 'not running', after, 56);
     g.textAlign = 'right';
-    g.fillStyle = s.autopilot ? ACCENT : MUTED;
-    g.fillText(s.autopilot ? `🤖 autopilot · ${s.maxRuns} at a time` : 'autopilot off', W - 30, 56);
+    g.fillStyle = MUTED;
+    g.fillText(`🎫 tickets · ${s.maxRuns} at a time`, W - 30, 56);
     g.textAlign = 'left';
 
     if (!s.connected || !s.project) {

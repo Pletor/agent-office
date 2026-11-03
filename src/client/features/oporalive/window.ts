@@ -42,14 +42,6 @@ export function openLiveWindow(d: WindowDeps): Modal | undefined {
   const note = (what: string) => { d.notes.add('Ty', what); said.textContent = `Ty ${what}`; d.changed(); };
   const where = (v: PlanView, label?: string) => [v.path.map((n) => n.name).join(' › '), label].filter(Boolean).join(' › ');
 
-  function pause(nodes: NodeView[], label: string) {
-    const o = store.opora;
-    if (o.autopilot) d.net.send({ t: 'opora.autopilot', on: false, maxRuns: o.maxRuns });
-    if (o.handOut) d.net.send({ t: 'opora.handout', on: false });
-    const still = nodes.filter((n) => n.workerId);
-    note(`pozastavil(a) „${label}“: buňka si nové karty nebere${still.length ? `, ${still.map((n) => n.worker).join(', ')} přeruš v terminálu (⎋ Esc)` : ''}`);
-    if (still[0]?.workerId) d.openTerminal(still[0].workerId);
-  }
   function replan(v: PlanView, label: string) {
     d.net.send({ t: 'planning.start', mode: 'opora', goal: `Přeplánuj ${where(v, label)} na canvasu Opory po vrstvách: oblasti → sektory → uzly (karty) uvnitř stránky ${v.name ?? ''}. Drž se jen této cesty.` });
     note(`poslal(a) „${label}“ k přeplánování plánovači u stolu`);
@@ -63,11 +55,9 @@ export function openLiveWindow(d: WindowDeps): Modal | undefined {
 
   function actions(v: PlanView, nodes: NodeView[], label: string): HTMLElement {
     const o = store.opora;
-    const pausable = o.autopilot || o.handOut || nodes.some((n) => n.workerId);
     const planning = store.planning.current?.status === 'planning';
     const free = nodes.some((n) => n.free);
     return h('div.ol-acts', {},
-      h('button.btn.small', { type: 'button', disabled: !pausable, title: pausable ? 'Buňka si přestane brát nové karty; běžící pracovníky přerušíš v jejich terminálu' : 'Nic tu neběží a buňka sama nic nebere', onclick: () => pause(nodes, label) }, '⏸ Pozastavit'),
       h('button.btn.small', { type: 'button', disabled: planning, title: planning ? 'Plánovač u stolu už plánuje' : 'Plánovač u stolu to rozplánuje na canvas Opory', onclick: () => replan(v, label) }, '↻ Přeplánovat'),
       h('button.btn.small', { type: 'button', disabled: !free, title: free ? 'Vzít další volnou kartu: zámek v Opoře a pracovník u stolu' : 'Tady teď žádná volná karta není', onclick: () => addDesk(nodes, label) }, '👤 Přidat stůl'));
   }
@@ -84,7 +74,7 @@ export function openLiveWindow(d: WindowDeps): Modal | undefined {
     const o = store.opora, orch = store.orchestrator;
     const v = planView(o, orch, d.reads.layers);
     const card = o.cards.find((c) => c.id === v.cardId);
-    const next = JSON.stringify([v, card ?? null, o.autopilot, o.handOut, store.planning.current?.status ?? null, d.reads.preview ? 1 : 0]);
+    const next = JSON.stringify([v, card ?? null, store.planning.current?.status ?? null, d.reads.preview ? 1 : 0]);
     if (next !== sig) {
       sig = next;
       title.textContent = v.cardId ? `🛰️ Canvas živě · 🎯 ${v.name}` : '🛰️ Canvas živě';

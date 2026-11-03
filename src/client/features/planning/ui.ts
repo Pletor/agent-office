@@ -72,7 +72,7 @@ function renderPlan(p: Plan, body: HTMLElement, foot: HTMLElement, net: Net, act
     onCanvas && p.status === 'ready'
       ? p.mode === 'router'
         ? '🔀 Routed: the cards it gave a pipeline are ready for the office to take, in the 🛰️ Opora window.'
-        : '🛰️ On the Opora canvas: open Opora to look it over and confirm, and the office takes its cards from the 🛰️ Opora window (or the autopilot does).'
+        : '🛰️ On the Opora canvas: open Opora to look it over and confirm, and the office takes the tickets OPORA’s heart issues for them (or a person takes a card in the 🛰️ Opora window).'
       : p.status === 'planning'
       ? `Asked by ${p.by} ${timeAgo(new Date(p.startedAt).toISOString())}. The tasks show here once the planner ends its turn with them written.`
       : p.status === 'stopped'

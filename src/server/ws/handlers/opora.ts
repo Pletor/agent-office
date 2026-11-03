@@ -1,4 +1,4 @@
-// The bridge to Opora Canvas: reading the canvas again, taking a card, the autopilot, linking the floor to a project and its workspace, and starting Opora.
+// The bridge to Opora Canvas: reading the canvas again, taking a card, linking the floor to a project and its workspace, and starting Opora.
 import type { OporaClientMsg } from '../../../shared/protocol.js';
 import { EMPTY_OPORA } from '../../../shared/opora.js';
 import { str } from '../../office/input.js';
@@ -19,19 +19,6 @@ export const oporaHandlers = {
     ctx.withSignIn(c, ctx.claudeFor(floor.workers.officeDefault.provider), () => {
       void floor.opora.take(str(msg.cardId, 64), c.peer.name, c.accountId).then((err) => ctx.warn(c, err));
     });
-  },
-  'opora.autopilot'(ctx, c, msg) {
-    const floor = here(ctx, c);
-    if (!floor) return;
-    const max = typeof msg.maxRuns === 'number' ? msg.maxRuns : undefined;
-    if (msg.on !== true) return floor.opora.setAutopilot(false, max, c.peer.name);
-    // The cards it takes run on the sign-ins of whoever put it on.
-    ctx.withSignIn(c, ctx.claudeFor(floor.workers.officeDefault.provider), () => floor.opora.setAutopilot(true, max, c.peer.name, c.accountId));
-  },
-  'opora.handout'(ctx, c, msg) {
-    const floor = here(ctx, c);
-    if (!floor) return;
-    floor.opora.setHandOut(msg.on === true, c.peer.name);
   },
   'opora.link'(ctx, c, msg) {
     const floor = here(ctx, c);

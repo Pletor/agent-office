@@ -1,7 +1,7 @@
 # Optional isolated Opora executions
 
 The isolated executor is a separate, explicitly selected execution path. The
-existing desk workers, handout and autopilot keep their current local path.
+existing desk workers (tickets and a person's Take) keep their current local path.
 Missing configuration makes the isolated path unavailable before a Canvas claim;
 it never selects a host CLI as a fallback.
 

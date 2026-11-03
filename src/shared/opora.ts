@@ -2,14 +2,12 @@
 // Opora's answers. Opora plans (project → area → sector → card); the office carries the cards out.
 
 import type { DeskLabel } from './floorplan.js';
-import type { OporaCard, OporaCardStatus, OporaGroup, OporaState } from './protocol/opora.js';
+import type { OporaGroup, OporaState } from './protocol/opora.js';
 
 /** Where Opora listens when nobody says (`uv run opora`'s default). */
 export const OPORA_DEFAULT_URL = 'http://127.0.0.1:8740';
-/** The most cards the office works on at once from Opora, and the default. */
+/** The most tickets the office works on at once from Opora, and the default. */
 export const OPORA_LIMITS = { maxRuns: 8, defaultRuns: 2 } as const;
-/** Why a card Opora's gauge sizes XL (`run.handout: false`) isn't handed to a worker (Opora metriky-a-spoustece §3). */
-export const OPORA_NO_HANDOUT = 'XL – srdce ji rozdělí';
 
 export const EMPTY_OPORA: OporaState = {
   url: OPORA_DEFAULT_URL,
@@ -24,9 +22,6 @@ export const EMPTY_OPORA: OporaState = {
   focus: [],
   activity: [],
   runs: [],
-  autopilot: false,
-  handOut: true,
-  handOutWaiting: [],
   maxRuns: OPORA_LIMITS.defaultRuns,
   checkedAt: 0,
   canStart: false,
@@ -72,46 +67,6 @@ export function deskFor(group: OporaGroup, sectorName: string | undefined, desks
 export function sameDir(a: string, b: string): boolean {
   const norm = (p: string) => p.replace(/[\\/]+/g, '/').replace(/\/$/, '');
   return /^[a-z]:/i.test(a) || /^[a-z]:/i.test(b) ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
-}
-
-const STATUSES: readonly OporaCardStatus[] = ['frontier', 'claimed', 'blocked', 'waiting', 'closed', 'needsRouting'];
-
-interface FrontierRow {
-  id?: unknown;
-  name?: unknown;
-  pipeline?: { profile?: unknown; current?: unknown } | null;
-}
-
-/**
- * The cards in one `frontier` answer, each in the group it's listed in. A card listed twice (a free
- * card with no pipeline is in `frontier` and `needsRouting`) keeps the first. `isCard` leaves out
- * sectors and areas, which the root frontier lists too.
- */
-export function frontierCards(answer: unknown, isCard: (id: string) => boolean, sector?: { id: string; name: string }): OporaCard[] {
-  const out: OporaCard[] = [];
-  const seen = new Set<string>();
-  if (!answer || typeof answer !== 'object') return out;
-  for (const status of STATUSES) {
-    const rows = (answer as Record<string, unknown>)[status];
-    if (!Array.isArray(rows)) continue;
-    for (const row of rows as FrontierRow[]) {
-      const id = typeof row?.id === 'string' ? row.id : '';
-      if (!id || seen.has(id) || !isCard(id)) continue;
-      seen.add(id);
-      const profile = typeof row.pipeline?.profile === 'string' ? row.pipeline.profile : undefined;
-      const stage = typeof row.pipeline?.current === 'string' ? row.pipeline.current : row.pipeline?.current && typeof row.pipeline.current === 'object' ? String((row.pipeline.current as { id?: unknown; label?: unknown }).label ?? (row.pipeline.current as { id?: unknown }).id ?? '') || undefined : undefined;
-      out.push({
-        id,
-        name: typeof row.name === 'string' && row.name.trim() ? row.name.trim().slice(0, 200) : 'Card',
-        ...(sector ? { sectorId: sector.id, sectorName: sector.name } : {}),
-        status,
-        ...(profile ? { profile } : {}),
-        ...(stage ? { stage } : {}),
-        group: cardGroup(profile),
-      });
-    }
-  }
-  return out;
 }
 
 /** The browser tab Opora opens in from the office, by name, so opening it again goes back to the same tab. */
