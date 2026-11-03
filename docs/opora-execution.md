@@ -84,10 +84,6 @@ a Claude worker is. `--advisor` is a hidden Claude Code flag (`claude --help` do
 it; the CLI accepts `--advisor <model>`). An unknown model in `run` falls back to the O10
 table's for the effort; a `run` without a known effort counts as missing.
 
-- **XL (`handout: false`)** is never handed to a worker: the heart splits it. The 🛰️ Opora
-  window shows *XL – srdce ji rozdělí* instead of ▶ Take, a Take answers the same before any
-  claim, the autopilot passes the card over and the hand-out says so once and goes on. Should
-  only the claimed assignment say XL, the fresh claim is released before any worker starts.
 - **`humanReview: true`** (critical risk) only puts a 👤 review mark on the card; the review
   itself stays Opora's.
 
@@ -253,10 +249,10 @@ A shape Canvas would refuse is refused locally with what to fix. If this run sto
 early, the next run of the card starts at the first unfinished step (see
 [handoff and resume](#handoff-and-resume)). Code: `src/server/opora/execution-step.ts`.
 
-Readiness follows Canvas, not the old desktop-v3 pipeline: on each read the office also asks
-`GET /api/oporahub/agent-state` which cards have a `claim` action `ready` (accepted steps, budget,
-no unfinished predecessor over a `next` edge), and the 🤖 autopilot takes those as well as routed
-cards. A Canvas without agent-state leaves the autopilot on routed cards only.
+Readiness follows Canvas: on each read the office asks `GET /api/oporahub/agent-state` which cards
+have a `claim` action `ready` (accepted steps, budget, no unfinished predecessor over a `next` edge);
+those are the cards the 🛰️ Opora window lists for a person's ▶ Take. By itself the office takes only
+[tickets](#tickets).
 A claim whose preconditions carry `contextProtocolVersion: 2` (a card with an accepted Harness
 kit) counts as ready only when the office runs with `AGENT_OFFICE_OPORA_CONTEXT_VERSION=2`.
 
@@ -273,8 +269,7 @@ cards held back)*, with the stages under it and **↗ Decide in Opora** to the p
 
 While there's no accepted baseline, no card can be claimed at all, so the office doesn't try:
 ▶ Take is off on every card (and a take sent anyway is refused with the same reason, before any
-claim), and the 🤖 autopilot and the 🧭 hand-out hold off with one toast each, said again only after
-the wait clears and comes back, instead of failing at claim card by card every poll. A changeset
+claim). A changeset
 wait leaves claims open: the line shows, and the cards Canvas offers stay takeable. The boss board
 lists each decision as a request for the boss ([Boss Office](boss-attention.md)). Code:
 `src/server/opora/agent-state.ts`, `src/client/features/opora/human-wait.ts`;
@@ -284,6 +279,31 @@ A card without steps (an older Canvas, or a legacy accepted spec) gets the old p
 and any `stepResults` in its result are left out. Code: `src/server/opora/plan-steps.ts`,
 used by `execution-prompt.ts`, `execution-worker.ts`, `pull-request-body.ts` and, for the
 [isolated broker](opora-isolated-execution.md), `isolated-service.ts` and `isolated-reports.ts`.
+
+## Tickets
+
+The office takes work only as tickets from OPORA's heart, through its brain gate (Canvas
+`docs/navrhy/2026-11-03-novy-zaklad.md` §3.3; code `src/server/opora/ticket-gate.ts`, `ticket-feedback.ts`, used by
+`bridge.ts`). OPORA holds one ticket per worker session and shows it again on every `ticket.request` until
+it's verified, so the office asks for new work in a lobby session that never takes one, and each ticket gets
+a session of its own (`POST /api/gate/sessions`, the token in memory only, opened again on 401 or expiry).
+On each poll:
+
+1. `ticket.request {}` in the lobby: the oldest issued ticket, or none. No ticket, no work.
+2. Room first: under the limit of runs at once and a desk free, or the ticket stays issued for a later poll.
+3. The card's execution starts (`machine.cardId`, the claim above), then `ticket.claim {ticketId, executionId}`.
+   A 409 (`ticket_execution`, `ticket_state`) or any failure before the worker sits down gives the execution back,
+   and a ticket already claimed goes back with `ticket.release`.
+4. The worker's prompt carries the ticket's body without ids (essence, what to build, open paths for successors,
+   what to watch out for, pinned skills, when it's done) and the helper's `feedback KIND TEXT` command. The helper
+   queues the item in `opora-executions/<executionId>-feedback.jsonl`; the office sends it as `ticket.feedback` and
+   writes the ticket's feedback with the heart's answers to `<executionId>-ticket.json`, which `feedback` prints.
+5. After the hand-off (the pull request is out), `ticket.deliver {ticketId, summary, sha}` with the result's
+   summary and the head commit; an open question is a 409 `ticket_state`, delivered at a later hand-off. From
+   there OPORA moves the ticket on by itself (`verified`, `closed`, `failed`).
+
+The run keeps its `ticketId` in `.agent-office/opora.json`. A ticket session's token isn't kept, so after a
+restart the office can't feedback or deliver a ticket it held before (OPORA answers `ticket_not_held`).
 
 ## Pull request handoff
 
@@ -311,11 +331,6 @@ result, on each 20-second poll and before the lease is released:
    execution and head commit, so a retry is the same request. 404 (Canvas without
    the endpoint) is logged and the trailers let Canvas discover the PR later; 409 is
    logged as a conflict and not retried.
-
-Once a run of the floor has reported a result for a card, the 🤖 autopilot and the
-orchestrator's hand-out leave that card alone: Canvas shows it free again while its pull
-request waits for review and merge, and taking it again would do the same work twice. A
-person can still take it with **▶ Take** (after accepting a changed plan, say).
 
 What became of each head commit is kept in `<executionId>-pull-request.json`, so the
 same commit is never pushed or linked twice; a later commit updates the same PR and

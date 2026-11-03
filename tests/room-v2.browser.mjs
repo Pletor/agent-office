@@ -1,7 +1,7 @@
 // The planning room v2 ("Místnost – rozložení") in a real browser, on live Opora data: the 🎚️ switchboard
 // over the whole north glass, a page switched on there flying over to the purple board as the
 // orchestrator's card (the pick-flow sequence), the purple board's plan by layers (area → sector → node)
-// with its window (Pozastavit / Přeplánovat / Přidat stůl) and the design card on it, and the ledge's
+// with its window (Přeplánovat / Přidat stůl) and the design card on it, and the ledge's
 // detail. Run a built office with a temporary project and ROOM_PASSWORD on port 4695 whose
 // AGENT_OFFICE_OPORA_URL is a read-only (GET) way to an Opora that has ROOM_PROJECT; then:
 //   node --import tsx tests/room-v2.browser.mjs

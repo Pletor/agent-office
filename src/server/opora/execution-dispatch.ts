@@ -1,7 +1,8 @@
 import path from 'node:path';
 import type { WorkerInfo } from '../../shared/protocol.js';
 import type { WorkerLaunchGuard } from '../workers/launch-guards.js';
-import { assignmentModel, NO_HANDOUT_REASON, runOf, type CardModel } from './card-model.js';
+import { assignmentModel, type CardModel } from './card-model.js';
+import type { TicketBody } from './ticket-gate.js';
 import { verifyWorkerReadiness, type PreparedWorker } from './execution-worker-readiness.js';
 import { ExecutionClient, validateExecution, type ExecutionLease, type ExecutionScope } from './execution-client.js';
 import { ExecutionController } from './execution-controller.js';
@@ -15,6 +16,9 @@ import { emitProcess, processHub } from '../process/hub.js';
 import { recoverStoredResult } from './execution-recovery.js';
 import { applyResume, resumePlan, type EarlierRun, type ResumePlan } from './execution-resume.js';
 import { claimEvent, handoffEvent, releaseEvent } from '../process/opora-events.js';
+
+/** A ticket the execution is for: its body for the prompt, and the gate claim that binds it to the execution (ticket-gate.ts). */
+export interface ExecutionTicket { body: TicketBody; bind(executionId: string): Promise<void> }
 
 export interface ExecutionHeld { workerId?: string; execution?: ExecutionLease; deadlineUnixMs?: number; leaseUntil?: string; state?: string;
   /** The worker and the branch (and base commit) its worktree was on, so a later run of the card can pick up its step commits (execution-resume.ts). */
@@ -95,7 +99,9 @@ export class ExecutionDispatch {
   };
   async dispatch(scope: ExecutionScope, prepare: () => Promise<string>, seat: (prompt: string, cardModel?: CardModel) => WorkerInfo | string, decorate: (prompt: string) => string = value => value,
     /** A design card's addendum (design-brief.ts), read before the claim like `prepare`. */
-    design: () => Promise<string> = async () => '', prepareWorker?: () => Promise<PreparedWorker>) {
+    design: () => Promise<string> = async () => '', prepareWorker?: () => Promise<PreparedWorker>,
+    /** The ticket the execution is for: claimed for the execution right after its start, before the worker sits down. */
+    ticket?: ExecutionTicket) {
     return this.controller.guarded(scope, async () => {
       const context = this.contextVersion === 2 ? '' : await prepare();
       const brief = await design().catch(() => '');
@@ -106,11 +112,11 @@ export class ExecutionDispatch {
         let seatedId: string | undefined;
         try {
           prepared(grant.lease);
-          // An XL card (`run.handout: false`) is the heart's to split, never a worker's: its lease goes back.
-          if (runOf(grant.lease.assignment)?.handout === false) throw new Error(NO_HANDOUT_REASON);
+          // A gate refusal (409 ticket_execution or ticket_state) gives the execution back below.
+          await ticket?.bind(grant.lease.executionId);
           await verifyWorkerReadiness(this.controller, grant, reserved);
           const resume = this.resumePlan(grant.lease);
-          const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief, resume);
+          const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief, resume, ticket?.body);
           const prompt = (this.contextVersion === 2 ? immutablePrompt : decorate(immutablePrompt)).trim();
           this.seating = { ...grant, prompt, resume };
           let worker: WorkerInfo | string, unpicked: ResumePlan | undefined;

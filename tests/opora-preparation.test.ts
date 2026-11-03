@@ -62,22 +62,6 @@ test('claim refusal cancels the prepared reservation without attempting a worker
   } finally { dispatch.controller.shutdown(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('an XL assignment (run.handout: false) is released after the claim and no worker starts', async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'office-xl-'));
-  const dispatch = new ExecutionDispatch('http://localhost:1', 'office', dir, () => [], () => {}, () => {});
-  let cancelled = 0;
-  try {
-    dispatch.controller.claim = async () => {
-      const granted = lease();
-      granted.assignment = { ...granted.assignment, run: { label: 'XL', effort: 'xhigh', model: 'sonnet', advisor: 'opus', handout: false, humanReview: false } };
-      return { lease: granted, deadline: performance.now() + 10_000 };
-    };
-    await assert.rejects(dispatch.dispatch(scope, async () => '', () => { throw new Error('must not seat'); }, undefined, undefined,
-      async () => ({ start: () => { throw new Error('must not start'); }, cancel: async () => { cancelled++; return {}; } })), /XL – srdce ji rozdělí/);
-    assert.equal(cancelled, 1);
-  } finally { dispatch.controller.shutdown(); rmSync(dir, { recursive: true, force: true }); }
-});
-
 test('the claimed assignment run is what the worker is seated with', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-run-'));
   const dispatch = new ExecutionDispatch('http://localhost:1', 'office', dir, () => [], () => {}, () => {});

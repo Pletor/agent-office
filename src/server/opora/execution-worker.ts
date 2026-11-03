@@ -10,6 +10,7 @@ import { commitsFromLog, pinnedSteps, withStepCommits } from './plan-steps.js';
 import { parseStepArgs, reportStep, StepShapeError } from './execution-step.js';
 import { findLensSpec, prLensEnabled } from './pr-lens.js';
 import { deliverResult, SUBMIT_ATTEMPTS, submitTimeoutMs } from './execution-submit.js';
+import { queueFeedback, readNotes } from './ticket-feedback.js';
 
 /** A result the helper refuses before sending anything, with what to fix; the same file can then be corrected. */
 export class ResultShapeError extends Error {}
@@ -104,7 +105,11 @@ export async function reportExecution(bundlePath: string, resultPath: string, tr
   return { receiptId: receipt.receiptId, executionId: bundle.executionId, state: 'reported', verification: 'agent-reported; not independently verified' };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[3] === 'step') {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[3] === 'feedback') {
+  // A ticket's feedback for OPORA's heart (ticket-feedback.ts): `feedback KIND TEXT` queues one, `feedback` alone prints the answers.
+  try { process.stdout.write(JSON.stringify(process.argv[4] ? queueFeedback(process.argv[2], process.argv[4], process.argv.slice(5).join(' ')) : readNotes(process.argv[2])) + '\n'); }
+  catch (error) { process.stderr.write((error as Error).message + '\n'); process.exitCode = 1; }
+} else if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[3] === 'step') {
   Promise.resolve().then(() => reportStep(process.argv[2], parseStepArgs(process.argv.slice(4)), fetch, worktreeLog))
     .then(receipt => process.stdout.write(JSON.stringify(receipt) + '\n'))
     .catch((error) => { if (error instanceof StepShapeError) { process.stderr.write(error.message + '\n'); process.exitCode = 1; return; }

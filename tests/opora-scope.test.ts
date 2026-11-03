@@ -145,7 +145,7 @@ async function fakeOpora(t: { after(fn: () => void): void }) {
       if (url.pathname === '/api/bootstrap') return send({ projects: [{ id: 'p1', name: 'Tajemství opory', sourcePath: dir }] });
       if (url.pathname === '/api/project-workspaces') return send({ workspaces: [{ id: 'main', label: 'main' }] });
       if (url.pathname === '/api/view') return send({ graph: { nodes: [...view, ...cards.filter((c) => !view.some((n) => n.id === c.id)).map((c) => ({ id: c.id, kind: 'node', name: c.name, parentId: 'oracle' }))] } });
-      if (url.pathname === '/api/desktop-v3/frontier') return send({ frontier: url.searchParams.get('nodeId') ? cards : [] });
+      if (url.pathname === '/api/oporahub/agent-state') return send({ actions: cards.map((c) => ({ verb: 'claim', status: 'ready', targetId: c.id })) });
       if (url.pathname === '/api/activity-log') return send({ entries: [{ id: 7, at: new Date().toISOString(), actor: 'agent', agent: 'planner-1', method: 'POST', path: '/api/canvas-plan', nodeIds: ['namiru'], status: 200 }] });
       if (url.pathname === '/api/desktop-v3/lease') return send({ token: 'tok', expiresAt: '2030-01-01T00:00:00Z' });
       send({ status: 'ok' });
@@ -190,7 +190,7 @@ async function fakeOpora(t: { after(fn: () => void): void }) {
   };
 }
 
-test('the cell takes only cards in its focus, by hand and on the autopilot, and keeps the focus across a restart', async (t) => {
+test('a person takes only cards in the cell’s focus, and the focus stays across a restart', async (t) => {
   const f = await fakeOpora(t);
   const bridge = await f.open();
   assert.equal(f.state().scope.length, 8, '2 environments, 3 domains, 3 pages and subpages');
@@ -198,9 +198,8 @@ test('the cell takes only cards in its focus, by hand and on the autopilot, and 
   assert.match(bridge.switchFocus('nope', true, false, 'Ana')!, /isn’t in the project’s architecture/);
   assert.deepEqual(focusLeaves(f.state().scope, f.state().focus), ['namiru']);
   assert.match((await bridge.take('chat', 'Ana'))!, /outside what the cell works on/);
-  bridge.setAutopilot(true, 3, 'Ana');
-  await new Promise((r) => setTimeout(r, 50));
-  await bridge.poll();
+  assert.equal(await bridge.take('namiru', 'Ana'), undefined);
+  assert.equal(await bridge.take('lost', 'Ana'), undefined);
   // Orphan's parent isn't on the canvas: unplaced, so no switch turns it off (cardInFocus).
   assert.deepEqual(f.workers.map((w) => w.prompt?.match(/; card: ([^.]+)\./)?.[1]), ['namiru', 'lost']);
   assert.equal(bridge.focusLine(), 'Vývoj › Aplikace (app.tajemstviopory.dev) › Oracle › Na míru');
@@ -216,44 +215,12 @@ test('a focus that left the architecture takes nothing, rather than the whole pr
   // As if Na míru, Oracle and the dev domain were removed from the canvas.
   (bridge as unknown as { focus: string[] }).focus = ['gone-1', 'gone-2'];
   assert.match((await bridge.take('chat', 'Ana'))!, /isn’t in the project’s architecture any more/);
-  bridge.setAutopilot(true, 3, 'Ana');
-  await new Promise((r) => setTimeout(r, 50));
   await bridge.poll();
   assert.equal(f.workers.length, 0);
   assert.match(f.state().error ?? '', /switchboard/);
   // The whole project again, by hand: then it takes.
   assert.equal(bridge.switchFocus(null, false, false, 'Ana'), undefined);
   assert.equal(await bridge.take('chat', 'Ana'), undefined);
-});
-
-test('cards the orchestrator lays out go to their department at once, and cards that were there before stay put', async (t) => {
-  const f = await fakeOpora(t);
-  const bridge = await f.open();
-  assert.equal(f.state().handOut, true, 'on by default');
-  // Ready cards that were on the canvas before the orchestrator sat down aren't its.
-  f.orchestrate({ by: 'Ana', owner: 'acct-ana' });
-  await bridge.poll();
-  assert.equal(f.workers.length, 0);
-  // It lays out two cards under Oracle: both are handed out, on Ana's plan.
-  f.cards.push({ id: 'anim', name: 'Fix the Na míru animation', pipeline: { profile: 'design' } }, { id: 'api', name: 'Stream the answer', pipeline: { profile: 'code' } });
-  await bridge.poll();
-  assert.deepEqual(f.workers.map((w) => [w.prompt?.match(/; card: ([^.]+)\./)?.[1], w.createdBy]), [['anim', 'Ana'], ['api', 'Ana']]);
-  assert.deepEqual(f.state().handOutWaiting, []);
-  // With the orchestrator gone, a new card waits for a person (or the autopilot).
-  f.orchestrate(undefined);
-  f.cards.push({ id: 'later', name: 'Later card', pipeline: { profile: 'code' } });
-  await bridge.poll();
-  assert.equal(f.workers.length, 2);
-});
-
-test('with hand-out off, the orchestrator’s cards wait for a person', async (t) => {
-  const f = await fakeOpora(t);
-  const bridge = await f.open();
-  bridge.setHandOut(false, 'Ana');
-  f.orchestrate({ by: 'Ana' });
-  f.cards.push({ id: 'anim', name: 'Fix the animation', pipeline: { profile: 'design' } });
-  await bridge.poll();
-  assert.equal(f.workers.length, 0);
 });
 
 test('what the agents did on the canvas comes along for the live board', async (t) => {

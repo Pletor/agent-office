@@ -1,15 +1,11 @@
 import { isAgentEffort, isClaudeModel, type AgentEffort } from '../../shared/providers.js';
 import type { OporaCardRun } from '../../shared/protocol/opora.js';
-import { OPORA_NO_HANDOUT } from '../../shared/opora.js';
 
 /**
  * The model, effort and advisor a card's worker starts on (Opora brain-heart-orchestrator §12, O10). `fromRun`: it is
  * the assignment's `run` (Opora metriky-a-spoustece §3), which wins over the floor's default; otherwise it only fills gaps.
  */
 export interface CardModel { model: string; effort: AgentEffort; advisor?: string; fromRun?: true }
-
-/** Why a card whose `run` says `handout: false` (label XL) is not handed to a worker. */
-export const NO_HANDOUT_REASON = OPORA_NO_HANDOUT;
 
 /** The run profile Opora pins in an assignment (`assignment.run`) and shows on a card (`gauge.run` in agent-state). */
 export type CardRun = OporaCardRun;

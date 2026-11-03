@@ -11,13 +11,10 @@
 .opora-embed { margin: 8px 0 0; font-size: 13px; font-weight: 700; color: var(--muted); }
 .opora-embed code { font-size: 12px; background: #fff; border: 1px solid var(--ink); border-radius: 6px; padding: 0 4px; }
 .opora-error { color: var(--bad); font-weight: 700; font-size: 13px; }
-.opora-plan, .opora-auto { background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
+.opora-plan { background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 8px 12px; margin-top: 10px; }
 .opora-plan h3 { margin-top: 2px; }
 .opora-plan p { margin: 0 0 8px; }
 .opora-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-.opora-auto { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.opora-window .opora-toggle { display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer; }
-.opora-toggle input { width: 18px; height: 18px; accent-color: #38d9a9; }
 .opora-runs, .opora-cards { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-direction: column; gap: 5px; }
 .opora-runs li, .opora-cards li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #fff; border: 2px solid var(--ink); border-left-width: 6px; border-left-color: #38d9a9; border-radius: 10px; padding: 5px 10px; }
 .opora-runs li.design, .opora-cards li.design { border-left-color: #9b5de5; }
