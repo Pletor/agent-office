@@ -100,6 +100,9 @@ test('a PR behind its base with open findings on a reviewed head is fixed first,
   assert.deepEqual(await pass(f, t), [{ number: 7, state: 'fixed' }]);
   assert.equal(f.fixes.length, 1);
   assert.ok(!f.git.some((a) => a[0] === 'rebase'), 'the rebase waits for the next pass');
+  // GATE-002: the fix worktree merges the base first, so the fixer and the checks see the base's code.
+  const merge = f.git.findIndex((a) => a[0] === 'merge' && a.at(-1) === BASE);
+  assert.ok(merge > 0 && merge < f.git.findIndex((a) => a[0] === 'commit'), 'base merged before the fix commit');
   // Without findings to fix it rebases as before.
   const clean = fakes({ review: () => listing([job()], []) });
   const cleanGit = clean.tools.git;
@@ -107,6 +110,26 @@ test('a PR behind its base with open findings on a reviewed head is fixed first,
   await pass(clean, t);
   assert.equal(clean.fixes.length, 0);
   assert.ok(clean.git.some((a) => a[0] === 'rebase'));
+});
+
+test('behind its base: a conflicting merge is aborted and the fix goes onto the head; a finding the base settled pushes the merge alone', async t => {
+  const behind = (f: ReturnType<typeof fakes>, conflict = false) => {
+    const git = f.tools.git;
+    f.tools.git = async (args, cwd) => {
+      if (args[0] === 'merge-base') throw new Error('not an ancestor');
+      if (args[0] === 'merge' && args[1] !== '--abort' && conflict) { f.git.push(args); throw new Error('CONFLICT'); }
+      return git(args, cwd);
+    };
+    return f;
+  };
+  const conflicted = behind(fakes(), true);
+  assert.deepEqual(await pass(conflicted, t), [{ number: 7, state: 'fixed' }]);
+  assert.ok(conflicted.git.some((a) => a[0] === 'merge' && a[1] === '--abort'));
+  assert.equal(commits(conflicted.git).length, 1);
+  const settled = behind(fakes({ edits: false }));
+  assert.deepEqual(await pass(settled, t), [{ number: 7, state: 'fixed' }]);
+  assert.equal(commits(settled.git).length, 0, 'no empty fix commit');
+  assert.equal(pushes(settled.git).length, 1, 'the merge is pushed for the next review round');
 });
 
 test('a fix whose checks fail is not pushed; the second failure leaves it to a human', async t => {

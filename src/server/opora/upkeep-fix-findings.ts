@@ -13,6 +13,10 @@ import { throwaway, type Say, type UpkeepLedger, type UpkeepTools } from './upke
  * throwaway worktree at the head, the office commits (`fix(review): …`, an `Opora-Finding:` trailer
  * per finding), the check command has to pass, and the push is a fast-forward leased on the head it
  * read. The new head then gets Canvas's next review round, which says whether the findings are fixed.
+ * A PR behind its base gets the base merged into that worktree first (GATE-002: a fix written against a stale
+ * head added a route the base already had), so the fixer reads and the checks run on what the merge will be;
+ * a conflicting merge is dropped and the fix goes onto the head alone. A finding the base already settled
+ * then needs no edit: the merge alone is pushed and the next review round decides.
  * One set of findings gets `attemptsPerHead` attempts in all (a push whose next round still finds
  * them open counts as one); after that the PR is left to a person: a comment and `opora-needs-human`,
  * kept while those findings stay open. It shares the conflict resolver's hourly budget and never merges.
@@ -45,12 +49,23 @@ export interface FixHost {
   comment(repository: string, repo: string, n: number, body: string): Promise<void>;
 }
 
+/** Merges the base into the fix worktree; a conflict is aborted and reported as false (the fix then goes onto the head). */
+async function mergeBase(git: UpkeepTools['git'], dir: string, baseSha: string, baseRef: string): Promise<boolean> {
+  try {
+    await git(['merge', '--no-edit', '-q', '-m', `Merge ${baseRef} into the PR before fixing review findings`, baseSha], dir);
+    return true;
+  } catch {
+    await git(['merge', '--abort'], dir).catch(() => undefined);
+    return false;
+  }
+}
+
 export class FindingFixes {
   constructor(private config: UpkeepConfig, private tools: UpkeepTools, private ledger: UpkeepLedger,
     private say: Say, private budget: HourlyBudget, private host: FixHost) {}
 
   /** The outcome for a current PR when its findings are this step's business; undefined: it's simply current. */
-  async maintain(repository: string, repo: string, treeRoot: string, pr: OporaPr, headSha: string, noticed: boolean): Promise<UpkeepOutcome | undefined> {
+  async maintain(repository: string, repo: string, treeRoot: string, pr: OporaPr, headSha: string, noticed: boolean, baseSha?: string): Promise<UpkeepOutcome | undefined> {
     const { fix, reviews, git } = this.tools;
     if (!this.config.fixFindings || !fix || !reviews) return undefined;
     const n = pr.number;
@@ -79,12 +94,16 @@ export class FindingFixes {
     let tree: Awaited<ReturnType<typeof throwaway>> | undefined;
     try {
       tree = await throwaway(git, repo, treeRoot, `pr-${n}-fix`, headSha);
+      const merged = baseSha ? await mergeBase(git, tree.dir, baseSha, pr.baseRefName) : false;
       try {
         await fix({ cwd: tree.dir, prompt: fixPrompt(pr, headSha, findings) });
       } catch (e) { return await failed(`the fixer couldn't fix them: ${(e as Error).message}`); }
-      if (!(await git(['status', '--porcelain'], tree.dir)).trim()) return await failed('the fixer changed nothing');
-      await git(['add', '-A'], tree.dir);
-      await git(['commit', '-q', '-m', fixCommitMessage(findings)], tree.dir);
+      const edited = !!(await git(['status', '--porcelain'], tree.dir)).trim();
+      if (!edited && !merged) return await failed('the fixer changed nothing');
+      if (edited) {
+        await git(['add', '-A'], tree.dir);
+        await git(['commit', '-q', '-m', fixCommitMessage(findings)], tree.dir);
+      }
       let check = await this.tools.check(this.config.checkCommand, tree.dir);
       if (!check.ok) check = await this.tools.check(this.config.checkCommand, tree.dir);
       if (!check.ok) {
