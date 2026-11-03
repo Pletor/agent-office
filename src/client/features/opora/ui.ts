@@ -130,6 +130,7 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
               h('b', {}, r.cardName),
               h('span.muted', {}, [r.sectorName, r.group === 'design' ? '🎨 design' : '💻 dev', r.workerName, r.workspace && r.workspace !== s.workspace ? `in ${workspaceName(s, r.workspace)}` : ''].filter(Boolean).join(' · ')),
               w ? h('span.pill', { class: w.paused ? 'paused' : w.status, ...(w.paused ? { title: w.paused.line } : {}) }, workerStatusText(w, STATUS_LABEL)) : null,
+              r.pins?.length ? h('span.muted.opora-pins', { title: 'Brain pins: plugins its Claude session loads' }, `📌 ${r.pins.join(', ')}`) : null,
               r.error ? h('span.opora-error', { title: r.error }, '⚠️ lease') : null,
               w ? h('button.btn.small', { type: 'button', onclick: () => actions.openTerminal(w.id) }, '🖥️ Terminal') : null,
             );

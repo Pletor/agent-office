@@ -5,7 +5,9 @@ import type { OporaCardRun } from '../../shared/protocol/opora.js';
  * The model, effort and advisor a card's worker starts on (Opora brain-heart-orchestrator §12, O10). `fromRun`: it is
  * the assignment's `run` (Opora metriky-a-spoustece §3), which wins over the floor's default; otherwise it only fills gaps.
  */
-export interface CardModel { model: string; effort: AgentEffort; advisor?: string; fromRun?: true }
+export interface CardModel { model: string; effort: AgentEffort; advisor?: string; fromRun?: true;
+  /** The zips of the ticket's Brain pins (brain-pins.ts): Claude's `--plugin-dir` for each, other agents skip them. */
+  pluginDirs?: string[] }
 
 /** The run profile Opora pins in an assignment (`assignment.run`) and shows on a card (`gauge.run` in agent-state). */
 export type CardRun = OporaCardRun;
@@ -58,7 +60,7 @@ export function assignmentModel(assignment: unknown): CardModel {
 }
 
 /** The fields of a worker the card's choice may fill. */
-export interface CardModelTarget { provider?: string; model?: string; effort?: AgentEffort; advisor?: string }
+export interface CardModelTarget { provider?: string; model?: string; effort?: AgentEffort; advisor?: string; pluginDirs?: string[]; name?: string }
 
 /**
  * Fills `target` from `choice` for a Claude worker only. A choice from the card's `run` sets model, effort and advisor
@@ -66,7 +68,12 @@ export interface CardModelTarget { provider?: string; model?: string; effort?: A
  * as the floor's default) stays, and then the card's advisor is not added to it.
  */
 export function fillCardModel(target: CardModelTarget, choice: CardModel): void {
-  if (target.provider !== 'claude') return;
+  if (target.provider !== 'claude') {
+    // Only Claude Code loads a plugin for one session: the others start without the pins, and the log says so.
+    if (choice.pluginDirs?.length) console.warn(`[opora] ${target.name ?? 'worker'} (${target.provider ?? 'no provider'}): Brain pins skipped, only Claude takes --plugin-dir: ${choice.pluginDirs.map(d => d.replace(/^.*[\\/]/, '').replace(/\.zip$/, '')).join(', ')}`);
+    return;
+  }
+  if (choice.pluginDirs?.length) target.pluginDirs = choice.pluginDirs;
   if (choice.fromRun) {
     target.model = choice.model;
     target.effort = choice.effort;

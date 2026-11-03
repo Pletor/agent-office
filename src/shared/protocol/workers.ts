@@ -37,6 +37,8 @@ export interface WorkerInfo {
   effort?: AgentEffort;
   /** Model the Claude CLI consults as its advisor (`--advisor`), set for an Opora card's worker by the card's effort. */
   advisor?: string;
+  /** The zips of an OPORA ticket's Brain pins its Claude session loads (`--plugin-dir` each, opora/brain-pins.ts). */
+  pluginDirs?: string[];
   deskId: string;
   name: string;
   color: string;

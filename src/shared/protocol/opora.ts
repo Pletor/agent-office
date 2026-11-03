@@ -86,6 +86,8 @@ export interface OporaRun {
   leaseUntil?: string;
   /** The Opora workspace its lease is in, which it keeps when the floor moves to another (older saved runs have none). */
   workspace?: string;
+  /** The Brain pins of its OPORA ticket, as `plugin@sha12` (opora/brain-pins.ts). */
+  pins?: string[];
   error?: string;
 }
 

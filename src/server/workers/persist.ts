@@ -28,6 +28,7 @@ export function saveWorkers(file: string, workers: Iterable<Worker>, stopping: b
     model: info.model,
     effort: info.effort,
     advisor: info.advisor,
+    pluginDirs: info.pluginDirs,
     deskId: info.deskId,
     name: info.name,
     color: info.color,
@@ -74,7 +75,7 @@ function launchOptions(raw: unknown): WorkerLaunchOptions | undefined {
 export function restoreWorkers(file: string, workers: Map<string, Worker>, defaultProvider: AgentProvider, deskOccupied: (deskId: string) => boolean) {
   if (!existsSync(file)) return;
   try {
-    const saved = JSON.parse(readFileSync(file, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; advisor?: unknown; launch?: unknown; tracker?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown } & Record<string, unknown>)[];
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; advisor?: unknown; pluginDirs?: unknown; launch?: unknown; tracker?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown } & Record<string, unknown>)[];
     for (const s of saved) {
       if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || deskOccupied(s.deskId)) continue;
       const tracker = restoreTracker(s.tracker);
@@ -93,6 +94,8 @@ export function restoreWorkers(file: string, workers: Map<string, Worker>, defau
         model: savedModel(provider, s.model),
         effort: savedEffort(provider, s.effort),
         ...(provider === 'claude' && typeof s.advisor === 'string' && s.advisor ? { advisor: s.advisor } : {}),
+        // An OPORA ticket's Brain pins, loaded again on every launch (opora/brain-pins.ts).
+        ...(provider === 'claude' && Array.isArray(s.pluginDirs) && s.pluginDirs.length && s.pluginDirs.every((d) => typeof d === 'string' && d) ? { pluginDirs: s.pluginDirs as string[] } : {}),
         deskId: s.deskId,
         name: s.name ?? 'Worker',
         color: s.color ?? COLORS[0],
