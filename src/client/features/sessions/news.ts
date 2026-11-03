@@ -32,7 +32,6 @@ export const SOURCES: Record<'d' | 'o' | 'n', [string, string][]> = {
     ['Slepá ulička: testy padají opakovaně, hotovo bez PR, spí bez probuzení, pod-relace stojí', 'status + action „failing“ + pr + čas'],
     ['Sirotci: karta se zámkem bez relace, relace bez karty', 'OporaRun gone + leaseUntil; relace bez OporaRun'],
     ['Společný cíl a % hotovo ve 3 úrovních', 'zaměření buňky + plán Lens z Opory (withCode, confirmed)'],
-    ['Další karty na řadě', 'OporaCard ready + frontier bez běhu'],
   ],
   n: [
     ['Pod-relace jako uzly stromu, hlášení nahoru', 'nástroj Agent v přepisu + subagents/*.meta.json, <task-notification>'],

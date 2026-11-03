@@ -128,7 +128,7 @@ test('the purple board’s plan: the card’s layers with each node’s state an
   assert.deepEqual(v.path.map((n) => n.name), ['Produkce', 'Aplikace', 'Oracle', 'Na míru']);
   const sec = v.areas[0].sectors[0];
   assert.equal(sec.name, 'Kruh průběhu');
-  assert.deepEqual(sec.nodes.map((n) => [n.node.id, n.tone, n.worker ?? '', n.free]), [['t1', 'free', '', true], ['t2', 'run', 'Ema', false]]);
+  assert.deepEqual(sec.nodes.map((n) => [n.node.id, n.tone, n.worker ?? '']), [['t1', 'free', ''], ['t2', 'run', 'Ema']]);
   assert.equal(sec.working, 1);
   assert.equal(planView(o, { focus: null, brief: null }).read, 'none');
 });

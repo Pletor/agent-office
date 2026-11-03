@@ -1,10 +1,8 @@
 // The purple board's window (E at the board): the orchestrator's card as the board shows it, to act on.
 // Its plan by layers (area → sector → node) with what a person can do to each sector and the whole page,
-// all through the office's own ways to Opora: ⏸ Pozastavit stops the cell taking more cards (autopilot
-// and hand-out off) and points at the terminals of the workers still on it (⎋ Esc there interrupts);
-// ↻ Přeplánovat starts the planner at the table on it (a plan onto the canvas, the card's overview in
-// its brief); 👤 Přidat stůl takes its next free card (a lease on Opora and a worker at a desk). Anything
-// else opens Opora. Beside it "Design karta v procesu", the ledge's design drawer (orchestrator/design.ts).
+// through the office's own ways to Opora: ↻ Přeplánovat starts the planner at the table on it (a plan onto
+// the canvas, the card's overview in its brief). The work itself the office takes only as OPORA's tickets;
+// a worker's ⎋ button opens its terminal (Esc there interrupts). Anything else opens Opora. Beside it "Design karta v procesu", the ledge's design drawer (orchestrator/design.ts).
 
 import type { Net } from '../../net';
 import { store } from '../../state';
@@ -46,20 +44,10 @@ export function openLiveWindow(d: WindowDeps): Modal | undefined {
     d.net.send({ t: 'planning.start', mode: 'opora', goal: `Přeplánuj ${where(v, label)} na canvasu Opory po vrstvách: oblasti → sektory → uzly (karty) uvnitř stránky ${v.name ?? ''}. Drž se jen této cesty.` });
     note(`poslal(a) „${label}“ k přeplánování plánovači u stolu`);
   }
-  function addDesk(nodes: NodeView[], label: string) {
-    const free = nodes.find((n) => n.free);
-    if (!free) return;
-    d.net.send({ t: 'opora.take', cardId: free.node.id });
-    note(`přidal(a) stůl na „${free.node.name}“ (${label})`);
-  }
-
-  function actions(v: PlanView, nodes: NodeView[], label: string): HTMLElement {
-    const o = store.opora;
+  function actions(v: PlanView, label: string): HTMLElement {
     const planning = store.planning.current?.status === 'planning';
-    const free = nodes.some((n) => n.free);
     return h('div.ol-acts', {},
-      h('button.btn.small', { type: 'button', disabled: planning, title: planning ? 'Plánovač u stolu už plánuje' : 'Plánovač u stolu to rozplánuje na canvas Opory', onclick: () => replan(v, label) }, '↻ Přeplánovat'),
-      h('button.btn.small', { type: 'button', disabled: !free, title: free ? 'Vzít další volnou kartu: zámek v Opoře a pracovník u stolu' : 'Tady teď žádná volná karta není', onclick: () => addDesk(nodes, label) }, '👤 Přidat stůl'));
+      h('button.btn.small', { type: 'button', disabled: planning, title: planning ? 'Plánovač u stolu už plánuje' : 'Plánovač u stolu to rozplánuje na canvas Opory', onclick: () => replan(v, label) }, '↻ Přeplánovat'));
   }
 
   function nodeRow(n: NodeView): HTMLElement {
@@ -79,13 +67,12 @@ export function openLiveWindow(d: WindowDeps): Modal | undefined {
       sig = next;
       title.textContent = v.cardId ? `🛰️ Canvas živě · 🎯 ${v.name}` : '🛰️ Canvas živě';
       path.textContent = v.path.length ? v.path.map((n) => (n.host ? `${n.name} (${n.host})` : n.name)).join(' › ') : 'Zapni stránku nebo podstránku na 🎚️ Zaměření buňky: nejhlubší zapnutá je karta pro orchestrátora.';
-      const all = v.areas.flatMap((a) => a.sectors.flatMap((s) => s.nodes));
       const head = h('div.ol-ph', {}, h('b', {}, 'Plán po vrstvách'), h('span', {}, `oblasti ${v.counts.area} → sektory ${v.counts.sector} → uzly ${v.counts.node}`),
         h('button.btn.small', { type: 'button', onclick: () => d.showPlanning() }, '🧭 Plán u stolu'), h('button.btn.small', { type: 'button', onclick: () => d.openFull() }, 'Editor Opory ↗'));
       const body: Node[] = [head];
       if (!v.cardId) body.push(h('p.pw-note', {}, 'Orchestrátor zatím nemá kartu.'));
       else {
-        body.push(h('div.ol-page', {}, h('b', {}, `Celá stránka · ${v.name}`), actions(v, all, v.name ?? '')));
+        body.push(h('div.ol-page', {}, h('b', {}, `Celá stránka · ${v.name}`), actions(v, v.name ?? '')));
         if (v.read === 'reading') body.push(h('p.pw-note', {}, 'Čtu z Opory, co je uvnitř stránky…'));
         else if (v.read !== 'ok') body.push(h('p.pw-note', {}, v.read === 'missing' ? 'Stránka teď není na canvasu Opory.' : 'Opora teď neodpovídá.'));
         else if (!v.areas.length) body.push(h('p.pw-note', {}, 'Uvnitř stránky zatím nic není: ↻ Přeplánovat ji nechá rozvrhnout plánovačem na oblasti → sektory → uzly.'));
@@ -94,7 +81,7 @@ export function openLiveWindow(d: WindowDeps): Modal | undefined {
             ...a.sectors.map((s) => h('div', { class: `ol-sec${s.working ? ' hot' : ''}` },
               h('div.ol-sh', {}, h('b', {}, s.sector ? `Sektor · ${s.name}` : s.name), h('span', {}, `${s.nodes.length ? Math.round((s.done / s.nodes.length) * 100) : 0} % · ${s.working} běží`)),
               h('ul.ol-nodes', {}, ...s.nodes.map(nodeRow)),
-              actions(v, s.nodes, s.name)))));
+              actions(v, s.name)))));
         }
       }
       plan.replaceChildren(...body);

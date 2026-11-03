@@ -13,7 +13,7 @@ export const TONE: Record<NodeTone, [string, string]> = {
   free: ['#ffffff', 'volná karta'], draft: ['#e9ecef', 'koncept'], ready: ['#efe4fb', 'připravená'],
 };
 
-export interface NodeView { node: LayerNode; tone: NodeTone; worker?: string; workerId?: string; free: boolean }
+export interface NodeView { node: LayerNode; tone: NodeTone; worker?: string; workerId?: string }
 export interface SectorView { id: string; name: string; sector?: LayerNode; nodes: NodeView[]; done: number; working: number }
 export interface AreaView { name: string; area?: LayerNode; sectors: SectorView[] }
 
@@ -47,8 +47,7 @@ function tone(id: string, raw: LayerNode['card'], o: OporaState, run?: OporaRun)
 function nodeView(n: LayerNode, o: OporaState): NodeView {
   const run = o.runs.find((r) => r.cardId === n.id && r.state !== 'gone');
   const t = tone(n.id, n.card, o, run);
-  const free = o.cards.some((c) => c.id === n.id && c.status === 'frontier') && !run;
-  return { node: n, tone: t, free, ...(run ? { worker: run.workerName ?? 'pracovník', ...(run.workerId ? { workerId: run.workerId } : {}) } : {}) };
+  return { node: n, tone: t, ...(run ? { worker: run.workerName ?? 'pracovník', ...(run.workerId ? { workerId: run.workerId } : {}) } : {}) };
 }
 
 function sectorView(id: string, name: string, nodes: NodeView[], sector?: LayerNode): SectorView {

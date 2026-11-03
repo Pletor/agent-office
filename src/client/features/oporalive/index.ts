@@ -3,7 +3,7 @@
  * an Opora project, the orchestrator's card (the deepest page switched on at the 🎚️ switchboard, lit
  * as it lands) and its plan by layers, area → sector → node, read from Opora's canvas; for a design card
  * "Design karta v procesu"; and what the agents and the room just did. E there opens it to act on
- * (Pozastavit, Přeplánovat, Přidat stůl), P the planning room's window, O the real Opora Canvas.
+ * (Přeplánovat), P the planning room's window, O the real Opora Canvas.
  */
 import type * as THREE from 'three';
 import type { Ctx } from '../../core/context';

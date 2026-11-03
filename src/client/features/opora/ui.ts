@@ -1,5 +1,5 @@
 import './ui.css';
-import { OPORA_TAB } from '../../../shared/opora';
+import { OPORA_LIMITS, OPORA_TAB } from '../../../shared/opora';
 import type { OporaCard, OporaCardRun, OporaState } from '../../../shared/protocol';
 import type { Net } from '../../net';
 import { store } from '../../state';
@@ -27,7 +27,7 @@ const STATUS_WORDS: Record<OporaCard['status'], string> = {
   needsRouting: 'needs a pipeline',
 };
 
-/** Opora's gauge in a few words: `M · sonnet+opus/high`, the worker a Take seats for it. */
+/** Opora's gauge in a few words: `M · sonnet+opus/high`, the worker a ticket seats for it. */
 export function runWords(run: OporaCardRun | undefined): string {
   if (!run) return '';
   return `${run.label ?? '?'} · ${run.model}${run.advisor ? `+${run.advisor}` : ''}/${run.effort}`;
@@ -35,8 +35,8 @@ export function runWords(run: OporaCardRun | undefined): string {
 
 /**
  * The 🛰️ Opora window: the Opora Control Center's link to Opora Canvas. Opora plans (areas, sectors,
- * cards, pipelines); the office takes its work as tickets from OPORA's heart, a person can take a ready card by hand, and the
- * planner at the room's table plans onto the canvas or routes it.
+ * cards, pipelines); the office takes its work only as tickets from OPORA's heart, as many at once as the floor is set
+ * to, and the planner at the room's table plans onto the canvas or routes it.
  */
 export function openOpora(net: Net, actions: OporaActions) {
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
@@ -85,12 +85,12 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
     pick.addEventListener('change', () => net.send({ t: 'opora.link', projectId: pick.value || null }));
     parts.push(h('label.opora-link', { class: linked ? '' : 'cta' }, h('b', {}, linked ? 'Linked to' : '👉 Link this floor to'), pick, linked ? null : h('span.muted', {}, 'pick the Opora project to read the canvas of')));
     if (linked && s.workspaces.length) parts.push(workspacePicker(s, net));
+    if (linked) parts.push(runsPicker(s, net));
   }
   if (s.error) parts.push(h('p.opora-error', {}, s.error));
   // A decision only a person can make in Opora holds the floor's cards up: said once here, not per card.
   const waits = linked ? humanWaitNotice(s) : null;
   if (waits) parts.push(waits);
-  const blocked = !!s.humanWait?.claimsBlocked;
   if (!s.connected && s.canStart) parts.push(h('p', {}, h('button.btn', { type: 'button', disabled: s.starting, onclick: () => net.send({ t: 'opora.start' }) }, s.starting ? '⏳ Starting Opora…' : '▶ Start Opora'), h('span.muted', {}, ' from its repository (admins)')));
   if (!s.connected && !s.canStart) parts.push(h('p.muted', {}, 'Start Opora with `uv run opora` in its folder, or start the office with AGENT_OFFICE_OPORA_DIR set to it, and this window can start it for you.'));
 
@@ -142,7 +142,6 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
       const k = c.sectorName ?? 'Canvas';
       bySector.set(k, [...(bySector.get(k) ?? []), c]);
     }
-    const held = new Set(runs.map((r) => r.cardId));
     parts.push(
       h('h3', {}, `🗂️ Cards on the canvas · ${s.cards.length}`),
       ...[...bySector.entries()].map(([sector, cards]) =>
@@ -160,7 +159,6 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
                 h('span.opora-card-name', {}, `${c.group === 'design' ? '🎨 ' : ''}${c.name}`),
                 h('span.muted', {}, [STATUS_WORDS[c.status], c.stage ?? c.profile, runWords(c.run)].filter(Boolean).join(' · ')),
                 c.run?.humanReview ? h('span.pill', { title: 'Critical risk: a person reviews it in Opora' }, '👤 review') : null,
-                c.status === 'frontier' && !held.has(c.id) ? h('button.btn.small', { type: 'button', disabled: blocked, title: blocked ? 'Opora waits on a person first (see above)' : 'Claim it on Opora and seat a worker for it', onclick: () => net.send({ t: 'opora.take', cardId: c.id }) }, '▶ Take') : null,
               ),
             ),
           ),
@@ -170,6 +168,15 @@ function paint(s: OporaState, body: HTMLElement, foot: HTMLElement, net: Net, ac
   }
   body.replaceChildren(...parts);
   foot.replaceChildren(h('span.grow', {}, 'Opora plans, the office does it: each card gets a worker in its own worktree, which reports back to Opora. Closing a card is for a person, in Opora.'));
+}
+
+/** How many tickets the floor works on at once: kept with the floor's Opora state, read before each ticket is asked for. */
+function runsPicker(s: OporaState, net: Net): HTMLElement {
+  const pick = h('select.provider-select', { 'aria-label': 'How many tickets this floor works on at once' },
+    ...Array.from({ length: OPORA_LIMITS.maxRuns }, (_, i) => h('option', { value: String(i + 1) }, String(i + 1)))) as HTMLSelectElement;
+  pick.value = String(s.maxRuns);
+  pick.addEventListener('change', () => net.send({ t: 'opora.maxRuns', maxRuns: Number(pick.value) }));
+  return h('label.opora-link', {}, h('b', {}, '🎫 Tickets at once'), pick, h('span.muted', {}, 'the most workers the floor seats for OPORA tickets at the same time'));
 }
 
 /** A workspace by its label up to Opora's ` · work/<id>` (the id is there already), or its id when it isn't listed. */

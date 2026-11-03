@@ -46,6 +46,12 @@ test('a ticket is read only in its documented shape, and its body becomes a brie
   assert.equal(validTicket({ ticketId: 'tk_1', status: 'issued', machine: {} }), null);
   const ticket = validTicket({ ticketId: 'tk_1', status: 'issued', machine: { cardId: 'c1' }, body: { essence: 'Why', skills: ['/ponytail@5.3.3', 7] } })!;
   assert.deepEqual(ticket.body.skills, ['/ponytail@5.3.3']);
+  // The heart's department and profile are slugs, or null.
+  assert.deepEqual([ticket.machine.department, ticket.machine.profile], [null, null]);
+  const routed = validTicket({ ticketId: 'tk_2', status: 'issued', machine: { cardId: 'c1', department: 'frontend', profile: 'design' } })!;
+  assert.deepEqual([routed.machine.department, routed.machine.profile], ['frontend', 'design']);
+  const odd = validTicket({ ticketId: 'tk_3', status: 'issued', machine: { cardId: 'c1', department: '../x', profile: 7 } })!;
+  assert.deepEqual([odd.machine.department, odd.machine.profile], [null, null]);
   const brief = ticketBrief(ticket.body);
   assert.match(brief, /Essence[\s\S]*Why[\s\S]*Skills to use \(pinned\):\n- \/ponytail@5\.3\.3/);
   assert.doesNotMatch(brief, /tk_1|c1/);

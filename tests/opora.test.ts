@@ -23,11 +23,11 @@ test('Opora dispatch embeds effective harness and refuses a missing resource bef
   const profiles = new HarnessProfiles(root);
   await profiles.save(root, '', 'global', { language: { value: 'en' } }, 0);
   await profiles.save(root, oporaHarnessTask('p1', 'draft', 'c2'), 'task', { language: { value: 'cs' } }, 1);
-  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
+  assert.equal(await ticketFor(f, 'c2'), undefined);
   assert.match(f.workers[0].prompt!, /"value": "cs"/);
   assert.match(f.workers[0].prompt!, /Snapshot SHA-256/);
   await profiles.save(root, '', 'repository', { missing: { resource: 'missing' } }, 2);
-  assert.match((await f.bridge.take('c1', 'Ana'))!, /unavailable/);
+  assert.match((await ticketFor(f, 'c1'))!, /unavailable/);
   assert.equal(f.op.leases.has('c1'), false);
   assert.equal(f.workers.length, 1);
 });
@@ -122,7 +122,9 @@ function fakeOpora(dir: string) {
           }
           case 'ticket.claim':
             if (!t) return send(404, { code: 'ticket_not_found' });
-            if (t.status !== 'issued') return send(409, { code: 'ticket_state', error: 'taken' });
+            // A new session of the holder takes a held ticket back for the same execution; anyone else is refused.
+            if (t.status !== 'issued' && t.executionId === b.executionId) { t.session = token; return answer({ ticket: t }); }
+            if (t.status !== 'issued') return send(409, { code: 'ticket_not_held', error: 'held by another' });
             if (gate.refuseClaim) return send(409, { code: gate.refuseClaim, error: 'refused' });
             if (!executions.has(String(b.executionId))) return send(409, { code: 'ticket_execution', error: 'no such execution' });
             Object.assign(t, { status: 'claimed', session: token, executionId: b.executionId });
@@ -214,15 +216,6 @@ function fakeOpora(dir: string) {
   return { server, calls, leases, gate, projects, page, workspaces, stepCards, looseCards, agentState, heartOn, heartWorkspace };
 }
 
-/**
- * Makes a ready card a design card. Canvas's agent-state says no department; the frontier's pipeline did, and it's
- * gone with the office's own taking. Until a ticket says the department, the design path is tested on a card set so.
- */
-function designCard(bridge: OporaBridge, id: string) {
-  const card = (bridge as unknown as { state: OporaState }).state.cards.find((c) => c.id === id)!;
-  card.group = 'design';
-}
-
 async function fixture(t: { after(fn: () => void): void }, prepareTask?: BridgeEvents['prepareTask']) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-opora-'));
   const op = fakeOpora(dir);
@@ -274,7 +267,8 @@ test('bridge prepares the selected desk before claiming and starts through the O
         return worker;
       }, cancel: async () => { throw new Error('successful reservation must not be cancelled'); } };
   };
-  assert.equal(await f.bridge.take('c2', 'Ana', 'owner'), undefined);
+  f.floor.orchestrator = () => ({ by: 'Ana', owner: 'owner' });
+  assert.equal(await ticketFor(f, 'c2'), undefined);
   assert.equal(f.workers.length, 1); assert.equal(f.state().runs[0].state, 'working');
 });
 
@@ -289,10 +283,9 @@ test('the bridge links the Opora project that plans this floor’s folder, and r
   assert.deepEqual(s.cards.map((c) => [c.name, c.status, c.group, c.sectorName]), [['Cart page', 'frontier', 'dev', 'Checkout'], ['Pay API', 'frontier', 'dev', 'Checkout']]);
 });
 
-test('taking a card claims its lease on Opora and seats a worker for it, a design card at the Design desk', async (t) => {
+test('a ticket claims its card’s execution on Opora and seats a worker for it, a design ticket at the Design desk', async (t) => {
   const f = await fixture(t);
-  designCard(f.bridge, 'c1');
-  assert.equal(await f.bridge.take('c1', 'Ana'), undefined);
+  assert.equal(await ticketFor(f, 'c1', { profile: 'design' }), undefined);
   const claim = f.op.calls.find((c) => c.path === '/api/oporahub/executions/claim')!;
   assert.deepEqual({ project: claim.body!.project, workspace: claim.body!.workspace, nodeId: claim.body!.nodeId }, { project: 'p1', workspace: 'draft', nodeId: 'c1' });
   assert.match(String(claim.headers['x-opora-actor']), /^agent; name=office-shop/);
@@ -304,17 +297,15 @@ test('taking a card claims its lease on Opora and seats a worker for it, a desig
   assert.equal(run.cardName, 'Cart page');
   assert.equal(run.state, 'working');
   assert.equal((run as unknown as { token?: string }).token, undefined, 'the lease token stays on the server');
-  // It's the office's now: taking it again says so.
-  assert.match((await f.bridge.take('c1', 'Ana'))!, /isn’t free|already/);
   // The developer's card goes to an unsigned desk.
-  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
+  assert.equal(await ticketFor(f, 'c2'), undefined);
   assert.equal(f.workers[1].deskId, 'desk-1');
   assert.doesNotMatch(f.workers[1].prompt!, /design card/);
 });
 
 test('a worker going home lets its card’s lease go', async (t) => {
   const f = await fixture(t);
-  await f.bridge.take('c2', 'Ana');
+  await ticketFor(f, 'c2');
   assert.ok(f.op.leases.has('c2'));
   f.workers[0].status = 'done';
   f.bridge.onWorker(f.workers[0]);
@@ -336,7 +327,6 @@ test('with Opora down the bridge says so instead of failing', async (t) => {
   await bridge.poll();
   assert.equal(state!.connected, false);
   assert.match(state!.error!, /isn't answering/);
-  assert.match((await bridge.take('c1', 'Ana'))!, /isn't answering/);
 });
 
 test('a floor linked to a project by choice reads that project’s cards, and unlinking goes back to its folder’s', async (t) => {
@@ -374,7 +364,7 @@ test('a chosen project that left Opora falls back to the folder’s, and says so
 
 test('the floor stays on its project while the office holds cards of it', async (t) => {
   const f = await fixture(t);
-  await f.bridge.take('c2', 'Ana');
+  await ticketFor(f, 'c2');
   assert.match(f.bridge.link('other')!, /on 1 card of Shop/);
   // Picking the project it's on already changes nothing, so that's allowed.
   assert.equal(f.bridge.link('p1'), undefined);
@@ -449,8 +439,8 @@ test('the Opora pages for a card open its drawing (Kreslení) and its storyboard
 
 test('design and development workers use accepted assignments without live legacy briefs', async (t) => {
   const f = await fixture(t);
-  designCard(f.bridge, 'c1');
-  for (const card of ['c1', 'c2']) assert.equal(await f.bridge.take(card, 'Ana'), undefined);
+  assert.equal(await ticketFor(f, 'c1', { profile: 'design' }), undefined);
+  assert.equal(await ticketFor(f, 'c2'), undefined);
   for (const worker of f.workers) {
     assert.match(worker.prompt!, /immutable Canvas assignment/);
     assert.match(worker.prompt!, /execution-worker/);
@@ -471,12 +461,12 @@ test('design and development workers use accepted assignments without live legac
 test('with 🔬 REA on for Opora, a card’s worker gets REA and is told how to use it; with it off, neither', async (t) => {
   const f = await fixture(t);
   configureRea(f.dir, undefined, {});
-  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
+  assert.equal(await ticketFor(f, 'c2'), undefined);
   assert.equal(reaFor(f.workers[0]), false);
   assert.doesNotMatch(f.workers[0].prompt!, /"rea" MCP server/);
   configureRea(f.dir, undefined, { AGENT_OFFICE_REA: 'opora' });
   t.after(() => configureRea(f.dir, undefined, {}));
-  assert.equal(await f.bridge.take('c1', 'Ana'), undefined);
+  assert.equal(await ticketFor(f, 'c1'), undefined);
   assert.equal(reaFor(f.workers[1]), true);
   assert.match(f.workers[1].prompt!, /"rea" MCP server/);
   assert.match(f.workers[1].prompt!, /layers → areas, sectors, nodes\/cards/);
@@ -511,7 +501,7 @@ test('a picked workspace is the one the floor reads and claims cards in', async 
   assert.equal(f.state().workspaceBy, 'choice');
   assert.equal(f.state().error, undefined);
   assert.deepEqual(f.state().cards.map((c) => [c.name, c.sectorName]), [['Oracle card', 'Oracle']]);
-  assert.equal(await f.bridge.take('c5', 'Ana'), undefined);
+  assert.equal(await ticketFor(f, 'c5'), undefined);
   const claim = f.op.calls.find((c) => c.path === '/api/oporahub/executions/claim')!;
   assert.deepEqual({ project: claim.body!.project, workspace: claim.body!.workspace, nodeId: claim.body!.nodeId }, { project: 'p1', workspace: 'work1', nodeId: 'c5' });
   // Lean claim: the assignment is read once, with the token in its header and never in the query.
@@ -542,7 +532,7 @@ test('a card the office holds keeps its own workspace for its heartbeat and rele
   const f = await withWorkspaces(t);
   f.bridge.useWorkspace('work1');
   await f.bridge.repoll();
-  await f.bridge.take('c5', 'Ana');
+  await ticketFor(f, 'c5');
   assert.equal(f.state().runs[0].workspace, 'work1');
   // The floor moves to main while the card is still being worked on.
   f.bridge.useWorkspace(null);
@@ -562,7 +552,7 @@ test('a card the office holds keeps its own workspace for its heartbeat and rele
 
 test('a legacy saved worker without execution authority cannot resume', async (t) => {
   const f = await fixture(t);
-  await f.bridge.take('c2', 'Ana');
+  await ticketFor(f, 'c2');
   delete (f.bridge as unknown as { runs: { execution?: unknown }[] }).runs[0].execution;
   const reason = await f.bridge.executions.guard.restore(f.workers[0]);
   assert.match(reason!, /could not be revalidated/);
@@ -585,7 +575,7 @@ test('the picked workspace is kept across a restart, and linking another project
   assert.doesNotMatch(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'), /"workspace"/);
 });
 
-test('while Opora waits on a person to accept the baseline, a Take claims nothing and says why', async (t) => {
+test('while Opora waits on a person to accept the baseline, the floor says so until it is accepted', async (t) => {
   const f = await fixture(t);
   assert.equal(f.state().humanWait, undefined, 'nothing waits on a person: no notice');
   Object.assign(f.op.agentState, {
@@ -599,13 +589,10 @@ test('while Opora waits on a person to accept the baseline, a Take claims nothin
   assert.deepEqual(w.decisions, [{ kind: 'accept_baseline', title: 'Přijmout výchozí zadání' }]);
   assert.equal(w.cards, 2);
   assert.equal(w.claimsBlocked, true);
-  assert.match((await f.bridge.take('c1', 'Ana'))!, /waits on a person: “Přijmout výchozí zadání”/);
-  assert.equal(f.op.calls.filter((c) => c.path === '/api/oporahub/executions/claim').length, 0, 'no claim tried');
-  // Accepted in Opora: the notice goes and a person can take a card again.
+  // Accepted in Opora: the notice goes.
   for (const k of Object.keys(f.op.agentState)) delete f.op.agentState[k];
   await f.bridge.poll();
   assert.equal(f.state().humanWait, undefined);
-  assert.equal(await f.bridge.take('c1', 'Ana'), undefined);
 });
 
 /** What OPORA's wall lets an agent write in a project its heart plans (Opora's determinism/wall.py LANE). */
@@ -671,11 +658,11 @@ test('an Opora without the brain (gate-setting 404) is planned the old way', asy
   assert.equal(f.state().heart, false);
 });
 
-test('in a project the heart plans, taking a card and letting it go writes only in the wall’s lane', async (t) => {
+test('in a project the heart plans, taking a ticket and letting it go writes only in the wall’s lane', async (t) => {
   const f = await fixture(t);
   f.op.heartOn.add('p1');
   await f.bridge.repoll();
-  assert.equal(await f.bridge.take('c2', 'Ana'), undefined);
+  assert.equal(await ticketFor(f, 'c2'), undefined);
   f.bridge.onWorkerGone(f.workers[0].id);
   await new Promise((r) => setTimeout(r, 50));
   const writes = f.op.calls.filter((c) => c.method !== 'GET' && c.method !== 'HEAD').map((c) => c.path);
@@ -700,6 +687,14 @@ const issued = () => ({ ticketId: 'tk_1', status: 'issued', feedback: [] as Reco
   body: { essence: 'Customers pay in one step', build: 'The Pay API endpoint', openPaths: ['Refunds come later'], cautions: ['No card data in logs'], skills: ['/ponytail@5.3.3'], doneCriteria: ['npm test is green'] },
   machine: { cardId: 'c2', executionId: null, cardVersion: 3 } });
 const gateKinds = (f: { op: { calls: { path: string; body?: Record<string, unknown> }[] } }) => f.op.calls.filter((c) => c.path === '/api/gate/requests').map((c) => c.body?.kind);
+
+/** OPORA's heart issues a ticket for `cardId` and the office takes it at the next poll; resolves to why it wasn't taken, if it wasn't. */
+async function ticketFor(f: Awaited<ReturnType<typeof fixture>>, cardId: string, machine: Record<string, unknown> = {}) {
+  const before = f.toasts.length;
+  f.op.gate.tickets.push({ ...issued(), ticketId: `tk_${cardId}`, machine: { cardId, executionId: null, cardVersion: 1, ...machine } });
+  await f.bridge.poll();
+  return f.toasts.slice(before).find((x) => /wasn't taken/.test(x));
+}
 
 test('a ticket from the gate: the card’s execution starts, the ticket is claimed for it, and a worker sits down with the ticket’s body', async (t) => {
   const f = await fixture(t);
@@ -785,4 +780,90 @@ test('the worker’s feedback goes to the gate, the heart’s answers come back,
   assert.equal(ticket.status, 'delivered');
   assert.deepEqual(ticket.delivery, { summary: 'Pay API in one step', sha: 'a'.repeat(40) });
   assert.match(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'), /"ticketDelivered": true/);
+});
+
+test('a ticket’s department and profile pick the desk and the pipeline; without them the default choice stands', async (t) => {
+  const f = await fixture(t);
+  // The department's desk (signed so) wins over the developers' unsigned one, for a code card too.
+  assert.equal(await ticketFor(f, 'c2', { department: 'design', profile: 'code' }), undefined);
+  assert.equal(f.workers[0].deskId, 'desk-3');
+  assert.doesNotMatch(f.workers[0].prompt!, /Design references/);
+  // Neither set: the canvas's own card, a developer's at the first free desk.
+  assert.equal(await ticketFor(f, 'c1'), undefined);
+  assert.equal(f.workers[1].deskId, 'desk-1');
+  assert.equal(f.state().runs.find((r) => r.cardId === 'c1')?.group, 'dev');
+});
+
+/** The office after a restart: the same floor and data, a new bridge (so new gate sessions). */
+function restarted(t: { after(fn: () => void): void }, f: Awaited<ReturnType<typeof fixture>>) {
+  f.bridge.shutdown();
+  const toasts: string[] = [];
+  const bridge = new OporaBridge(f.floor, f.dir, { update() {}, toast: (x) => void toasts.push(x), prompt: (id) => PROMPTS[id].text }, f.url);
+  t.after(() => bridge.shutdown());
+  return { bridge, toasts };
+}
+
+test('after a restart the office claims its held ticket again in a new session, for the same execution, before feedback', async (t) => {
+  const f = await fixture(t);
+  f.op.gate.tickets.push(issued());
+  await f.bridge.poll();
+  const ticket = f.op.gate.tickets[0];
+  const first = ticket.session;
+  const at = f.op.calls.length;
+  const again = restarted(t, f);
+  await again.bridge.poll();
+  const after = f.op.calls.slice(at).filter((c) => c.path === '/api/gate/requests');
+  assert.deepEqual(after.find((c) => c.body?.kind === 'ticket.claim')?.body?.body, { ticketId: 'tk_1', executionId: 'ex-c2' });
+  assert.notEqual(ticket.session, first, 'the ticket is bound to the new session');
+  // Feedback after the restart goes through (no ticket_not_held).
+  queueFeedback(path.join(f.dir, 'opora-executions', 'ex-c2.json'), 'idea', 'Cache the totals');
+  await again.bridge.poll();
+  assert.deepEqual(ticket.feedback.map((x: Record<string, unknown>) => x.text), ['Cache the totals']);
+  assert.deepEqual(again.toasts, []);
+});
+
+test('an expired gate session (401) gets a new one that claims the ticket again before the request', async (t) => {
+  const f = await fixture(t);
+  f.op.gate.tickets.push(issued());
+  await f.bridge.poll();
+  f.op.gate.sessions.length = 0;
+  const at = f.op.calls.length;
+  await f.bridge.poll();
+  const kinds = f.op.calls.slice(at).filter((c) => c.path === '/api/gate/requests').map((c) => c.body?.kind);
+  const claimAt = kinds.indexOf('ticket.claim');
+  assert.ok(claimAt >= 0 && kinds.indexOf('ticket.request', claimAt) > claimAt, 'claimed again, then asked');
+  assert.ok(f.op.gate.sessions.includes(f.op.gate.tickets[0].session), 'bound to a live session again');
+  assert.equal(f.workers[0].status, 'working');
+});
+
+test('a ticket another worker holds after the restart ends the run cleanly: worker home, execution released, nothing delivered', async (t) => {
+  const f = await fixture(t);
+  f.op.gate.tickets.push(issued());
+  await f.bridge.poll();
+  // While the office was down, OPORA gave the ticket to another execution.
+  Object.assign(f.op.gate.tickets[0], { executionId: 'ex-elsewhere', session: 'someone-else' });
+  const again = restarted(t, f);
+  await again.bridge.poll();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(f.workers[0].status, 'exited', 'the worker is sent home');
+  assert.ok(f.op.calls.some((c) => c.path === '/api/oporahub/executions/ex-c2/release'), 'the execution is let go');
+  assert.equal(f.op.leases.has('c2'), false);
+  assert.equal(gateKinds(f).includes('ticket.deliver'), false);
+  assert.equal(f.op.gate.tickets[0].executionId, 'ex-elsewhere');
+  assert.ok(again.toasts.some((x) => /held by another worker/.test(x)));
+  const saved = JSON.parse(readFileSync(path.join(f.dir, 'opora.json'), 'utf8'));
+  assert.equal(saved.runs[0].state, 'gone');
+});
+
+test('the floor’s tickets at once are set from the window, kept across a restart, and refused out of range', async (t) => {
+  const f = await fixture(t);
+  assert.equal(f.state().maxRuns, 2);
+  assert.equal(f.bridge.setMaxRuns(5), undefined);
+  assert.equal(f.state().maxRuns, 5);
+  assert.match(f.bridge.setMaxRuns(0)!, /Between 1 and 8/);
+  assert.match(f.bridge.setMaxRuns(1.5)!, /Between 1 and 8/);
+  assert.match(f.bridge.setMaxRuns(9)!, /Between 1 and 8/);
+  assert.equal(JSON.parse(readFileSync(path.join(f.dir, 'opora.json'), 'utf8')).maxRuns, 5);
+  const again = restarted(t, f);
+  assert.equal(again.bridge.view().maxRuns, 5);
 });

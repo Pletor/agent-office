@@ -1,7 +1,6 @@
-// The bridge to Opora Canvas: reading the canvas again, taking a card, linking the floor to a project and its workspace, and starting Opora.
+// The bridge to Opora Canvas: reading the canvas again, how many tickets at once, linking the floor to a project and its workspace, and starting Opora.
 import type { OporaClientMsg } from '../../../shared/protocol.js';
 import { EMPTY_OPORA } from '../../../shared/opora.js';
-import { str } from '../../office/input.js';
 import { oporaProcess } from '../../opora/process.js';
 import { here } from './common.js';
 import type { HandlerMap, ViewPieces } from './types.js';
@@ -12,13 +11,12 @@ export const oporaHandlers = {
   'opora.refresh'(ctx, c) {
     void here(ctx, c)?.opora.poll();
   },
-  'opora.take'(ctx, c, msg) {
+  'opora.maxRuns'(ctx, c, msg) {
     const floor = here(ctx, c);
     if (!floor) return;
-    // Its worker runs on the sign-ins of whoever took the card.
-    ctx.withSignIn(c, ctx.claudeFor(floor.workers.officeDefault.provider), () => {
-      void floor.opora.take(str(msg.cardId, 64), c.peer.name, c.accountId).then((err) => ctx.warn(c, err));
-    });
+    const err = floor.opora.setMaxRuns(Number(msg.maxRuns));
+    if (err) return ctx.warn(c, err);
+    ctx.toastFloor(floor, `🎫 ${c.peer.name} set this floor to work on ${msg.maxRuns} ticket${msg.maxRuns === 1 ? '' : 's'} at once`);
   },
   'opora.link'(ctx, c, msg) {
     const floor = here(ctx, c);

@@ -251,8 +251,8 @@ early, the next run of the card starts at the first unfinished step (see
 
 Readiness follows Canvas: on each read the office asks `GET /api/oporahub/agent-state` which cards
 have a `claim` action `ready` (accepted steps, budget, no unfinished predecessor over a `next` edge);
-those are the cards the 🛰️ Opora window lists for a person's ▶ Take. By itself the office takes only
-[tickets](#tickets).
+those are the cards the 🛰️ Opora window lists. The office takes work only as
+[tickets](#tickets); there is no manual take.
 A claim whose preconditions carry `contextProtocolVersion: 2` (a card with an accepted Harness
 kit) counts as ready only when the office runs with `AGENT_OFFICE_OPORA_CONTEXT_VERSION=2`.
 
@@ -267,10 +267,8 @@ decision waits, or on a Canvas without agent-state). The 🛰️ Opora window sh
 *⏸️ Opora waits on a person: Přijmout výchozí zadání — until then nobody can take any card (57+
 cards held back)*, with the stages under it and **↗ Decide in Opora** to the project there.
 
-While there's no accepted baseline, no card can be claimed at all, so the office doesn't try:
-▶ Take is off on every card (and a take sent anyway is refused with the same reason, before any
-claim). A changeset
-wait leaves claims open: the line shows, and the cards Canvas offers stay takeable. The boss board
+While there's no accepted baseline, no card can be claimed at all (Canvas refuses the execution a
+ticket would start). A changeset wait leaves claims open: the line shows, and tickets go on. The boss board
 lists each decision as a request for the boss ([Boss Office](boss-attention.md)). Code:
 `src/server/opora/agent-state.ts`, `src/client/features/opora/human-wait.ts`;
 [screenshot](shots/opora/opora-human-wait.png) (labeled fixture state, `tests/opora-human-wait.browser.mjs`).
@@ -290,7 +288,10 @@ a session of its own (`POST /api/gate/sessions`, the token in memory only, opene
 On each poll:
 
 1. `ticket.request {}` in the lobby: the oldest issued ticket, or none. No ticket, no work.
-2. Room first: under the limit of runs at once and a desk free, or the ticket stays issued for a later poll.
+2. Room first: under the floor's tickets at once (`maxRuns`, 1–8, set in the 🛰️ Opora window as **🎫 Tickets at
+   once** and kept in `.agent-office/opora.json`) and a desk free, or the ticket stays issued for a later poll.
+   The desk is the ticket's: `machine.department` names the desks signed so (else the card's sector), and
+   `machine.profile` the pipeline (`design` goes to the designers); without them the canvas's card decides.
 3. The card's execution starts (`machine.cardId`, the claim above), then `ticket.claim {ticketId, executionId}`.
    A 409 (`ticket_execution`, `ticket_state`) or any failure before the worker sits down gives the execution back,
    and a ticket already claimed goes back with `ticket.release`.
@@ -302,8 +303,12 @@ On each poll:
    summary and the head commit; an open question is a 409 `ticket_state`, delivered at a later hand-off. From
    there OPORA moves the ticket on by itself (`verified`, `closed`, `failed`).
 
-The run keeps its `ticketId` in `.agent-office/opora.json`. A ticket session's token isn't kept, so after a
-restart the office can't feedback or deliver a ticket it held before (OPORA answers `ticket_not_held`).
+The run keeps its `ticketId` and its execution in `.agent-office/opora.json`. A ticket session's token isn't
+kept: after a restart, and whenever the gate answers 401 (`gate_token_invalid`, an expired session), the
+ticket's new session first sends `ticket.claim {ticketId, executionId}` for the same execution, and only then
+the feedback, the request or the delivery. When OPORA answers `ticket_not_held` (another worker holds the
+ticket now), the run ends cleanly: its worker goes home and its execution is released, with no hand-off and
+no delivery.
 
 ## Pull request handoff
 

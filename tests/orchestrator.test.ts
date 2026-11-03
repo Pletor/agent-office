@@ -99,7 +99,7 @@ test('the overview never grows past its cap and keeps its end marker; no control
 });
 
 function oporaState(cards: OporaCard[]): OporaState {
-  return { url: 'http://127.0.0.1:8740', connected: true, project: { id: 'p1', name: 'P' }, projects: [], workspace: 'draft', workspaces: [], sectors: [], cards, scope: [], focus: [], activity: [], runs: [], autopilot: false, handOut: false, handOutWaiting: [], maxRuns: 1, checkedAt: 0, canStart: false, starting: false, embeddable: false };
+  return { url: 'http://127.0.0.1:8740', connected: true, project: { id: 'p1', name: 'P' }, projects: [], workspace: 'draft', workspaces: [], sectors: [], cards, scope: [], focus: [], activity: [], runs: [], maxRuns: 1, checkedAt: 0, canStart: false, starting: false, embeddable: false };
 }
 
 test('the keeper picks a card on the canvas, reads it through the readers, and keeps the overview for the planner', async (t) => {

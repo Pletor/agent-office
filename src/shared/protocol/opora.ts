@@ -164,8 +164,8 @@ export interface OporaState {
 
 export type OporaClientMsg =
   | { t: 'opora.refresh' }
-  /** Take a free card: claim its lease and seat a worker for it. */
-  | { t: 'opora.take'; cardId: string }
+  /** How many tickets the floor works on at once (1 to OPORA_LIMITS.maxRuns). */
+  | { t: 'opora.maxRuns'; maxRuns: number }
   /** Link the floor to this Opora project, or (null) back to the one whose folder is the floor's. */
   | { t: 'opora.link'; projectId: string | null }
   /** Read this workspace of the linked project, or (null) the default one (`main`, else the first). */

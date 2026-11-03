@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HUMAN_WAIT_LIMITS, claimsBlockedReason, digestAgentState } from '../src/server/opora/agent-state.js';
+import { HUMAN_WAIT_LIMITS, digestAgentState } from '../src/server/opora/agent-state.js';
 import { cardsCs, humanWaitItems } from '../src/server/boss-attention/human-wait.js';
 import { readBossAttention } from '../src/server/boss-attention/index.js';
 import { EMPTY_OPORA } from '../src/shared/opora.js';
@@ -35,7 +35,6 @@ test('the live baseline wait digests into one decision, its stages, the cards it
     more: true,
     claimsBlocked: true,
   });
-  assert.match(claimsBlockedReason(d.humanWait)!, /Opora waits on a person: “Přijmout výchozí zadání”/);
 });
 
 test('an older Canvas, an empty or malformed agent-state has no human wait, and is not an error', () => {
@@ -62,7 +61,6 @@ test('a decision whose action an agent may take is not a human wait; a changeset
   assert.equal(d.humanWait!.claimsBlocked, false);
   assert.equal(d.humanWait!.stages[0].count, 0, 'a missing count is 0');
   assert.equal(d.humanWait!.cards, 0);
-  assert.equal(claimsBlockedReason(d.humanWait), undefined);
 });
 
 test('the digest stays small whatever Canvas sends', () => {

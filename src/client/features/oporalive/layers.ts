@@ -39,12 +39,12 @@ export function paintLayers(g: CanvasRenderingContext2D, s: OporaState, v: PlanV
   }
   // What a person can do here, from the board's window (E), as the design puts it under the card.
   let ax = x;
-  for (const t of ['⏸ Pozastavit', '↻ Přeplánovat', '👤 Přidat stůl']) ax += pill(g, t, ax, y + 58, 32, '#ffffff', INK, INK) + 8;
+  for (const t of ['↻ Přeplánovat']) ax += pill(g, t, ax, y + 58, 32, '#ffffff', INK, INK) + 8;
   ax += pill(g, 'E', ax, y + 58, 32, INK, '#fffaf3') + 10;
   g.textAlign = 'left';
   g.fillStyle = MUTED;
   g.font = `800 17px ${FONT}`;
-  g.fillText('zásahy na tabuli: stůl, přeplánování, pauza', ax, y + 59);
+  g.fillText('zásah na tabuli: přeplánování', ax, y + 59);
 
   const top = y + 88;
   if (v.read === 'reading') return note(g, 'Čtu z Opory, co je uvnitř stránky…', x, top + 30);

@@ -1,10 +1,10 @@
 // What the orchestrator mustn't lose on the third screen: dead ends (tests failing over and over, done
 // without a PR, a session that fell asleep, no move for a while), orphans and work outside the plan (a
 // card whose session went home while its lease holds, a session with no card, worktrees left behind),
-// who waits on a person or on another card, and the follow-up work to start (what sessions suggested,
-// and the cards Opora offers next). Pure, from the board (sessions-board.ts).
+// who waits on a person or on another card, and the follow-up work to start (what sessions suggested;
+// Opora's cards come to the office only as OPORA tickets). Pure, from the board (sessions-board.ts).
 
-import type { OporaCard, OporaRun, QueueTask } from './protocol.js';
+import type { QueueTask } from './protocol.js';
 import { CTRL, OFFPLAN, type Board, type BoardRow } from './sessions-board.js';
 
 export interface AttItem {
@@ -15,7 +15,7 @@ export interface AttItem {
   why: string;
 }
 
-export type Launch = { kind: 'queue'; title: string; prompt: string } | { kind: 'take'; cardId: string };
+export type Launch = { kind: 'queue'; title: string; prompt: string };
 
 export interface FollowItem {
   key: string;
@@ -39,8 +39,6 @@ export interface LeftBehind {
 }
 
 export interface AttentionInput {
-  cards: OporaCard[];
-  runs: OporaRun[];
   tasks: Pick<QueueTask, 'title' | 'status'>[];
   health?: LeftBehind[];
   now: number;
@@ -80,10 +78,6 @@ export function attention(b: Board, i: AttentionInput): Attention {
         launch: { kind: 'queue', title: t, prompt: `${t}\n\nNavazuje na práci ${r.name} (${r.task})${card ? ` u karty Opory „${card}“` : ''}${r.branch ? `, větev ${r.branch}` : ''}.` },
       });
     });
-  }
-  const taken = new Set(i.runs.filter((r) => r.state !== 'gone').map((r) => r.cardId));
-  for (const c of i.cards.filter((c) => c.status === 'frontier' && c.ready && !taken.has(c.id)).slice(0, 4)) {
-    a.fol.push({ key: `card:${c.id}`, title: `Vzít kartu „${c.name}“`, why: `Opora ji nabízí jako další na řadě${c.sectorName ? ` (${c.sectorName})` : ''} – nikdo z kanceláře na ní není`, launch: { kind: 'take', cardId: c.id } });
   }
   return a;
 }

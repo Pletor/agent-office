@@ -193,13 +193,8 @@ export function openScreen(deps: ScreenDeps): Modal {
   function launch(key: string) {
     const f = follows.find((x) => x.key === key);
     if (!f) return;
-    if (f.launch.kind === 'queue') {
-      deps.net.send({ t: 'queue.add', prompt: f.launch.prompt, title: f.launch.title.slice(0, 100) });
-      toast(`▶ Navazující práce je ve frontě: ${f.launch.title}`);
-    } else {
-      deps.net.send({ t: 'opora.take', cardId: f.launch.cardId });
-      toast(`▶ Beru kartu: ${f.title.replace(/^Vzít kartu /, '')}`);
-    }
+    deps.net.send({ t: 'queue.add', prompt: f.launch.prompt, title: f.launch.title.slice(0, 100) });
+    toast(`▶ Navazující práce je ve frontě: ${f.launch.title}`);
   }
 
   root.addEventListener('click', (e) => {
