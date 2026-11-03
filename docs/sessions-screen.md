@@ -16,7 +16,7 @@ The screen's face shows the live overview: the common goal and its bar, the coun
 - **Slepé uličky**: tests or a build failing over and over, done without a PR, a session that ended and nobody woke, a sub-session without a move, a running session without a move for 15 minutes (by the journal, the transcript and its status).
 - **Sirotci a práce mimo plán**: a card whose session went home while its lease holds, sessions without a card, worktrees and merged branches left behind (the floor's clean line).
 - **Čeká na člověka / blokováno**: what each waiting session asks, and sessions whose card waits on another.
-- **Navazující práce** with **▶ Spustit**: follow-ups a session suggested at the end of its last message (*Next steps*, *Další kroky*…) go to the floor's **task queue** as a task; the cards Opora offers next (ready, nobody on them) are **taken** as ▶ Take does. A follow-up already in the queue isn't offered again.
+- **Navazující práce** with **▶ Spustit**: follow-ups a session suggested at the end of its last message (*Next steps*, *Další kroky*…) go to the floor's **task queue** as a task (Opora's cards come only as OPORA tickets, never from here). A follow-up already in the queue isn't offered again.
 - **Novinky**: the ClaudeDevs thread of 14 Oct 2026 on Claude Code desktop with many sessions at once, and the [docs](https://code.claude.com/docs/en/desktop). Static.
 - **Zvýraznit zdroje dat** outlines where each part's data comes from (D the office knew it, O worked out from it, N read from the transcripts); *Odkud jsou data* at the bottom lists them.
 

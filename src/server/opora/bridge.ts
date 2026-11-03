@@ -1,13 +1,12 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { EMPTY_OPORA, OPORA_LIMITS, cardGroup, deskFor, oporaEmbedPolicy, sameDir } from '../../shared/opora.js';
-import { buildScope, cardInFocus, cleanFocus, focusLine, placeCards, toggleFocus } from '../../shared/opora-scope.js';
+import { buildScope, cleanFocus, focusLine, placeCards, toggleFocus } from '../../shared/opora-scope.js';
 import { type PromptId } from '../../shared/prompts.js';
 import type { DeskLabel } from '../../shared/floorplan.js';
 import type { OporaCard, OporaRun, OporaState, WorkerInfo } from '../../shared/protocol.js';
 import { forgetForOpora, markForOpora, seatForOpora, withReaBrief } from '../rea/index.js';
 import { OporaClient } from './client.js';
-import { claimsBlockedReason } from './agent-state.js';
 import { ActivityFeed } from './live.js';
 import { oporaProcess } from './process.js';
 import { ExecutionDispatch, type ExecutionHeld } from './execution-dispatch.js';
@@ -275,32 +274,15 @@ export class OporaBridge {
     }
   }
 
-  /** A person takes a free card: claims its lease and seats a worker for it. Resolves to why it couldn't, if it couldn't. */
-  async take(cardId: string, by: string, owner?: string): Promise<string | undefined> {
-    const { project, workspace } = this.state;
-    if (!this.state.connected || !project || !workspace) return this.state.error ?? 'Opora isn’t linked to this floor';
-    const waits = claimsBlockedReason(this.state.humanWait);
-    if (waits) return waits;
-    const card = this.state.cards.find((c) => c.id === cardId);
-    if (!card) return 'That card isn’t on the canvas any more';
-    const lost = this.focusLost();
-    if (lost) return lost;
-    if (!cardInFocus(this.state.scope, this.focus, card)) return `“${card.name}” is outside what the cell works on: switch it on at the 🎚️ switchboard first`;
-    if (card.status !== 'frontier') return `“${card.name}” isn’t free to take (${card.status})`;
-    const err = await this.seatCard(card, by, owner);
-    if (!err) card.status = 'claimed';
-    return err;
-  }
-
   /**
    * Starts the card's execution on Opora and seats a worker for it; for a ticket, claims the ticket for that
    * execution before the worker sits down, and gives both back if it can't (a 409 from the gate included).
    */
-  private async seatCard(card: Pick<OporaCard, 'id' | 'name' | 'group' | 'sectorName'>, by: string, owner?: string, ticket?: { ticket: WorkerTicket; scope: GateScope }): Promise<string | undefined> {
+  private async seatCard(card: Pick<OporaCard, 'id' | 'name' | 'group' | 'sectorName'> & { department?: string }, by: string, owner?: string, ticket?: { ticket: WorkerTicket; scope: GateScope }): Promise<string | undefined> {
     const { project, workspace } = this.state;
     if (!project || !workspace) return 'Opora isn’t linked to this floor';
     if (this.runs.some((r) => r.cardId === card.id && r.state !== 'gone')) return `The office is already on “${card.name}”`;
-    const freeDesk = () => deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
+    const freeDesk = () => deskFor(card.group, card.department ?? card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d));
     const full = 'Every desk is taken: send someone home, or build the back office out';
     if (!freeDesk()) return full;
     if (!this.floor.stop) return 'Office cannot enforce Canvas execution deadlines';
@@ -313,7 +295,7 @@ export class OporaBridge {
     try {
       dispatched = await this.executions.dispatch({ project: project.id, workspace, nodeId: card.id },
         () => this.events.prepareTask?.(project.id, workspace, card.id, owner) ?? Promise.resolve(''),
-        // The desk is picked when the worker sits down, so Takes in quick succession don't all pick the same one.
+        // The desk is picked when the worker sits down, so tickets in quick succession don't all pick the same one.
         (prompt, cardModel) => seatForOpora(() => { const desk = freeDesk(); return desk ? this.floor.seat(desk, by, prompt, owner, cardModel) : full; }), prompt => withReaBrief(prompt, this.events.prompt),
         () => prepareDesignBrief({ client: this.client, prompt: this.events.prompt, card, base: this.state.url, project: project.id, workspace, repoDir: this.floor.dir, dataDir: this.dataDir, log: m => console.warn(`[opora] ${m}`) }),
         this.floor.prepareWorker ? async () => {
@@ -362,11 +344,9 @@ export class OporaBridge {
     try { ticket = (await this.gate.request(scope)).ticket; } catch (error) { return this.sayOnce('gate', `🎫 OPORA's gate gives no ticket: ${(error as Error).message}`); }
     this.ticketSaid.delete('gate');
     if (!ticket || this.runs.some((r) => r.ticketId === ticket.ticketId && r.state !== 'gone')) return;
-    const known = this.state.cards.find((c) => c.id === ticket.machine.cardId);
-    const card = { id: ticket.machine.cardId, name: known?.name ?? ticket.body.essence?.split('\n')[0]?.slice(0, 200) ?? 'Ticket',
-      group: known?.group ?? cardGroup(undefined), ...(known?.sectorName ? { sectorName: known.sectorName } : {}) };
+    const card = ticketCard(ticket, this.state.cards.find((c) => c.id === ticket.machine.cardId));
     // A ticket the office can't seat now stays issued, unclaimed, for a later poll.
-    if (!deskFor(card.group, card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d))) return;
+    if (!deskFor(card.group, card.department ?? card.sectorName, this.floor.desks(), this.floor.labels(), (d) => this.floor.deskOccupied(d))) return;
     const orchestrator = this.floor.orchestrator?.();
     const err = await this.seatCard(card, orchestrator?.by ?? '🫀 OPORA', orchestrator?.owner, { ticket, scope });
     if (err) this.sayOnce(ticket.ticketId, `🎫 OPORA ticket for “${card.name}” wasn't taken: ${err}`);
@@ -386,6 +366,7 @@ export class OporaBridge {
         const { ticket } = await this.gate.request(scope, run.ticketId);
         if (ticket?.ticketId === run.ticketId) writeNotes(directory, run.execution.executionId, ticket.feedback);
       } catch (error) {
+        if (error instanceof GateError && error.code === 'ticket_not_held') { this.ticketLost(run); continue; }
         this.sayOnce(`tend:${run.ticketId}`, `🎫 OPORA ticket of “${run.cardName}”: ${(error as Error).message}`);
       }
     }
@@ -405,12 +386,34 @@ export class OporaBridge {
       this.gate.forget(scope, run.ticketId);
       this.persist();
     } catch (error) {
+      if (error instanceof GateError && error.code === 'ticket_not_held') return this.ticketLost(run);
       // An open question is a 409 ticket_state: it's delivered at a later hand-off, once the heart answered.
       const why = error instanceof GateError && error.code === 'ticket_state' ? 'it waits for the heart’s answer to a question' : (error as Error).message;
       this.sayOnce(`deliver:${run.ticketId}`, `🎫 OPORA ticket of “${run.cardName}” isn't delivered yet: ${why}`);
     } finally {
       this.delivering.delete(run.ticketId);
     }
+  }
+
+  /**
+   * OPORA gave the run's ticket to another holder (its new session's `ticket.claim` came back `ticket_not_held`):
+   * the run ends cleanly, its worker sent home and its execution let go, with no hand-off and no delivery.
+   */
+  private ticketLost(run: Held) {
+    if (!run.ticketId || !run.execution || run.state === 'gone') return;
+    this.gate.forget({ project: run.execution.project, workspace: run.execution.workspace }, run.ticketId);
+    const reason = `OPORA ticket of “${run.cardName}” is held by another worker now`;
+    if (run.workerId) requestExecutionStop(run, run.workerId, reason, this.floor.stop?.bind(this.floor), () => this.changed(), (m) => this.sayOnce(`lost:${run.ticketId}`, `🎫 ${m}`));
+    run.state = 'gone';
+    void this.executions.release(run).then(() => this.persist());
+  }
+
+  /** How many tickets the floor works on at once, as set in the 🛰️ Opora window; kept with the floor's Opora state. */
+  setMaxRuns(n: number): string | undefined {
+    if (!Number.isInteger(n) || n < 1 || n > OPORA_LIMITS.maxRuns) return `Between 1 and ${OPORA_LIMITS.maxRuns} tickets at once`;
+    this.state.maxRuns = n;
+    this.changed();
+    return undefined;
   }
 
   private sayOnce(key: string, text: string) {
@@ -497,7 +500,7 @@ export class OporaBridge {
       const isCard = (id: string) => byId.get(id)?.kind === 'node';
       const sectors = nodes.filter((n) => n.kind === 'sector').slice(0, MAX_SECTORS);
       // The cards Canvas offers a ready claim for (agent-state.ts), each in the sector it's laid out in; the same read
-      // says what waits on a person. The office takes work as tickets (nextTicket); these are for a person's ▶ Take.
+      // says what waits on a person. The office takes work only as tickets (nextTicket); these are shown, not taken.
       const agent = await this.client.agentState(project.id, workspace).catch(() => null);
       const sectorOf = (id: string) => { for (let n = byId.get(id); n; n = n.parentId ? byId.get(n.parentId) : undefined) if (n.kind === 'sector') return n; return undefined; };
       const cards: OporaCard[] = agent ? [...agent.ready].filter(isCard).map((id) => {
@@ -558,10 +561,11 @@ export class OporaBridge {
   private restore() {
     try {
       if (!existsSync(this.statePath)) return;
-      // An older file's autopilot and hand-out fields are left unread: the office takes work only as tickets now.
       const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { runs?: Held[]; maxRuns?: number; linkedTo?: string; workspace?: string; focus?: unknown };
       if (Array.isArray(saved.runs)) this.runs = saved.runs.filter((r) => r && typeof r.cardId === 'string');
       for (const r of this.runs) if (r.state !== 'gone' && r.workerId) markForOpora(r.workerId);
+      // A ticket held before the restart: the gate's next session for it claims it again for the same execution.
+      for (const r of this.runs) if (r.state !== 'gone' && r.ticketId && !r.ticketDelivered && r.execution) this.gate.hold({ project: r.execution.project, workspace: r.execution.workspace }, r.ticketId, r.execution.executionId);
       if (typeof saved.maxRuns === 'number') this.state.maxRuns = Math.max(1, Math.min(OPORA_LIMITS.maxRuns, saved.maxRuns));
       this.chosen = typeof saved.linkedTo === 'string' && saved.linkedTo ? saved.linkedTo : undefined;
       this.chosenWorkspace = typeof saved.workspace === 'string' && saved.workspace ? saved.workspace : undefined;
@@ -570,4 +574,16 @@ export class OporaBridge {
       // a broken file starts the bridge afresh
     }
   }
+}
+
+/**
+ * The card a ticket is for, as the office seats it: its department (desks signed so) and its profile (the
+ * design pipeline's desks or the developers') from the ticket's `machine` when the heart set them, else what
+ * the canvas read says, else a developer's card.
+ */
+export function ticketCard(ticket: WorkerTicket, known?: Pick<OporaCard, 'name' | 'group' | 'sectorName'>) {
+  const { cardId, department, profile } = ticket.machine;
+  return { id: cardId, name: known?.name ?? ticket.body.essence?.split('\n')[0]?.slice(0, 200) ?? 'Ticket',
+    group: profile ? cardGroup(profile) : (known?.group ?? cardGroup(undefined)),
+    ...(known?.sectorName ? { sectorName: known.sectorName } : {}), ...(department ? { department } : {}) };
 }

@@ -73,14 +73,3 @@ export function digestAgentState(doc: unknown, contextVersion: ContextVersion = 
   };
 }
 
-/** The decisions' titles in one line, for a toast or a refusal. */
-export function waitTitles(w: OporaHumanWait): string {
-  return w.decisions.map((x) => `“${x.title}”`).join(', ');
-}
-
-/** Why no card can be taken now, or undefined when claims aren't blocked on a person. */
-export function claimsBlockedReason(w: OporaHumanWait | undefined): string | undefined {
-  if (!w?.claimsBlocked) return undefined;
-  return `Opora waits on a person: ${waitTitles(w)}. No card can be taken until it's decided in Opora`;
-}
-

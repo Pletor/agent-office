@@ -33,7 +33,7 @@ export function humanWaitItems(state: OporaState, path: string[]): BossAttention
     url: oporaCanvasUrl(state),
     guidance: {
       owner: 'Ty — rozhodnutí, které Opora dovolí jen člověku',
-      activity: w.claimsBlocked ? 'Autopilot, rozdávání i ▶ Převzít v kanceláři stojí, dokud nerozhodneš.' : 'Čeká na tvoje rozhodnutí.',
+      activity: w.claimsBlocked ? 'Žádná karta se do té doby nedá převzít, ani ticketem.' : 'Čeká na tvoje rozhodnutí.',
       steps: [
         'Otevři projekt v Opoře tlačítkem níže.',
         `Najdi rozhodnutí „${d.title}“, projdi, co přijímáš, a rozhodni (přijmout, nebo vrátit k úpravě).`,

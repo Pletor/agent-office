@@ -50,7 +50,7 @@ export class SessionsData {
       workers: [...store.workers.values()], sessions: store.sessions.sessions, opora: store.opora, focusCard: store.orchestrator.focus?.cardId,
       events: store.process.events, pulls: store.pulls.items, planStats: this.planStats, deskName: (id) => store.plan().byId.get(id)?.label, now,
     });
-    return { board, att: attention(board, { cards: store.opora.cards, runs: store.opora.runs, tasks: store.queue.tasks, health: this.health, now }) };
+    return { board, att: attention(board, { tasks: store.queue.tasks, health: this.health, now }) };
   }
 
   private emit() {

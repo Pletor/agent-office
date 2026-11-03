@@ -80,7 +80,7 @@ export class SessionsKeeper {
     const opora = this.deps.opora?.() ?? { project: null, cards: [], runs: [], scope: [], focus: [] };
     const now = this.now();
     const board = buildBoard({ workers, sessions: this.current.sessions, opora, focusCard: this.deps.focusCard?.(), events: this.deps.events?.() ?? [], pulls: this.deps.pulls?.() ?? [], now });
-    return sessionsBrief(board, attention(board, { cards: opora.cards, runs: opora.runs, tasks: this.deps.tasks?.() ?? [], now }));
+    return sessionsBrief(board, attention(board, { tasks: this.deps.tasks?.() ?? [], now }));
   }
 
   /** Reads what's new in every session; tells the floor when anything it shows changed. */

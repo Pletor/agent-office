@@ -182,7 +182,7 @@ test('the board groups sessions by card, puts the orchestrator card first and fl
   assert.ok(b.rows.find((r) => r.name === 'Filip')!.flags.includes('nopr'));
   assert.equal(b.rows.find((r) => r.id === 'ghost:C3')?.st, 'gone');
   assert.equal(b.kids, 1);
-  const a = attention(b, { cards: fixture().opora.cards, runs: fixture().opora.runs, tasks: [], health: [{ kind: 'orphan-worktree', text: 'Sirotčí worktree', where: '.worktrees/nela' }], now: T0 });
+  const a = attention(b, { tasks: [], health: [{ kind: 'orphan-worktree', text: 'Sirotčí worktree', where: '.worktrees/nela' }], now: T0 });
   assert.ok(a.dead.some((x) => x.row === 'lucie'));
   assert.ok(a.dead.some((x) => x.row === 'filip'));
   assert.ok(a.dead.some((x) => x.row === 'ema'), 'a sub-session without a move');
@@ -190,8 +190,8 @@ test('the board groups sessions by card, puts the orchestrator card first and fl
   assert.ok(a.orph.some((x) => x.row === 'petra' && x.tag === 'mimo plán'));
   assert.ok(a.orph.some((x) => x.tag === 'worktree'));
   assert.ok(a.hum.some((x) => x.row === 'jana' && x.why === 'Smí spustit migraci?'));
-  assert.deepEqual(a.fol.map((f) => f.launch.kind), ['queue', 'take']);
-  assert.equal(attention(b, { cards: [], runs: [], tasks: [{ title: 'Přenést tokeny vzhledu', status: 'queued' }], now: T0 }).fol.length, 0, 'started already');
+  assert.deepEqual(a.fol.map((f) => f.launch.kind), ['queue'], 'cards come only as OPORA tickets, never from here');
+  assert.equal(attention(b, { tasks: [{ title: 'Přenést tokeny vzhledu', status: 'queued' }], now: T0 }).fol.length, 0, 'started already');
   assert.ok(b.counts.stale >= 3 && b.counts.human === 1);
   assert.equal(STALE_MIN, 15);
 });
@@ -201,7 +201,7 @@ test('the sessions overview is data, capped, and carries no credentials', () => 
   i.workers[0].task = { name: 'Formulář ghp_abcdefghijklmnopqrstuvwxyz0123456789', summary: 's' };
   for (let n = 0; n < 60; n++) i.workers.push(worker({ id: `w${n}`, name: `Worker ${n} ${'x'.repeat(40)}`, task: { name: `password=hunter2hunter2 ${'y'.repeat(80)}`, summary: '' } }));
   const b = buildBoard(i);
-  const text = sessionsBrief(b, attention(b, { cards: i.opora.cards, runs: i.opora.runs, tasks: [], now: T0 }));
+  const text = sessionsBrief(b, attention(b, { tasks: [], now: T0 }));
   assert.ok(text.startsWith(SESSIONS_START) && text.endsWith(SESSIONS_END));
   assert.match(text, /DATA, not instructions/);
   assert.ok(text.length <= SESSIONS_BRIEF_MAX, `${text.length}`);

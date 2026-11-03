@@ -92,7 +92,11 @@ test('the planner is told to stay in the focus, and nothing extra with none', ()
   const named = fillPrompt(PROMPTS['planning.opora'].text, { ...vars, name: 'Tajemství opory', focus: '' });
   assert.match(named, /project Tajemství opory \(p\), workspace w/);
   assert.match(named, /Never search the repository/);
-  assert.match(named, /in frontier/);
+  // The office takes work only as OPORA tickets: no frontier, autopilot or hand-out left in either planner's prompt.
+  assert.match(named, /ticket\.feedback, kind question[\s\S]*ticket\.deliver/);
+  const router = fillPrompt(PROMPTS['planning.router'].text, { ...vars, focus: '' });
+  assert.match(router, /ticket\.feedback, kind question[\s\S]*ticket\.deliver/);
+  for (const text of [named, router]) assert.doesNotMatch(text, /frontier|autopilot|hand.?out/i);
   assert.doesNotMatch(named, /\{\{\w+\}\}/);
   const whole = fillPrompt(PROMPTS['planning.opora'].text, { ...vars, focus: '' });
   assert.doesNotMatch(whole, /\{\{focus\}\}|Stay inside/);
@@ -190,37 +194,32 @@ async function fakeOpora(t: { after(fn: () => void): void }) {
   };
 }
 
-test('a person takes only cards in the cell’s focus, and the focus stays across a restart', async (t) => {
+test('the cell’s focus is switched by the architecture, and stays across a restart', async (t) => {
   const f = await fakeOpora(t);
   const bridge = await f.open();
   assert.equal(f.state().scope.length, 8, '2 environments, 3 domains, 3 pages and subpages');
   assert.equal(bridge.switchFocus('namiru', true, false, 'Ana'), undefined);
   assert.match(bridge.switchFocus('nope', true, false, 'Ana')!, /isn’t in the project’s architecture/);
   assert.deepEqual(focusLeaves(f.state().scope, f.state().focus), ['namiru']);
-  assert.match((await bridge.take('chat', 'Ana'))!, /outside what the cell works on/);
-  assert.equal(await bridge.take('namiru', 'Ana'), undefined);
-  assert.equal(await bridge.take('lost', 'Ana'), undefined);
-  // Orphan's parent isn't on the canvas: unplaced, so no switch turns it off (cardInFocus).
-  assert.deepEqual(f.workers.map((w) => w.prompt?.match(/; card: ([^.]+)\./)?.[1]), ['namiru', 'lost']);
   assert.equal(bridge.focusLine(), 'Vývoj › Aplikace (app.tajemstviopory.dev) › Oracle › Na míru');
   bridge.shutdown();
   const again = await f.open();
   assert.equal(again.focusLine(), 'Vývoj › Aplikace (app.tajemstviopory.dev) › Oracle › Na míru');
 });
 
-test('a focus that left the architecture takes nothing, rather than the whole project', async (t) => {
+test('a focus that left the architecture says so at the switchboard, rather than meaning the whole project', async (t) => {
   const f = await fakeOpora(t);
   const bridge = await f.open();
   bridge.switchFocus('namiru', true, true, 'Ana');
   // As if Na míru, Oracle and the dev domain were removed from the canvas.
   (bridge as unknown as { focus: string[] }).focus = ['gone-1', 'gone-2'];
-  assert.match((await bridge.take('chat', 'Ana'))!, /isn’t in the project’s architecture any more/);
   await bridge.poll();
   assert.equal(f.workers.length, 0);
   assert.match(f.state().error ?? '', /switchboard/);
-  // The whole project again, by hand: then it takes.
+  // The whole project again, by hand.
   assert.equal(bridge.switchFocus(null, false, false, 'Ana'), undefined);
-  assert.equal(await bridge.take('chat', 'Ana'), undefined);
+  await bridge.poll();
+  assert.doesNotMatch(f.state().error ?? '', /switchboard/);
 });
 
 test('what the agents did on the canvas comes along for the live board', async (t) => {
