@@ -3,6 +3,7 @@
 // the `ticket.*` kinds sent as gate requests (POST /api/gate/requests {kind, body}). The heart issues a
 // ticket; the office asks for it, claims it for the card's execution it started, and delivers it.
 import type { BrainPin } from './brain-pins.js';
+import { designOf, type DesignRef } from './design-export.js';
 
 /** What the worker is told: no ids, the heart's words. */
 export interface TicketBody {
@@ -13,7 +14,8 @@ export interface WorkerTicket {
   ticketId: string; status: string; body: TicketBody;
   /** `department` and `profile` (slugs) are where the heart sends the work: which desks and which pipeline. */
   /** `pins`: the Brain's plugins the heart pinned for the work (brain-pins.ts), each fetched before the worker starts. */
-  machine: { cardId: string; executionId?: string | null; cardVersion?: unknown; department: string | null; profile: string | null; pins: BrainPin[] };
+  /** `design`: the web's design system export (design-export.ts), unpacked into the worktree's `design/` when present. */
+  machine: { cardId: string; executionId?: string | null; cardVersion?: unknown; department: string | null; profile: string | null; pins: BrainPin[]; design?: DesignRef };
   feedback: TicketFeedback[];
 }
 export type FeedbackKind = 'bug' | 'idea' | 'improvement' | 'question';
@@ -50,7 +52,7 @@ export function validTicket(value: unknown): WorkerTicket | null {
   const body: TicketBody = { essence: text(b.essence), build: text(b.build), openPaths: texts(b.openPaths), cautions: texts(b.cautions), skills: texts(b.skills), doneCriteria: texts(b.doneCriteria) };
   const feedback = (Array.isArray(v.feedback) ? v.feedback : []).filter((f): f is Record<string, unknown> => !!f && typeof f === 'object')
     .map(f => ({ feedbackId: String(f.feedbackId ?? ''), kind: String(f.kind ?? ''), text: String(f.text ?? ''), answer: f.answer ?? null }));
-  return { ticketId: v.ticketId, status: v.status, body, machine: { cardId: machine.cardId, executionId: typeof machine.executionId === 'string' ? machine.executionId : null, cardVersion: machine.cardVersion, department: slug(machine.department), profile: slug(machine.profile), pins: pinsOf(machine.pins) }, feedback };
+  return { ticketId: v.ticketId, status: v.status, body, machine: { cardId: machine.cardId, executionId: typeof machine.executionId === 'string' ? machine.executionId : null, cardVersion: machine.cardVersion, department: slug(machine.department), profile: slug(machine.profile), pins: pinsOf(machine.pins), ...designOf(machine.design) }, feedback };
 }
 
 /** The ticket's body as a block of the worker's prompt: the heart's words, no ids. */
@@ -94,7 +96,9 @@ export class TicketGate {
     return this.send(scope, ticketId, 'ticket.deliver', { ticketId, summary, ...(sha && /^[0-9a-fA-F]{7,40}$/.test(sha) ? { sha } : {}) });
   }
   /** A file OPORA serves under the ticket's own session (a Brain pin's zip, brain-pins.ts), as bytes. */
-  async download(scope: GateScope, ticketId: string, file: string): Promise<Uint8Array> {
+  async download(scope: GateScope, ticketId: string, file: string): Promise<Uint8Array> { return (await this.file(scope, ticketId, file)).bytes; }
+  /** The same with the answer's headers (the design export's `X-Design-Revision`, design-export.ts). */
+  async file(scope: GateScope, ticketId: string, file: string): Promise<{ bytes: Uint8Array; headers: Headers }> {
     for (let attempt = 0; ; attempt++) {
       const token = await this.token(scope, ticketId);
       let res: Response;
@@ -106,7 +110,7 @@ export class TicketGate {
       }
       if (res.status === 401 && attempt === 0) { this.sessions.delete(key(scope, ticketId)); continue; }
       if (!res.ok) throw new GateError(res.status, `http_${res.status}`, `OPORA refused the file (${res.status})`);
-      return new Uint8Array(await res.arrayBuffer());
+      return { bytes: new Uint8Array(await res.arrayBuffer()), headers: res.headers };
     }
   }
   /** A ticket the office is done with (delivered or given back): its session goes. */
