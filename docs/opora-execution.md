@@ -299,6 +299,12 @@ On each poll:
    what to watch out for, pinned skills, when it's done) and the helper's `feedback KIND TEXT` command. The helper
    queues the item in `opora-executions/<executionId>-feedback.jsonl`; the office sends it as `ticket.feedback` and
    writes the ticket's feedback with the heart's answers to `<executionId>-ticket.json`, which `feedback` prints.
+   A ticket on a web domain carries `machine.design = {revision, export}` (only OPORA's
+   `/api/site-admin/export?…` path): the office fetches that zip in the ticket's session right after the claim
+   and, right before the worker's first launch, unpacks it as the worktree's `design/` (the older one replaced,
+   files read-only, `/design/` added to git's `info/exclude`), and the prompt says to take colours, fonts and
+   sizes from its tokens only (`design-export.ts`). An `X-Design-Revision` other than the ticket's is a warning
+   in the log; a failed download or a bad zip is logged and the work goes on without `design/`.
 5. After the hand-off (the pull request is out), `ticket.deliver {ticketId, summary, sha}` with the result's
    summary and the head commit; an open question is a 409 `ticket_state`, delivered at a later hand-off. From
    there OPORA moves the ticket on by itself (`verified`, `closed`, `failed`).

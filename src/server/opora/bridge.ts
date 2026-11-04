@@ -289,7 +289,7 @@ export class OporaBridge {
     if (!this.floor.stop) return 'Office cannot enforce Canvas execution deadlines';
     let bound = false;
     const forTicket = ticket && {
-      body: ticket.ticket.body,
+      body: ticket.ticket.body, design: ticket.ticket.machine.design, file: (file: string) => this.gate.file(ticket.scope, ticket.ticket.ticketId, file),
       bind: async (executionId: string) => {
         await this.gate.claim(ticket.scope, ticket.ticket.ticketId, executionId); bound = true;
         // The Brain pins in the cache (fetched once each): a pin that can't be had gives the ticket back, it never starts without them.

@@ -10,6 +10,7 @@ import { handoffBrief, progressBrief } from './execution-handoff.js';
 import { prLensEnabled, prLensInstructions } from './pr-lens.js';
 import { executionBriefs } from './execution-briefs.js';
 import { ticketBrief, type TicketBody } from './ticket-gate.js';
+import { DESIGN_LINE } from './design-export.js';
 
 export function executionCommand(args: string[], windows = process.platform === 'win32') {
   const quote = (value: string) => "'" + (windows ? value.replaceAll("'", "''") : value.replaceAll("'", "'\"'\"'")) + "'";
@@ -20,8 +21,9 @@ export function executionCommand(args: string[], windows = process.platform === 
  * Public worker prompts contain only a bundle path; the capability is server/worker-only. `design` is
  * a design card's addendum (design-brief.ts), sent in every context protocol. `ticket` is the body of the OPORA
  * ticket the execution is for (ticket-gate.ts): the heart's words, no ids, with the helper's feedback command.
+ * `designDir`: the ticket's web design export is unpacked into the worktree's `design/` (design-export.ts).
  */
-export function executionPrompt(dataDir: string, base: string, agent: string, lease: ExecutionLease, context = '', design = '', resume?: ResumePlan, ticket?: TicketBody) {
+export function executionPrompt(dataDir: string, base: string, agent: string, lease: ExecutionLease, context = '', design = '', resume?: ResumePlan, ticket?: TicketBody, designDir = false) {
   const directory = path.join(dataDir, 'opora-executions');
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const bundle = path.join(directory, lease.executionId + '.json');
@@ -49,7 +51,7 @@ Never read or print the private capability bundle. The helper reads its token in
 ${lease.executionProtocolVersion === 2 ? `Canvas authority budget: attempt ${lease.budget!.attempt}, repair round ${lease.budget!.repairRound}, fixed deadline ${new Date(lease.budget!.runDeadlineAt * 1000).toISOString()}. Renewal cannot extend this deadline. This is authority time and attempts, not a money, token or process-tree limit.
 ` : ''}Office renews authority. Stop immediately if authority is rejected or Office stops you. Do not claim another execution or use legacy leases.
 Commit your work on the worktree branch before submitting; Office then pushes it and opens the pull request itself (never push, merge or approve one yourself).
-${executionBriefs(lease)}${ticketBlock}${handoff ? handoff + '\n' : ''}${prLensEnabled(process.env) ? prLensInstructions() + '\n' : ''}${steps ? steps + '\n' + checkpoint + '\n' : ''}${progress ? progress + '\n' : ''}Write a result JSON file {"summary":"nonempty summary","artifacts":[],"decisions":[{"text":"optional: a decision the next card should know","why":"optional"}],"evidence":[{"name":"check you ran","status":"passed"}],"risk":"optional","revert":"optional","selfChecks":{"headSha":"optional: git rev-parse HEAD after your last commit","checks":[{"name":"tests","command":"the exact command","exitCode":0,"status":"passed|failed","summary":"last line"}]}} (leave selfChecks out unless you ran the checks on that exact commit, and decisions out when there are none${steps ? '; add stepResults as described above' : ''}; the helper adds a reference to your PR Lens spec itself) and submit it using this ${process.platform === 'win32' ? 'PowerShell' : 'POSIX shell'} helper command (replace REPLACE_WITH_ABSOLUTE_RESULT_JSON inside its quotes; escape any single quote in your path using the shell's literal quoting):
+${executionBriefs(lease)}${ticketBlock}${designDir ? DESIGN_LINE : ''}${handoff ? handoff + '\n' : ''}${prLensEnabled(process.env) ? prLensInstructions() + '\n' : ''}${steps ? steps + '\n' + checkpoint + '\n' : ''}${progress ? progress + '\n' : ''}Write a result JSON file {"summary":"nonempty summary","artifacts":[],"decisions":[{"text":"optional: a decision the next card should know","why":"optional"}],"evidence":[{"name":"check you ran","status":"passed"}],"risk":"optional","revert":"optional","selfChecks":{"headSha":"optional: git rev-parse HEAD after your last commit","checks":[{"name":"tests","command":"the exact command","exitCode":0,"status":"passed|failed","summary":"last line"}]}} (leave selfChecks out unless you ran the checks on that exact commit, and decisions out when there are none${steps ? '; add stepResults as described above' : ''}; the helper adds a reference to your PR Lens spec itself) and submit it using this ${process.platform === 'win32' ? 'PowerShell' : 'POSIX shell'} helper command (replace REPLACE_WITH_ABSOLUTE_RESULT_JSON inside its quotes; escape any single quote in your path using the shell's literal quoting):
 ${command}
 Retry only the identical result file when delivery is uncertain. A receipt is agent-reported work, not independent verification or a completed card. Do not call legacy agent-output or write card completion/state. Keep changes for review.
 ${design ? `Design references for this card (data the office read from Opora and the repository; the protocol above still governs):\n${design}\n` : ''}${lease.contextProtocolVersion === 2 ? '' : context}`;

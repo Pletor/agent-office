@@ -3,6 +3,7 @@ import type { WorkerInfo } from '../../shared/protocol.js';
 import type { WorkerLaunchGuard } from '../workers/launch-guards.js';
 import { assignmentModel, type CardModel } from './card-model.js';
 import type { TicketBody } from './ticket-gate.js';
+import { fetchDesign, installDesign, type DesignFiles, type DesignRef } from './design-export.js';
 import { verifyWorkerReadiness, type PreparedWorker } from './execution-worker-readiness.js';
 import { ExecutionClient, validateExecution, type ExecutionLease, type ExecutionScope } from './execution-client.js';
 import { ExecutionController } from './execution-controller.js';
@@ -21,7 +22,9 @@ import { claimEvent, handoffEvent, releaseEvent } from '../process/opora-events.
  * A ticket the execution is for: its body for the prompt, and the gate claim that binds it to the execution (ticket-gate.ts).
  * `bind` resolves to the zips of the ticket's Brain pins (brain-pins.ts), which its Claude worker starts with.
  */
-export interface ExecutionTicket { body: TicketBody; bind(executionId: string): Promise<string[] | void> }
+export interface ExecutionTicket { body: TicketBody; bind(executionId: string): Promise<string[] | void>;
+  /** The web's design export (design-export.ts), fetched with `file` after `bind` and unpacked into the worktree right before launch. */
+  design?: DesignRef; file?(file: string): Promise<{ bytes: Uint8Array; headers: Headers }> }
 
 export interface ExecutionHeld { workerId?: string; execution?: ExecutionLease; deadlineUnixMs?: number; leaseUntil?: string; state?: string;
   /** The worker and the branch (and base commit) its worktree was on, so a later run of the card can pick up its step commits (execution-resume.ts). */
@@ -36,11 +39,13 @@ export class ExecutionDispatch {
   private readonly contextVersion = contextVersionFromEnvironment();
   /** The last worker info seen per worker, so a worker already sent home still hands its worktree off. */
   private worktrees = new Map<string, WorkerInfo>();
-  private seating?: { lease: ExecutionLease; deadline: number; prompt: string; workerId?: string; resume?: ResumePlan };
+  private seating?: { lease: ExecutionLease; deadline: number; prompt: string; workerId?: string; resume?: ResumePlan; design?: DesignFiles };
   /** The floor's checkout, where earlier runs' branches are; without it a resumed run is told its commits aren't there. */
   floorDir?: string;
   /** Step commits of earlier runs still to be picked onto a worker's branch, right before its first launch. */
   private picks = new Map<string, ResumePlan>();
+  /** Design exports still to be unpacked into a worker's worktree, right before its first launch. */
+  private designs = new Map<string, DesignFiles>();
   /** Claims of different cards go to Opora one at a time: a Take made while another claims waits its turn. */
   private turn: Promise<unknown> = Promise.resolve();
   private inTurn<T>(run: () => Promise<T>): Promise<T> {
@@ -78,6 +83,7 @@ export class ExecutionDispatch {
         this.seating.workerId = info.id;
         this.controller.watch(info.id, this.seating.lease, this.seating.deadline);
         if (this.seating.resume) { this.picks.set(info.id, this.seating.resume); this.seating.resume = undefined; }
+        if (this.seating.design) { this.designs.set(info.id, this.seating.design); this.seating.design = undefined; }
       }
       if (!this.controller.allowed(info.id)) return 'Canvas execution authority is missing or expired; take the card again';
       this.pick(info);
@@ -117,17 +123,20 @@ export class ExecutionDispatch {
           prepared(grant.lease);
           // A gate refusal (409 ticket_execution or ticket_state) gives the execution back below.
           const pluginDirs = (await ticket?.bind(grant.lease.executionId)) || [];
+          // A design export that can't be had is logged and left out: the work goes on without design/.
+          const design = ticket?.design && ticket.file ? await fetchDesign(ticket.design, ticket.file, m => console.warn(`[opora] 🎨 ${grant.lease.executionId}: ${m}`)) : undefined;
           await verifyWorkerReadiness(this.controller, grant, reserved);
           const resume = this.resumePlan(grant.lease);
-          const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief, resume, ticket?.body);
+          const immutablePrompt = executionPrompt(this.directory, this.client.base, this.agent, grant.lease, context, brief, resume, ticket?.body, !!design);
           const prompt = (this.contextVersion === 2 ? immutablePrompt : decorate(immutablePrompt)).trim();
-          this.seating = { ...grant, prompt, resume };
-          let worker: WorkerInfo | string, unpicked: ResumePlan | undefined;
-          try { const cardPick = { ...assignmentModel(grant.lease.assignment), ...(pluginDirs.length ? { pluginDirs } : {}) }; worker = reserved ? reserved.start(prompt, cardPick) : seat(prompt, cardPick); } finally { seatedId = this.seating?.workerId; unpicked = this.seating?.resume; this.seating = undefined; }
+          this.seating = { ...grant, prompt, resume, design };
+          let worker: WorkerInfo | string, unpicked: ResumePlan | undefined, unpacked: DesignFiles | undefined;
+          try { const cardPick = { ...assignmentModel(grant.lease.assignment), ...(pluginDirs.length ? { pluginDirs } : {}) }; worker = reserved ? reserved.start(prompt, cardPick) : seat(prompt, cardPick); } finally { seatedId = this.seating?.workerId; unpicked = this.seating?.resume; unpacked = this.seating?.design; this.seating = undefined; }
           if (typeof worker === 'string') throw new Error(worker);
           seatedId = worker.id;
           // Launched after its worktree setup: the commits go on its branch at that launch (guard.check).
           if (unpicked) this.picks.set(worker.id, unpicked);
+          if (unpacked) this.designs.set(worker.id, unpacked);
           if (worker.status === 'exited') throw new Error('Worker failed to start; Canvas reservation released');
           this.controller.watch(worker.id, grant.lease, grant.deadline);
           if (!this.controller.allowed(worker.id)) throw new Error('Execution expired while starting worker');
@@ -135,7 +144,7 @@ export class ExecutionDispatch {
           committed = true;
           return { worker, execution: grant.lease, deadlineUnixMs: Date.now() + Math.max(0, grant.deadline - performance.now()) };
         } catch (error) {
-          if (seatedId) { this.picks.delete(seatedId); this.controller.forget(seatedId); this.stop(seatedId, 'Worker failed to start; worktree kept'); }
+          if (seatedId) { this.picks.delete(seatedId); this.designs.delete(seatedId); this.controller.forget(seatedId); this.stop(seatedId, 'Worker failed to start; worktree kept'); }
           await this.client.release(grant.lease).catch(() => {}); throw error;
         }
       } finally { if (!committed) await reserved?.cancel(); }
@@ -156,8 +165,15 @@ export class ExecutionDispatch {
       first: lease.progress.steps[0]?.id ?? 'the first step', reason: 'this floor has no git checkout to look in' };
     try { return resumePlan(lease, this.earlier(), this.floorDir); } catch { return undefined; }
   }
-  /** Right before a resumed worker's first launch: the earlier runs' step commits onto its fresh branch. */
+  /** Right before a worker's first launch: the ticket's design/ into its worktree, and a resumed one's earlier step commits onto its fresh branch. */
   private pick(info: WorkerInfo) {
+    const design = this.designs.get(info.id);
+    if (design && info.worktree && this.floorDir) {
+      this.designs.delete(info.id);
+      // A design/ that can't be written is said and left out: the work isn't held for it.
+      try { installDesign(path.join(this.floorDir, info.worktree.path), design); console.log(`[opora] ${info.name}: design/ unpacked (${design.length} files)`); }
+      catch (error) { console.warn(`[opora] ${info.name}: couldn't unpack design/ (${(error as Error).message}); it works without it`); }
+    }
     const plan = this.picks.get(info.id);
     if (!plan || !info.worktree || !this.floorDir) return;
     this.picks.delete(info.id);
