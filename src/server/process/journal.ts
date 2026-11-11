@@ -78,6 +78,10 @@ export class ProcessJournal {
         ...(target ? { target } : {}),
       };
     }
+    if (input.data) {
+      const data = Object.entries(input.data).filter(([, v]) => typeof v === 'string').slice(0, 8).map(([k, v]) => [redact(k, 40), redact(v, 160, roots)]);
+      if (data.length) event.data = Object.fromEntries(data);
+    }
     this.ring.push(event);
     if (this.ring.length > this.size) this.ring.splice(0, this.ring.length - this.size);
     return event;

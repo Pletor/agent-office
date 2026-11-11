@@ -1247,6 +1247,11 @@ test('a Claude worker acts out its latest tool call, and puts its head in its ha
   assert.equal(action(), 'test');
   hook('PreToolUse', { tool_name: 'Edit', tool_input: { file_path: 'src/a.ts' } });
   assert.equal(action(), 'edit');
+  // An edit names its file by its path in the worktree (the session's cwd), not the absolute one, which redaction hides.
+  hook('PreToolUse', { tool_name: 'Edit', cwd: f.root, tool_input: { file_path: path.join(f.root, 'src', 'deep', 'b.ts') } });
+  assert.equal(workers.get(worker.id)?.activity, 'Edit: src/deep/b.ts');
+  hook('PreToolUse', { tool_name: 'Edit', cwd: path.join(f.root, 'src'), tool_input: { file_path: path.join(f.root, 'other.ts') } });
+  assert.equal(workers.get(worker.id)?.activity?.startsWith('Edit: ..'), false, 'a file outside the session folder keeps its own path');
   // Failed again, by the summary it printed through the pipe: head in hands, until its next tool call.
   hook('PreToolUse', npmTest);
   hook('PostToolUse', { ...npmTest, tool_response: { stdout: '# tests 5\n# pass 3\n# fail 2', stderr: '' } });

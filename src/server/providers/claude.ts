@@ -92,7 +92,10 @@ process.stdin.on('end', () => {
 function describeTool(payload: any): string {
   const name = payload?.tool_name ?? 'tool';
   const input = payload?.tool_input ?? {};
-  const detail = input.command ?? input.file_path ?? input.pattern ?? input.url ?? input.description ?? '';
+  // A file inside the session's folder (the worker's worktree) by its path there, so OPORA can tell which file changed.
+  const file = typeof input.file_path === 'string' && typeof payload?.cwd === 'string' ? path.relative(payload.cwd, input.file_path) : '';
+  const inside = file && !file.startsWith('..') && !path.isAbsolute(file) ? file.replace(/\\/g, '/') : undefined;
+  const detail = input.command ?? inside ?? input.file_path ?? input.pattern ?? input.url ?? input.description ?? '';
   return truncate(detail ? `${name}: ${detail}` : String(name), 80);
 }
 

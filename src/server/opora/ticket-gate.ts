@@ -3,6 +3,8 @@
 // the `ticket.*` kinds sent as gate requests (POST /api/gate/requests {kind, body}). The heart issues a
 // ticket; the office asks for it, claims it for the card's execution it started, and delivers it.
 import type { BrainPin } from './brain-pins.js';
+import { cardGroup } from '../../shared/opora.js';
+import type { OporaCard } from '../../shared/protocol.js';
 import { designOf, type DesignRef } from './design-export.js';
 
 /** What the worker is told: no ids, the heart's words. */
@@ -160,3 +162,15 @@ export class TicketGate {
 }
 
 const key = (scope: GateScope, holder?: string) => `${scope.project}/${scope.workspace}/${holder ?? 'lobby'}`;
+
+/**
+ * The card a ticket is for, as the office seats it: its department (desks signed so) and its profile (the
+ * design pipeline's desks or the developers') from the ticket's `machine` when the heart set them, else what
+ * the canvas read says, else a developer's card.
+ */
+export function ticketCard(ticket: WorkerTicket, known?: Pick<OporaCard, 'name' | 'group' | 'sectorName'>) {
+  const { cardId, department, profile } = ticket.machine;
+  return { id: cardId, name: known?.name ?? ticket.body.essence?.split('\n')[0]?.slice(0, 200) ?? 'Ticket',
+    group: profile ? cardGroup(profile) : (known?.group ?? cardGroup(undefined)),
+    ...(known?.sectorName ? { sectorName: known.sectorName } : {}), ...(department ? { department } : {}) };
+}
