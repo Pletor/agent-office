@@ -23,8 +23,9 @@ import { runRequestedSelfChecks } from './self-check-requests.js';
 import { gitRunner } from './upkeep-tools.js';
 import { WorktreeSetup } from '../workers/worktree-setup.js';
 import { upkeepTap } from '../process/taps.js';
-import { GateError, TicketGate, ticketBrief, type GateScope, type WorkerTicket } from './ticket-gate.js';
+import { GateError, TicketGate, ticketBrief, ticketCard, type GateScope, type WorkerTicket } from './ticket-gate.js';
 import { pendingFeedback, writeNotes } from './ticket-feedback.js';
+import { deliverHeart } from './heart-messages.js';
 import { fetchPins, pinLabel } from './brain-pins.js';
 
 /** What the bridge needs from the floor: its workers and desks, narrow so a test can fake it. */
@@ -34,6 +35,8 @@ export interface BridgeFloor {
   readonly dir: string;
   list(): WorkerInfo[];
   stop?(workerId: string): Promise<unknown>;
+  /** Types into a running worker's session (OPORA's heart's messages, heart-messages.ts); says why it couldn't. */
+  prompt?(workerId: string, text: string, by: string): string | undefined;
   /** Seats a worker at `deskId`, in its own worktree when the project is a git repo. */
   seat(deskId: string, by: string, prompt: string, owner?: string, cardModel?: CardModel): WorkerInfo | string;
   prepareWorker?(deskId: string, by: string, owner?: string): Promise<StagedWorker>;
@@ -374,7 +377,10 @@ export class OporaBridge {
           run.ticketFeedbackSent = (run.ticketFeedbackSent ?? 0) + 1;
         }
         const { ticket } = await this.gate.request(scope, run.ticketId);
-        if (ticket?.ticketId === run.ticketId) writeNotes(directory, run.execution.executionId, ticket.feedback);
+        if (ticket?.ticketId !== run.ticketId) continue;
+        writeNotes(directory, run.execution.executionId, ticket.feedback);
+        // The heart's messages to the running worker; `heart.stop` ends the run like a lost ticket, its card free again.
+        deliverHeart(this.floor.id, directory, run, ticket.feedback, { prompt: this.floor.prompt?.bind(this.floor), stop: reason => this.ticketLost(run, reason) });
       } catch (error) {
         if (error instanceof GateError && error.code === 'ticket_not_held') { this.ticketLost(run); continue; }
         this.sayOnce(`tend:${run.ticketId}`, `🎫 OPORA ticket of “${run.cardName}”: ${(error as Error).message}`);
@@ -409,10 +415,9 @@ export class OporaBridge {
    * OPORA gave the run's ticket to another holder (its new session's `ticket.claim` came back `ticket_not_held`):
    * the run ends cleanly, its worker sent home and its execution let go, with no hand-off and no delivery.
    */
-  private ticketLost(run: Held) {
+  private ticketLost(run: Held, reason = `OPORA ticket of “${run.cardName}” is held by another worker now`) {
     if (!run.ticketId || !run.execution || run.state === 'gone') return;
     this.gate.forget({ project: run.execution.project, workspace: run.execution.workspace }, run.ticketId);
-    const reason = `OPORA ticket of “${run.cardName}” is held by another worker now`;
     if (run.workerId) requestExecutionStop(run, run.workerId, reason, this.floor.stop?.bind(this.floor), () => this.changed(), (m) => this.sayOnce(`lost:${run.ticketId}`, `🎫 ${m}`));
     run.state = 'gone';
     void this.executions.release(run).then(() => this.persist());
@@ -586,14 +591,3 @@ export class OporaBridge {
   }
 }
 
-/**
- * The card a ticket is for, as the office seats it: its department (desks signed so) and its profile (the
- * design pipeline's desks or the developers') from the ticket's `machine` when the heart set them, else what
- * the canvas read says, else a developer's card.
- */
-export function ticketCard(ticket: WorkerTicket, known?: Pick<OporaCard, 'name' | 'group' | 'sectorName'>) {
-  const { cardId, department, profile } = ticket.machine;
-  return { id: cardId, name: known?.name ?? ticket.body.essence?.split('\n')[0]?.slice(0, 200) ?? 'Ticket',
-    group: profile ? cardGroup(profile) : (known?.group ?? cardGroup(undefined)),
-    ...(known?.sectorName ? { sectorName: known.sectorName } : {}), ...(department ? { department } : {}) };
-}

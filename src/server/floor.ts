@@ -338,6 +338,7 @@ export class Floor {
         dir: def.dir,
         list: () => this.workers.list(),
         stop: (id) => this.workers.kill(id, 'keep'),
+        prompt: (id, text, by) => this.workers.prompt(id, text, by),
         // It fetches its card from the planning room's board on the way to its desk (via 'opora').
         seat: (deskId, by, prompt, owner, cardModel) => this.workers.spawn(deskId, by, prompt, !!this.project.branch, 'agent', undefined, undefined, undefined, undefined, owner, [], 'opora', undefined, cardModel ? { cardModel } : undefined),
         prepareWorker: stagedOporaEnabled() ? (deskId, by, owner) => this.workers.stageForTask({ deskId, by, owner, worktree: !!this.project.branch, via: 'opora' }) : undefined,
