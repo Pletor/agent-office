@@ -305,11 +305,11 @@ On each poll:
    files read-only, `/design/` added to git's `info/exclude`), and the prompt says to take colours, fonts and
    sizes from its tokens only (`design-export.ts`). An `X-Design-Revision` other than the ticket's is a warning
    in the log; a failed download or a bad zip is logged and the work goes on without `design/`.
-   The heart can also speak to the running worker (`ticket.direct` at the gate): a feedback item of kind
-   `heart.hint`, `heart.course` or `heart.stop` is typed into the worker's session once, as
+   The heart can also speak to the running worker (`ticket.direct` at the gate): a feedback item whose kind starts
+   with `heart.` (`heart.hint`, `heart.course`, `heart.stop`) is typed into the worker's session once, as
    `Zpráva od srdce OPORY (<severity>): …` (`heart-messages.ts`), its id kept in `<executionId>-heart.json` so a
    restart never types it again, and confirmed to OPORA as the process event `worker.message.delivered`
-   (`refs.cardId` = `machine.cardId`, `executionId`, `data {ticketId, feedbackId, severity}`). A worker that isn't
+   (`refs.cardId` = `machine.cardId`, `refs.executionId`, `detail` = `ticket=… feedback=… severity=…`). A worker that isn't
    running gets it at a later poll. `heart.stop` is typed first, then the run ends like a lost ticket (worker home,
    execution released). A worker without a ticket gets nothing.
 5. After the hand-off (the pull request is out), `ticket.deliver {ticketId, summary, sha}` with the result's

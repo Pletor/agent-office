@@ -9,9 +9,8 @@ import { emitProcess } from '../process/hub.js';
 import type { ProcessInput } from '../process/journal.js';
 import type { TicketFeedback } from './ticket-gate.js';
 
-const HEART = /^heart\.(hint|course|stop)$/;
 const MAX_TEXT = 4000;
-type Severity = 'hint' | 'course' | 'stop';
+type Severity = string;
 
 export interface HeartRun {
   ticketId?: string; workerId?: string; cardId: string; cardName: string;
@@ -37,13 +36,13 @@ export function heartText(severity: Severity, text: string): string {
   return `Zpráva od srdce OPORY (${severity}): ${clean}`;
 }
 
-/** The confirmation for OPORA: the card's journal (refs.cardId = machine.cardId) and the execution. */
+/** The confirmation for OPORA: the card's journal (refs.cardId = machine.cardId) and the execution; `severity` is hint, course or stop. */
 export function deliveredEvent(run: HeartRun, feedbackId: string, severity: Severity): ProcessInput {
   const e = run.execution!;
   return { kind: 'worker.message.delivered', phase: 'work', state: severity === 'stop' ? 'fail' : 'info',
-    title: `${run.cardName}: zpráva srdce doručena (${severity})`,
-    detail: `ticketId=${run.ticketId} feedbackId=${feedbackId} severity=${severity}`,
-    data: { ticketId: run.ticketId!, feedbackId, severity },
+    title: `Zpráva srdce doručena (${severity})`,
+    // opora.process-event/1 has no data field: the ids go in the detail, machine-readable.
+    detail: `ticket=${run.ticketId} feedback=${feedbackId} severity=${severity}`,
     actor: { kind: 'agent', name: 'heart' },
     refs: { project: e.project, workspace: e.workspace, cardId: run.cardId, executionId: e.executionId, ...(run.workerId ? { workerId: run.workerId } : {}) } };
 }
@@ -54,7 +53,7 @@ export function deliverHeart(floorId: string, directory: string, run: HeartRun, 
   const executionId = run.execution.executionId;
   const done = deliveredHeart(directory, executionId);
   for (const item of feedback) {
-    const severity = HEART.exec(item.kind)?.[1] as Severity | undefined;
+    const severity = item.kind.startsWith('heart.') ? item.kind.slice(6) : undefined;
     if (!severity || !item.feedbackId || done.has(item.feedbackId)) continue;
     // Not running (or gone): nothing is marked, the next poll tries again.
     if (deps.prompt(run.workerId, heartText(severity, item.text), '🫀 OPORA')) return false;

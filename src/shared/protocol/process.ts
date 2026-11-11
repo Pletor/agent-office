@@ -52,8 +52,6 @@ export interface ProcessEvent {
   actor?: { kind: 'worker' | 'human' | 'agent' | 'system'; id?: string; name?: string };
   refs: ProcessRefs;
   tool?: { name: string; action?: ProcessToolAction; target?: string };
-  /** A few short typed facts for Opora (`worker.message.delivered`: ticketId, feedbackId, severity). */
-  data?: Record<string, string>;
 }
 
 /** The floor's live link to Opora's event stream (server/process/opora-stream.ts), when it has one. */

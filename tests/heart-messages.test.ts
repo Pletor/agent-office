@@ -39,8 +39,8 @@ test('each heart message goes into the running worker once, also after a restart
   const e = s.events[0];
   assert.equal(e.kind, 'worker.message.delivered');
   assert.deepEqual(e.refs, { project: 'p', workspace: 'ws', cardId: 'card-7', executionId: 'ex-1', workerId: 'w1', floor: 'hf' });
-  assert.deepEqual(e.data, { ticketId: 'T-1', feedbackId: 'f2', severity: 'course' });
-  assert.match(e.detail ?? '', /feedbackId=f2/);
+  assert.equal(e.title, 'Zpráva srdce doručena (course)');
+  assert.equal(e.detail, 'ticket=T-1 feedback=f2 severity=course');
 });
 
 test('a worker that isn’t running keeps its messages for a later poll', (t) => {
@@ -60,7 +60,7 @@ test('heart.stop is typed first, then stops the run, and nothing after it goes i
   assert.equal(s.typed.length, 1);
   assert.equal(s.stops.length, 1);
   assert.match(s.stops[0], /^1:.*konec/);
-  assert.equal(s.events[0].data?.severity, 'stop');
+  assert.equal(s.events[0].detail, 'ticket=T-1 feedback=f1 severity=stop');
 });
 
 test('a run without a ticket or a worker gets nothing', (t) => {
